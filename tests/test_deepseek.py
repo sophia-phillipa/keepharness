@@ -89,8 +89,6 @@ class DeepseekTest(unittest.IsolatedAsyncioTestCase):
             (key.parent / "providers" / "home").mkdir(mode=0o700, parents=True, exist_ok=True)
             with (
                 patch("adapters.codex.native.connection", connection),
-                patch("adapters.codex.native.configurations", return_value={"codex": {}}),
-                patch("adapters.codex.native.inventory", return_value={"codex": []}),
             ):
                 result = await run(
                     {
@@ -182,8 +180,6 @@ async def deepseek_turn(notifications, events=None):
         (key.parent / "providers" / "home").mkdir(mode=0o700, parents=True, exist_ok=True)
         with (
             patch("adapters.codex.native.connection", connection),
-            patch("adapters.codex.native.configurations", return_value={"codex": {}}),
-            patch("adapters.codex.native.inventory", return_value={"codex": []}),
         ):
             return await run(
                 {"binary": "codex", "api_provider": {"url": deepseek.API, "key_file": str(key)}},

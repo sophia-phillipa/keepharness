@@ -161,19 +161,16 @@ def test_round06_settings_roundtrip_permissions_and_restart(admin, tmp_path):
     assert not manager.path.with_suffix(".tmp").exists()
 
 
-def test_round07_integrations_and_mcp_model_effort_are_validated(admin, monkeypatch):
+def test_round07_mcp_model_effort_is_validated_and_retired_integrations_are_dropped(admin):
     client, manager = admin
     data = copy.deepcopy(manager.settings)
     data["services"]["codex"].update(enabled=True, models=["fixture"], integrations=["missing"])
-    assert client.post("/api/settings", json=data).status_code == 400
-    monkeypatch.setattr(manager, "integrations", lambda: {"codex": [{"id": "present"}]})
-    data["services"]["codex"]["integrations"] = ["present"]
     data["mcp_defaults"] = {"backend": "codex", "model": "fixture", "effort": "ultra"}
     manager.provider_models = {"codex": {"fixture": ["low"]}}
     assert client.post("/api/settings", json=data).status_code == 400
     data["mcp_defaults"]["effort"] = "low"
     assert client.post("/api/settings", json=data).status_code == 200
-    assert manager.settings["services"]["codex"]["integrations"] == ["present"]
+    assert "integrations" not in manager.settings["services"]["codex"]
 
 
 def test_round08_busy_stop_preserves_tasks(manager):

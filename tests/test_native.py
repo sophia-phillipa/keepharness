@@ -10,7 +10,6 @@ from unittest.mock import patch
 
 from adapters import run_native as run
 from adapters.claude.native import build_command as claude_command
-from adapters.codex.native import thread_parameters
 from control.local_models import discover
 from control.operations import Operations
 
@@ -57,8 +56,6 @@ async def record_codex_turns(project, events=(), approve=None, turns=1):
     with (
         tempfile.TemporaryDirectory() as d,
         patch("adapters.codex.native.connection", connection),
-        patch("adapters.codex.native.configurations", return_value={"codex": {}}),
-        patch("adapters.codex.native.inventory", return_value={"codex": []}),
     ):
         for _ in range(turns):
             await run(
@@ -100,31 +97,6 @@ class AskModeTest(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(turn["sandboxPolicy"], {"type": "readOnly", "networkAccess": True})
                 self.assertEqual(turn["approvalPolicy"], "on-request")
                 self.assertEqual(turn["approvalsReviewer"], "user")
-
-    async def test_codex_ask_keeps_integrations_enabled(self):
-        with patch(
-            "adapters.codex.native.configurations",
-            return_value={"codex": {"fixture": {"command": "fixture"}}},
-        ):
-            params = thread_parameters(
-                {
-                    "integrations": ["mcp:fixture", "plugin:tool"],
-                    "plugin_inventory": ["plugin:tool"],
-                    "personal_setup": True,
-                },
-                {"access_mode": "ask"},
-                "fixture",
-                SimpleNamespace(cwd=Path("/project"), permissions=ALL_GRANTS),
-                SimpleNamespace(
-                    model_provider=None,
-                    isolated=False,
-                    thread_instructions={},
-                    developer_instructions="",
-                ),
-                False,
-            )
-        self.assertNotIn("fixture", params["config"]["mcp_servers"])
-        self.assertNotIn("plugins", params["config"])
 
     async def test_codex_other_modes_keep_their_sandbox(self):
         # Automatic is project-bounded since D11: tests/test_access_mode_bounds.py.
@@ -275,27 +247,23 @@ for line in sys.stdin:
                 requests.append((k, p))
                 return {"approved": False}
 
-            with (
-                patch("adapters.codex.native.configurations", return_value={"codex": {}}),
-                patch("adapters.codex.native.inventory", return_value={"codex": []}),
-            ):
-                for model, effort in [
-                    ("gpt-6-astra", "low"),
-                    ("gpt-6-astra", "high"),
-                    ("gpt-5.6-terra", "medium"),
-                ]:
-                    result = await run(
-                        {"binary": str(exe)},
-                        "hello",
-                        lambda k, v: events.append(k),
-                        {"permissions": {}, "_conversation_title": "Harness title " + effort},
-                        model,
-                        effort,
-                        root / "session",
-                        "codex",
-                        approve,
-                    )
-                    self.assertEqual(result["answer"], "decline")
+            for model, effort in [
+                ("gpt-6-astra", "low"),
+                ("gpt-6-astra", "high"),
+                ("gpt-5.6-terra", "medium"),
+            ]:
+                result = await run(
+                    {"binary": str(exe)},
+                    "hello",
+                    lambda k, v: events.append(k),
+                    {"permissions": {}, "_conversation_title": "Harness title " + effort},
+                    model,
+                    effort,
+                    root / "session",
+                    "codex",
+                    approve,
+                )
+                self.assertEqual(result["answer"], "decline")
             self.assertEqual(len(requests), 3)
             self.assertIn("session_resumed", events)
             self.assertIn("context_usage", events)
@@ -368,8 +336,6 @@ for line in sys.stdin:
         with (
             tempfile.TemporaryDirectory() as d,
             patch("adapters.codex.native.connection", connection),
-            patch("adapters.codex.native.configurations", return_value={"codex": {}}),
-            patch("adapters.codex.native.inventory", return_value={"codex": []}),
         ):
             await run(
                 {"binary": "fixture"},
@@ -454,8 +420,6 @@ for line in sys.stdin:
         with (
             tempfile.TemporaryDirectory() as d,
             patch("adapters.codex.native.connection", connection),
-            patch("adapters.codex.native.configurations", return_value={"codex": {}}),
-            patch("adapters.codex.native.inventory", return_value={"codex": []}),
         ):
             await run(
                 {"binary": "fixture"},
@@ -610,20 +574,16 @@ for line in sys.stdin:
             async def approve(k, p):
                 return {"approved": False}
 
-            with (
-                patch("adapters.codex.native.configurations", return_value={"codex": {}}),
-                patch("adapters.codex.native.inventory", return_value={"codex": []}),
-            ):
-                result = await run(
-                    {"binary": str(exe)},
-                    "hello",
-                    lambda k, v: deltas.append(v["text"]) if k == "answer_delta" else None,
-                    {"permissions": {}},
-                    "gpt-6-astra",
-                    "low",
-                    root / "session",
-                    "codex",
-                    approve,
-                )
+            result = await run(
+                {"binary": str(exe)},
+                "hello",
+                lambda k, v: deltas.append(v["text"]) if k == "answer_delta" else None,
+                {"permissions": {}},
+                "gpt-6-astra",
+                "low",
+                root / "session",
+                "codex",
+                approve,
+            )
             self.assertEqual(result["answer"], "Reading files.\n\nFinal answer.")
             self.assertEqual("".join(deltas), result["answer"])

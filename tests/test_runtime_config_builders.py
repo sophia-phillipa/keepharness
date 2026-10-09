@@ -56,18 +56,14 @@ def test_mcp_defaults_and_unrestricted_marking():
                 "codex_models": {"m": ["low"]},
             }
         )
-    calls = []
-
-    def integrations():
-        calls.append(True)
-        return {"codex": [{"id": "plugin:x", "kind": "plugin"}, {"id": "mcp:y", "kind": "mcp"}]}
-
-    cfg = {"claude": {}}
-    runtime_config.mark_unrestricted(cfg, integrations)
-    assert cfg["claude"]["unrestricted"] is True and not calls
-    cfg = {"codex": {}}
-    runtime_config.mark_unrestricted(cfg, integrations)
-    assert cfg["codex"]["plugin_inventory"] == ["plugin:x"]
+    cfg = {"claude": {}, "codex": {}, "deepseek": {}, "local": {}}
+    runtime_config.mark_unrestricted(cfg)
+    assert [provider for provider, entry in cfg.items() if entry.get("unrestricted")] == [
+        "claude",
+        "codex",
+        "deepseek",
+    ]
+    assert not any("plugin_inventory" in entry for entry in cfg.values())
 
 
 def test_clients_reuse_hashes_and_never_build_a_vpn_client(tmp_path):

@@ -35,7 +35,7 @@ def api(config, clock):
         "permissions": {"read": True, "internet": True},
     }
     config["gemini_models"] = {"auto-gemini-3": ["configured"]}
-    config["gemini"] = {"binary": "fixture", "integrations": ["mcp:drive"]}
+    config["gemini"] = {"binary": "fixture"}
     with TestClient(create_app(config), headers=ALICE) as client:
         yield client
 
@@ -136,18 +136,19 @@ def test_claude_scheduled_runs_keep_owner_web_tools(api, tmp_path, allow_interne
 
 
 @pytest.mark.parametrize("allow_internet", [False, True])
-def test_gemini_scheduled_runs_drop_connectors_without_internet(api, tmp_path, allow_internet):
-    """Connectors need the network (D03): without it the run starts and carries none."""
+def test_gemini_scheduled_runs_carry_no_connectors_either_way(api, tmp_path, allow_internet):
+    """Gemini keeps its own native config: the run allows no MCP server, with or without internet."""
     from adapters.gemini.policy import prepare
 
     project, config = scheduled_run(api, "gemini", allow_internet)
-    assert config["integrations"] == (["mcp:drive"] if allow_internet else [])
+    assert "integrations" not in config
     with (
         patch("adapters.gemini.policy.SYSTEM_POLICIES", tmp_path / "absent"),
         patch("adapters.gemini.policy.SYSTEM_SETTINGS", tmp_path / "absent.json"),
-        patch("adapters.gemini.policy.configurations", return_value={"gemini": {"drive": {}}}),
     ):
-        prepare(config, tmp_path, project["permissions"], project["access_mode"])
+        command, _ = prepare(config, tmp_path, project["permissions"], project["access_mode"])
+    allowed = command[command.index("--allowed-mcp-server-names") + 1]
+    assert allowed.startswith("keepharness-none-")
 
 
 def test_an_attended_follow_up_keeps_the_provider_grant(api):

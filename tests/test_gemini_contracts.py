@@ -40,7 +40,7 @@ def test_permissions_never_persist_or_exceed_grants(mode, kind, permissions, exp
     approve.assert_not_awaited()
 
 
-def permission_option(mode, kind, permissions, approve, mcp_selected=False):
+def permission_option(mode, kind, permissions, approve):
     """The option id KeepHarness answers to a Gemini `session/request_permission`."""
     from types import SimpleNamespace
 
@@ -48,7 +48,6 @@ def permission_option(mode, kind, permissions, approve, mcp_selected=False):
     rpc = AcpConnection(
         SimpleNamespace(stdin=stdin), AcpStream(lambda *_: None), approve, permissions, mode
     )
-    rpc.mcp_selected = mcp_selected
     asyncio.run(
         rpc._handle_request(
             {
@@ -68,21 +67,21 @@ def permission_option(mode, kind, permissions, approve, mcp_selected=False):
     return stdin.values[-1]["result"]["outcome"]["optionId"]
 
 
-@pytest.mark.parametrize(
-    "kind,permissions,mcp_selected",
-    [
-        ("execute", {"shell": True}, False),
-        ("other", {"internet": True}, True),
-    ],
-)
 @pytest.mark.parametrize("approved,expected", [(True, "once"), (False, "deny")])
-def test_automatic_mode_asks_the_owner_beyond_the_project(
-    kind, permissions, mcp_selected, approved, expected
-):
-    """Automatic stays inside the project: a shell command or connector call needs the owner (D11)."""
+def test_automatic_mode_asks_the_owner_for_a_shell_command(approved, expected):
+    """Automatic stays inside the project: a shell command needs the owner (D11)."""
     approve = AsyncMock(return_value={"approved": approved})
-    assert permission_option("auto", kind, permissions, approve, mcp_selected) == expected
+    assert permission_option("auto", "execute", {"shell": True}, approve) == expected
     approve.assert_awaited_once()
+
+
+@pytest.mark.parametrize("mode", ["ask", "auto", "full"])
+def test_connector_calls_are_denied_without_asking(mode):
+    """Gemini keeps its native MCP config out of the run: a connector call is never approved."""
+    approve = AsyncMock(return_value={"approved": True})
+    permissions = {"internet": True, "shell": True, "write": True}
+    assert permission_option(mode, "other", permissions, approve) == "deny"
+    approve.assert_not_awaited()
 
 
 def test_automatic_mode_does_not_ask_for_an_edit_inside_the_project():

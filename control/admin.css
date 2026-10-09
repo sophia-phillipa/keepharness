@@ -353,12 +353,6 @@ label {
   height: 18px;
   flex-shrink: 0;
 }
-.account-app-row {
-  cursor: default;
-}
-.account-app-row > span {
-  flex: 1;
-}
 .connector-status {
   font-size: 12px;
   padding: 2px 8px;
@@ -1198,15 +1192,6 @@ label {
   background: var(--th-soft);
   overflow-wrap: anywhere;
 }
-.provider-connectors .model-list .toggle-row {
-  min-width: 160px;
-}
-
-.provider-connectors strong {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
 .connector-icon {
   display: inline-flex;
   align-items: center;
@@ -1333,14 +1318,6 @@ label {
 }
 #operation-dialog > button {
   margin: 8px;
-}
-
-#integration-selection .provider-connectors {
-  padding: 20px;
-  margin: 20px 0;
-}
-#integration-selection h3 {
-  margin-top: 0;
 }
 
 /* Let the form respond to the inspector width, including the tablet sidebar. */

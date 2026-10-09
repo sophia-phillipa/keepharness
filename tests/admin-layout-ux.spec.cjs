@@ -138,13 +138,11 @@ const assert = require("node:assert/strict");
       ...service(),
       added: true,
       models: ["fixture"],
-      integrations: ["mcp:drive"],
     };
     state.settings.services.claude = {
       ...service(),
       added: true,
       models: ["sonnet"],
-      integrations: ["mcp:linear"],
     };
     await page.goto("http://admin.test/");
     await page.locator("[data-panel=providers]").click();
@@ -171,13 +169,10 @@ const assert = require("node:assert/strict");
       .getByRole("button", { name: "Install Sentry", exact: true })
       .waitFor();
     await tabs.getByText("Connectors", { exact: true }).click();
-    const drive = page.getByRole("checkbox", { name: /Drive/ });
-    await drive.uncheck();
     await page.locator("#wizard-back").click();
     assert(await page.locator("#provider-wizard").isVisible());
     await tabs.getByText("Plugins", { exact: true }).click();
     await tabs.getByText("Connectors", { exact: true }).click();
-    assert(!(await drive.isChecked()));
     failSave = true;
     await page.click("#save");
     await page
@@ -185,7 +180,6 @@ const assert = require("node:assert/strict");
       .filter({ hasText: "Simulated failure" })
       .waitFor();
     await tabs.getByText("Connectors", { exact: true }).click();
-    assert(!(await drive.isChecked()));
     failSave = false;
     await page.click("#save");
     await page.waitForFunction(() =>
@@ -195,7 +189,6 @@ const assert = require("node:assert/strict");
     await page.getByRole("button", { name: "Edit Codex", exact: true }).click();
     await tabs.getByText("Plugins", { exact: true }).click();
     await tabs.getByText("Connectors", { exact: true }).click();
-    assert(!(await drive.isChecked()));
     failCatalog = true;
     await page.click("#catalog-refresh");
     await page
@@ -257,11 +250,6 @@ const assert = require("node:assert/strict");
       "claude",
     );
     await tabs.getByText("Connectors", { exact: true }).click();
-    assert(await page.getByRole("checkbox", { name: /Linear/ }).isChecked());
-    assert.equal(
-      await page.getByRole("checkbox", { name: /Drive/ }).count(),
-      0,
-    );
     await page.setViewportSize({ width: 390, height: 844 });
     assert.equal(
       await page.evaluate(

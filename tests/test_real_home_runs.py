@@ -11,27 +11,18 @@ import pytest
 from adapters.claude.native import build_command as claude_command
 from adapters.codex.native import RuntimeOptions, build_command, thread_parameters
 from adapters.shared.process import child_environment
-from adapters.shared.provider_setup import child_source, instructions, run_settings
 
 
 @pytest.mark.parametrize("provider", ["codex", "claude"])
-@pytest.mark.parametrize("scheduled", [False, True])
 @pytest.mark.parametrize("mode", ["ask", "auto", "full", "read_only"])
-def test_native_presets_keep_real_home_and_orchestration(tmp_path, provider, scheduled, mode):
+def test_native_presets_keep_real_home_and_orchestration(tmp_path, provider, mode):
     config = {
         "binary": provider,
         "unrestricted": True,
-        "provider_homes": str(tmp_path / "obsolete"),
-        "personal_setup": True,
-        "personal_instructions": "DO NOT INJECT",
-        "integrations": [],
     }
-    config.update(run_settings(config, provider, data={"schedule_id": "s"} if scheduled else {}))
-    env = child_environment(child_source(config, provider))
+    env = child_environment()
     for key in ("HOME", "CODEX_HOME", "CLAUDE_CONFIG_DIR"):
         assert env[key] == os.environ[key]
-    assert not (tmp_path / "obsolete").exists()
-    assert "DO NOT INJECT" not in instructions(config)
     permissions = dict.fromkeys(("read", "write", "shell", "hooks", "internet"), True)
     if mode == "read_only":
         permissions.update(write=False, shell=False, hooks=False)
@@ -79,15 +70,6 @@ def test_native_presets_keep_real_home_and_orchestration(tmp_path, provider, sch
         )
 
 
-def test_run_settings_never_reads_personal_files(monkeypatch):
-    def forbidden(*args):
-        pytest.fail("personal instructions must be loaded by the CLI")
-
-    monkeypatch.setattr("adapters.shared.provider_setup.owner_file", forbidden)
-    for provider in ("codex", "claude"):
-        assert run_settings({"personal_setup": True}, provider, data={}) == {}
-
-
 @pytest.mark.parametrize("provider,version", [("codex", "0.158.0"), ("claude", "2.2.0")])
 def test_run_version_drift_warns_and_continues(monkeypatch, provider, version):
     from adapters.shared.provider_setup import version_notice
@@ -111,11 +93,8 @@ def test_tested_cli_has_no_version_warning(monkeypatch, provider, version):
 
 
 @pytest.mark.parametrize("provider", ["codex", "claude"])
-@pytest.mark.parametrize("scheduled", [False, True])
 @pytest.mark.parametrize("mode", ["ask", "auto", "full", "read_only"])
-def test_spawned_native_cli_presets_and_schedule_use_owner_home(
-    tmp_path, provider, scheduled, mode
-):
+def test_spawned_native_cli_presets_use_owner_home(tmp_path, provider, mode):
     from tests.test_scoped_home_security import provider_turn
 
     if provider == "claude":
@@ -132,7 +111,7 @@ def test_spawned_native_cli_presets_and_schedule_use_owner_home(
                 }
             )
         )
-    record = provider_turn(tmp_path, provider, mode=mode, scheduled=scheduled)
+    record = provider_turn(tmp_path, provider, mode=mode)
     for key in ("HOME", "CODEX_HOME", "CLAUDE_CONFIG_DIR"):
         assert record["env"][key] == os.environ[key]
     args = record["argv"]
@@ -216,13 +195,6 @@ def test_state_run_environment_does_not_override_homes(tmp_path, provider):
         assert setup.settings_overrides["disableAllHooks"] is True
 
 
-def test_deepseek_personal_instructions_remain_separate_from_native_homes():
-    config = {"personal_setup": True, "personal_instructions": "DeepSeek owner instructions"}
-    assert "DeepSeek owner instructions" in instructions(config, provider="deepseek")
-    assert "DeepSeek owner instructions" not in instructions(config, provider="codex")
-    assert "DeepSeek owner instructions" not in instructions(config, provider="claude")
-
-
 @pytest.mark.parametrize("stage", ["initialize", "thread/start"])
 def test_codex_hook_warning_before_rpc_reply_is_visible_once(stage):
     import asyncio
@@ -280,10 +252,9 @@ def test_native_reader_never_overwrites_owner_mcp_entry(tmp_path, enabled):
 def test_unset_native_home_overrides_stay_unset(tmp_path, monkeypatch, provider):
     monkeypatch.delenv("CODEX_HOME")
     monkeypatch.delenv("CLAUDE_CONFIG_DIR")
-    source = child_environment(child_source({"provider_homes": str(tmp_path / "old")}, provider))
+    source = child_environment()
     assert source["HOME"] == os.environ["HOME"]
     assert "CODEX_HOME" not in source and "CLAUDE_CONFIG_DIR" not in source
-    assert not (tmp_path / "old").exists()
 
 
 @pytest.mark.parametrize("nested", [False, True])

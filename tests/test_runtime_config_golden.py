@@ -186,7 +186,6 @@ def test_build_runtime_config_matches_golden_shape(tmp_path):
             "codex": {
                 "added": True,
                 "mode": "native",
-                "integrations": [],
                 "enabled": True,
                 "models": ["gpt-5-codex"],
                 "projects": all_projects,
@@ -195,7 +194,6 @@ def test_build_runtime_config_matches_golden_shape(tmp_path):
             "claude": {
                 "added": True,
                 "mode": "native",
-                "integrations": [],
                 "enabled": True,
                 "models": ["claude-opus-4-6"],
                 "projects": all_projects,
@@ -204,7 +202,6 @@ def test_build_runtime_config_matches_golden_shape(tmp_path):
             "gemini": {
                 "added": False,
                 "mode": "native",
-                "integrations": [],
                 "enabled": False,
                 "models": [],
                 "projects": all_projects,
@@ -213,7 +210,6 @@ def test_build_runtime_config_matches_golden_shape(tmp_path):
             "local": {
                 "added": True,
                 "mode": "native",
-                "integrations": [],
                 "enabled": True,
                 "models": ["local-model"],
                 "projects": all_projects,
@@ -223,7 +219,6 @@ def test_build_runtime_config_matches_golden_shape(tmp_path):
             "deepseek": {
                 "added": True,
                 "mode": "native",
-                "integrations": [],
                 "enabled": True,
                 "models": ["deepseek-chat"],
                 "projects": all_projects,
@@ -241,7 +236,6 @@ def test_build_runtime_config_matches_golden_shape(tmp_path):
         "default_backend": "",
         "project_registration": True,
         "control_state_dir": "<TMP>/control",
-        "personal_setup": False,
         "full_access": False,
         "admin_url": "http://127.0.0.1:8094/",
         "local_access": True,
@@ -251,15 +245,12 @@ def test_build_runtime_config_matches_golden_shape(tmp_path):
         "codex": {
             "binary": "<PYTHON_RESOLVED>",
             "python": "<PYTHON>",
-            "integrations": [],
             "unrestricted": True,
-            "plugin_inventory": [],
         },
         "codex_models": {"gpt-5-codex": ["low", "medium"]},
         "claude": {
             "binary": "<PYTHON_RESOLVED>",
             "python": "<PYTHON>",
-            "integrations": [],
             "unrestricted": True,
         },
         "claude_models": {"claude-opus-4-6": ["configured"]},
@@ -267,7 +258,6 @@ def test_build_runtime_config_matches_golden_shape(tmp_path):
             "binary": "<PYTHON_RESOLVED>",
             "auth_file": "<TMP>/local-auth.json",
             "python": "<PYTHON>",
-            "integrations": [],
             "local_provider": "ollama",
             "local_models": {"local-model": {"id": "local-model"}},
             "model_roots": {"local-model": []},
@@ -279,10 +269,7 @@ def test_build_runtime_config_matches_golden_shape(tmp_path):
                 "url": "https://api.deepseek.com",
                 "key_file": "<TMP>/control/deepseek.key",
             },
-            "integrations": [],
-            "provider_homes": "<TMP>/control/providers",
             "unrestricted": True,
-            "plugin_inventory": [],
         },
         "deepseek_models": {"deepseek-chat": ["configured"]},
         "tailscale_logins": {"person@example.com": "local"},

@@ -183,31 +183,6 @@ function toggle(text, checked, change, detail) {
   label.append(input, span);
   return label;
 }
-const accountAppStatusLabels = {
-  connected: "Connected",
-  needs_authentication: "Needs authentication",
-  failed: "Failed",
-  unknown: "Status unknown",
-};
-function accountAppRow(item) {
-  const row = element("div", undefined, "toggle-row account-app-row"),
-    span = element("span"),
-    statusLabel =
-      accountAppStatusLabels[item.status] || accountAppStatusLabels.unknown;
-  span.append(element("strong", connectorLabel(item)));
-  span.append(
-    element("small", "Claude account connector · not selectable here"),
-  );
-  row.append(span);
-  const status = element(
-    "span",
-    statusLabel,
-    "connector-status connector-status-" + (item.status || "unknown"),
-  );
-  status.setAttribute("role", "status");
-  row.append(status);
-  return row;
-}
 function fieldHelp(input, text) {
   const help = element("small", text, "field-help");
   help.id = input.id + "-help";
@@ -830,7 +805,6 @@ function renderProviders() {
         ),
       );
     }
-    renderIntegrationSelection();
   }
   renderDashboard();
   HarnessUI.decorate($("provider-dialog"));
@@ -855,112 +829,6 @@ function integrationDescription(item) {
     metadata?.description ||
     "Description not provided by the provider."
   );
-}
-// D48: harness runs turn Codex apps off, so "-remote" plugins (Gmail, Drive, GitHub, Calendar)
-// never load; the admin says so instead of letting them be allowed. Mirrors integrations_view.py.
-const REMOTE_PLUGIN_NOTE =
-  "Not available in KeepHarness runs: this plugin brings its tools as Codex apps, which KeepHarness keeps off. Add an MCP connector for the service instead.";
-function appBasedPlugin(provider, item) {
-  return (
-    ["codex", "deepseek"].includes(provider) &&
-    item.kind === "plugin" &&
-    /@[^@]*-remote$/.test(item.id)
-  );
-}
-function loadableIntegrations(provider) {
-  return (state.integrations?.[provider] || []).filter(
-    (item) => !appBasedPlugin(provider, item),
-  );
-}
-function renderIntegrationSelection() {
-  const host = $("integration-selection");
-  host.replaceChildren();
-  if (!integrationEngine()) return;
-  const spec = settings.services[editing],
-    available = state.integrations?.[editing] || [];
-  for (const [kind, title, description] of [
-    [
-      "mcp",
-      "Connectors",
-      "An MCP connector gives access to the tools of a service or process. Each connection may require its own authorization.",
-    ],
-    [
-      "plugin",
-      "Plugins",
-      editing === "claude"
-        ? "In Claude Code, plugins are packages that can bundle skills, agents, hooks, and MCP servers."
-        : "In Codex, plugins are packages that can bundle skills, apps, and MCP servers.",
-    ],
-  ]) {
-    if (kind !== integrationKind()) continue;
-    const section = element("section", undefined, "provider-connectors panel");
-    section.append(
-      element("h3", title),
-      element(
-        "p",
-        description +
-          " The selection below defines what KeepHarness requests from this provider's CLI in conversations. Save to apply.",
-        "hint",
-      ),
-    );
-    if (editing === "local")
-      section.append(
-        element(
-          "p",
-          "The local model uses an isolated environment: plugins and MCP connectors on the computer are not loaded in this integration. The catalog below belongs to the Codex engine; operations on it affect the shared profile of the engine.",
-          "hint",
-        ),
-      );
-    const list = element("div", undefined, "model-list");
-    for (const item of available.filter((item) => item.kind === kind)) {
-      const row = toggle(
-        connectorLabel(item),
-        (spec.integrations || []).includes(item.id),
-        (yes) => {
-          spec.integrations = yes
-            ? [...new Set([...(spec.integrations || []), item.id])]
-            : (spec.integrations || []).filter((id) => id !== item.id);
-        },
-        integrationDescription(item) +
-          " " +
-          (appBasedPlugin(editing, item)
-            ? REMOTE_PLUGIN_NOTE
-            : kind === "plugin"
-              ? "Installed plugin · load in conversations"
-              : "Configured connector · make tools available"),
-      );
-      // An already-allowed remote plugin stays untickable so the owner can remove it.
-      if (
-        editing === "local" ||
-        (appBasedPlugin(editing, item) &&
-          !(spec.integrations || []).includes(item.id))
-      )
-        row.querySelector("input").disabled = true;
-      row.querySelector("strong").prepend(connectorIcon(item));
-      list.append(row);
-    }
-    // Claude's own account connectors (claude.ai Gmail, claude.ai Drive, ...)
-    // are not something the provider config can turn on or off here: show
-    // them as read-only entries with their health status (F-41 UI side).
-    if (kind === "mcp")
-      for (const item of available.filter(
-        (item) => item.kind === "account-app",
-      )) {
-        list.append(accountAppRow(item));
-      }
-    if (!list.children.length)
-      list.append(
-        element(
-          "p",
-          kind === "plugin"
-            ? "No plugins installed for this provider."
-            : "No connectors configured for this provider.",
-          "hint",
-        ),
-      );
-    section.append(list);
-    host.append(section);
-  }
 }
 const connectorIdentity = {
   node_repl: ["JavaScript Terminal", "⌨️"],
@@ -1312,13 +1180,6 @@ function openWizard(provider = null) {
   $("feedback").hidden = true;
   wizard = true;
   editing = provider;
-  if (provider && provider !== "local" && integrationEngine(provider)) {
-    const current = state.settings.services[provider];
-    if (!current?.added && !current?.enabled && !current?.models?.length)
-      settings.services[provider].integrations = loadableIntegrations(
-        provider,
-      ).map((item) => item.id);
-  }
   step = 0;
   renderProviders();
   renderProjects();
@@ -3499,11 +3360,9 @@ function showStep(value) {
     $("integration-action").value = previous;
   renderIntegrationForm();
   renderIntegrationCliGuide();
-  renderIntegrationSelection();
   if (integrationCatalogs.has(engine)) renderCatalog();
   else loadCatalog();
-  $("wizard-progress").textContent =
-    title + " · select what the harness will load";
+  $("wizard-progress").textContent = title + " · manage what the CLI can load";
   $("wizard-next").hidden = true;
   $("wizard-back").hidden = false;
 }
@@ -3568,27 +3427,6 @@ function renderIntegrationCliGuide() {
   }
   host.append(guide);
 }
-$("provider-options").addEventListener(
-  "click",
-  (event) => {
-    const button = event.target.closest(".discovery-option");
-    if (!button) return;
-    const id = button.dataset.provider,
-      current = state.settings.services[id];
-    if (
-      id !== "local" &&
-      current &&
-      !current.added &&
-      !current.enabled &&
-      !current.models?.length
-    )
-      settings.services[id].integrations = loadableIntegrations(id).map(
-        (item) => item.id,
-      );
-  },
-  true,
-);
-
 const integrationCatalogs = new Map(),
   catalogPending = new Set();
 // The admin answers 429 to a second operation, so every catalog read (Providers and Plugins pages) goes through this one chain.
@@ -3722,7 +3560,6 @@ async function loadCatalog() {
   } finally {
     catalogPending.delete(provider);
     renderCatalog();
-    renderIntegrationSelection();
   }
 }
 function createCatalog() {

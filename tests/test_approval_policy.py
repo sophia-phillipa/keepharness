@@ -104,9 +104,6 @@ def run_codex_route(tmp_path, provider, project, backend_config=None):
     config = {
         "binary": "fixture",
         "unrestricted": True,
-        "integrations": SELECTED,
-        "plugin_inventory": ["plugin:notes@market"],
-        "personal_setup": True,  # host connectors and plugins are the owner's opt-in (D01)
         **(
             {"api_provider": {"url": "https://example.invalid", "key_file": str(key)}}
             if provider == "deepseek"
@@ -114,11 +111,7 @@ def run_codex_route(tmp_path, provider, project, backend_config=None):
         ),
         **(backend_config or {}),
     }
-    with (
-        patch("adapters.codex.native.connection", connection),
-        patch("adapters.codex.native.configurations", return_value={"codex": HOST_SERVERS}),
-        patch("adapters.codex.native.inventory", return_value={"codex": []}),
-    ):
+    with patch("adapters.codex.native.connection", connection):
         asyncio.run(
             run_native(
                 config,
@@ -147,31 +140,25 @@ def test_mcp_gating_matrix(tmp_path, provider, mode):
     }
     command, thread, turn = run_codex_route(tmp_path, provider, project)
     servers = thread["config"]["mcp_servers"]
+    # No host connector or plugin override for either route (#46): the CLI's own setup decides.
+    assert not set(HOST_SERVERS) & servers.keys()
+    assert "plugins" not in thread["config"]
     if provider == "codex":
-        assert not set(HOST_SERVERS) & servers.keys()
-        assert "plugins" not in thread["config"]
         assert (
             thread["approvalPolicy"]
             == turn["approvalPolicy"]
             == ("never" if mode in ("full", "read_only") else "on-request")
         )
         return
-    host = {name: servers[name] for name in HOST_SERVERS}
     if mode == "read_only":
-        # Read only enables no host connector and no plugin; the harness reader replaces them.
-        assert not any(spec["enabled"] for spec in host.values())
-        assert thread["config"]["plugins"] == {"notes@market": {"enabled": False}}
         assert "features.shell_tool=false" in command
         reader = servers["harness_reader"]
         assert reader["enabled"] is True
         assert reader["default_tools_approval_mode"] == "approve"
         assert reader["args"][-1:] == [str(root.resolve())]
     else:
-        assert all(spec["enabled"] for spec in host.values())
         assert "harness_reader" not in servers
     if mode == "ask":
-        # Ask never runs a connector tool without a card.
-        assert {spec["default_tools_approval_mode"] for spec in host.values()} == {"prompt"}
         assert thread["approvalPolicy"] == turn["approvalPolicy"] == "on-request"
 
 

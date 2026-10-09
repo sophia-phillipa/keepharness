@@ -87,7 +87,7 @@ O encerramento permite até 60 segundos para drenar os trabalhos, seguidos pelo 
 
 1. Adicione um provedor pelo dashboard e inspecione os serviços descobertos.
 2. Complete o fluxo oficial de autorização do CLI usando o link mostrado em Operações.
-3. Escolha modelos e integrações; configure permissões para modelos locais.
+3. Escolha modelos; configure permissões para modelos locais.
 4. Salve um modelo habilitado; o harness inicia automaticamente.
 5. Para acesso remoto, autorize a identidade Tailscale do dono.
 
@@ -95,7 +95,7 @@ A descoberta não concede permissões. O DeepSeek permite usar sua própria chav
 
 ## 🔌 Connectors and plugins
 
-Cadastre um servidor MCP HTTPS ou um comando stdio em JSON pela interface. Escolha Codex ou Claude, execute a operação e acompanhe o resultado. A ação **Autorizar** inicia o login MCP oficial; links OAuth aparecem em Operações. Habilite a integração na configuração de CLI do fornecedor selecionado pelos controles de Plugins. O backend local compartilha o ecossistema MCP/plugins do Codex.
+Cadastre um servidor MCP HTTPS ou um comando stdio em JSON pela interface. Escolha Codex ou Claude, execute a operação e acompanhe o resultado. A ação **Autorizar** inicia o login MCP oficial; links OAuth aparecem em Operações. A configuração do próprio CLI decide o que ele carrega; o KeepHarness não mantém uma lista de permissões separada por provedor. O backend local compartilha o ecossistema MCP/plugins do Codex.
 
 Gmail, Drive e GitHub podem ser conectados por servidores MCP/plugins compatíveis com o CLI e com as permissões da conta. O painel não inventa endpoints, credenciais ou permissões OAuth. Integrações exclusivas dos aplicativos web não são automaticamente portáveis para os CLIs. Esta versão cadastra os transportes nativos; configurar um cabeçalho HTTP secreto específico de um fornecedor ainda deve ser feito no CLI. As execuções nativas do Codex e do Claude carregam a configuração de CLI da proprietária, incluindo apps, servidores MCP e plugins habilitados. As opções de acesso selecionam os modos de permissão do CLI; Somente leitura não desativa integrações.
 
@@ -132,7 +132,7 @@ Cada anexo pode ter até **100 MiB (104.857.600 bytes)**, incluindo documentos, 
 
 Fora de um projeto, valem as permissões e pastas do modelo local. Dentro de um projeto, concessões e pastas explícitas do projeto são somadas às concessões do modelo. A permissão de upload não implica compatibilidade de visão ou ferramentas.
 
-Cadastre servidores MCP HTTPS/stdio compatíveis e selecione integrações para os executores de CLI suportados. Links OAuth são exibidos pelo painel; as contas ainda precisam ser autorizadas com o próprio provedor. Conectores do lado do cliente não são transferidos automaticamente para o servidor. A execução nativa genérica do Codex/Claude não é uma prisão de sistema de arquivos; o executor local tem isolamento adicional por sandbox do Linux. A permissão de Internet não é um firewall universal para processos externos arbitrários.
+Cadastre servidores MCP HTTPS/stdio compatíveis para os CLIs suportados; cada CLI decide quais deles carrega. Links OAuth são exibidos pelo painel; as contas ainda precisam ser autorizadas com o próprio provedor. Conectores do lado do cliente não são transferidos automaticamente para o servidor. A execução nativa genérica do Codex/Claude não é uma prisão de sistema de arquivos; o executor local tem isolamento adicional por sandbox do Linux. A permissão de Internet não é um firewall universal para processos externos arbitrários.
 
 Clientes autorizados têm históricos e aprovações separados, mas isso não é uma fronteira de isolamento forte para usuários mutuamente não confiáveis que compartilham credenciais do sistema operacional. Use usuários de sistema operacional separados ou instâncias isoladas para esse cenário.
 

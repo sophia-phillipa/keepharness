@@ -87,7 +87,7 @@ Shutdown allows up to 60 seconds to drain work, followed by the 15-second harnes
 
 1. Add a provider from the dashboard and inspect discovered services.
 2. Complete the CLI's official authorization flow using the link shown in Operations.
-3. Choose models and integrations; configure permissions for local models.
+3. Choose models; configure permissions for local models.
 4. Save an enabled model; the harness starts automatically.
 5. For remote access, authorize the owner's Tailscale identity.
 
@@ -95,7 +95,7 @@ Discovery does not grant permissions. DeepSeek supports bringing your own API ke
 
 ## 🔌 Connectors and plugins
 
-Register an MCP HTTPS server or a stdio command in JSON from the interface. Choose Codex or Claude, run the operation and follow its result. The **Authorize** action starts the official MCP login; OAuth links appear in Operations. Enable the integration in the selected provider's CLI configuration through the Plugins controls. The local backend shares Codex's MCP/plugin ecosystem.
+Register an MCP HTTPS server or a stdio command in JSON from the interface. Choose Codex or Claude, run the operation and follow its result. The **Authorize** action starts the official MCP login; OAuth links appear in Operations. The CLI's own configuration decides what it loads; KeepHarness keeps no separate per-provider allow list. The local backend shares Codex's MCP/plugin ecosystem.
 
 Gmail, Drive and GitHub can be connected through MCP servers/plugins compatible with the CLI and the account's permissions. The panel does not invent endpoints, credentials or OAuth permissions. Integrations exclusive to web apps are not automatically portable to the CLIs. This version registers the native transports; configuring a vendor-specific secret HTTP header still has to be done in the CLI. Native Codex and Claude runs load the owner's CLI configuration, including its enabled apps, MCP servers and plugins. Access presets select the CLI's permission modes; Read only does not turn integrations off.
 
@@ -132,7 +132,7 @@ Each attachment can contain up to **100 MiB (104,857,600 bytes)**, including doc
 
 Outside a project, local model permissions and folders apply. Inside a project, explicit project grants and folders are added to the model grants. Upload permission does not imply vision or tool compatibility.
 
-Register compatible MCP HTTPS/stdio servers and select integrations for supported CLI executors. OAuth links are surfaced by the panel; accounts must still be authorized with their provider. Client-side connectors do not automatically transfer to the server. Generic Codex/Claude native execution is not a filesystem jail; the local executor has additional Linux sandbox isolation. Internet permission is not a universal firewall for arbitrary external processes.
+Register compatible MCP HTTPS/stdio servers for the supported CLIs; each CLI decides which of them it loads. OAuth links are surfaced by the panel; accounts must still be authorized with their provider. Client-side connectors do not automatically transfer to the server. Generic Codex/Claude native execution is not a filesystem jail; the local executor has additional Linux sandbox isolation. Internet permission is not a universal firewall for arbitrary external processes.
 
 Authorized clients have separate histories and approvals, but this is not a strong isolation boundary for mutually untrusted users sharing operating-system credentials. Use separate OS users or isolated instances for that scenario.
 

@@ -281,7 +281,6 @@ async def delete_provider(request, manager, data):
         added=False,
         enabled=False,
         models=[],
-        integrations=[],
         projects=["sem-projeto"],
         permissions={k: False for k in PERMISSIONS},
     )
@@ -423,12 +422,12 @@ async def login_provider(request, manager, data):
 
         options = (
             {
-                "env": cli_login_environment(manager.state),
+                "env": cli_login_environment(),
                 "on_success": finished,
                 "interactive": True,
             }
             if provider == "claude"
-            else {"env": login_environment(manager.state, "codex"), "on_success": finished}
+            else {"env": login_environment(), "on_success": finished}
             if provider == "codex"
             else {}
         )

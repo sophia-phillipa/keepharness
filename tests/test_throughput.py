@@ -94,8 +94,6 @@ def test_native_codex_live_usage_excludes_other_sessions(tmp_path):
     events = []
     with (
         patch("adapters.codex.native.connection", connection),
-        patch("adapters.codex.native.configurations", return_value={"codex": {}}),
-        patch("adapters.codex.native.inventory", return_value={"codex": []}),
     ):
         result = asyncio.run(
             run_native(

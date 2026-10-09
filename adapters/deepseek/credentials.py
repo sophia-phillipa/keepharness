@@ -59,15 +59,13 @@ def private_environment(config):
             raise ValueError("invalid key location")
         state = key.parent
         home = state / "providers" / "deepseek"
-        user_home = state / "providers" / "home"
-        for directory in (home, user_home):
-            if not directory.is_dir():
-                raise ValueError("missing home")
-            with scoped_home_directory(directory) as fd:
-                if os.fstat(fd).st_uid != os.getuid():
-                    raise ValueError("foreign home")
-                if os.fstat(fd).st_mode & 0o077:
-                    raise ValueError("home is not private")
+        if not home.is_dir():
+            raise ValueError("missing home")
+        with scoped_home_directory(home) as fd:
+            if os.fstat(fd).st_uid != os.getuid():
+                raise ValueError("foreign home")
+            if os.fstat(fd).st_mode & 0o077:
+                raise ValueError("home is not private")
         # lstat sees dangling links too; credentials are never read or removed.
         for path in (home / "auth.json", home / "secrets" / "codex_auth.age"):
             try:
@@ -82,7 +80,7 @@ def private_environment(config):
         token = scoped_home_read(state, key.name)
         if not token or not token.strip():
             raise ValueError("missing key")
-        return {**os.environ, "HOME": str(user_home), "CODEX_HOME": str(home)}, token.strip()
+        return {**os.environ, "HOME": str(home), "CODEX_HOME": str(home)}, token.strip()
     except (OSError, ValueError, TypeError, ToolError, subprocess.SubprocessError):
         raise ToolError("deepseek_credential_isolation") from None
 

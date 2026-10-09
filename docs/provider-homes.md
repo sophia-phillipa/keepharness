@@ -3,17 +3,23 @@
 ## Current native behavior (#45)
 
 Codex and Claude inherit the owner's CLI homes and configuration, including explicit
-`HOME`, `CODEX_HOME` and `CLAUDE_CONFIG_DIR` values. Native runs do not use the
+`HOME`, `CODEX_HOME` and `CLAUDE_CONFIG_DIR` values. Native runs do not use a
 personal-setup opt-in, an integrations allow list, or a Read only filter for the
 owner's orchestration. Scheduled runs load the same setup as attended runs.
 The Access presets select the CLI's sandbox/approval or permission modes; native
 project trust and MCP approvals still apply. See the current
 [facade contract](../dossier/provider-facade-design.md#21-runs-on-the-real-homes).
-DeepSeek retains its separate provider home; Local retains its own sandbox.
+DeepSeek keeps its own provider home, `<state>/providers/deepseek`, used as both `HOME`
+and `CODEX_HOME`; Local retains its own sandbox.
 
-## Historical 0.15 behavior (superseded for native Codex and Claude)
+Since 0.16.0 (#46) no code reads or creates `<state>/providers/home`, and the settings no
+longer accept `personal_setup` or `services.<provider>.integrations` (older values are
+dropped on load). The old folder stays on disk for rollback and can be deleted by hand.
 
-The sections below record the 0.15 design, not the current native contract.
+## Historical 0.15 behavior (removed in 0.16.0)
+
+The sections below record the 0.15 design, which no longer exists: the homes, the
+`provider_homes` runtime key and the personal setup were removed by #46.
 In 0.15.0 (work package WP-08; decisions D01, D02, D30) Codex, DeepSeek and Claude Code
 runs no longer use the owner's `~/.codex` and `~/.claude`. Each provider CLI gets a home
 owned by KeepHarness under the control state folder, and only an allow-listed environment.

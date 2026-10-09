@@ -159,7 +159,6 @@ class AcpConnection:
         self.proc, self.state, self.approve, self.sequence = proc, state, approve, 0
         self.permissions, self.access_mode = permissions, access_mode
         self.bytes = 0
-        self.mcp_selected = False
 
     async def _send(self, item):
         self.proc.stdin.write((json.dumps(item) + "\n").encode())
@@ -180,7 +179,7 @@ class AcpConnection:
                 "fetch": self.permissions.get("internet", False),
                 "execute": self.permissions.get("shell", False),
                 "think": True,
-                "other": self.mcp_selected and self.permissions.get("internet", False),
+                "other": False,
             }.get(kind, False)
             # Automatic stays inside the project: a shell command or connector asks the owner (D11).
             owner_asked = self.access_mode == "ask" or (
@@ -269,7 +268,6 @@ async def run_acp(
     )
     state, marker = AcpStream(event, cwd), Path(home) / "gemini-session.json"
     rpc = AcpConnection(proc, state, approve, permissions, access_mode)
-    rpc.mcp_selected = bool(config.get("integrations")) and access_mode != "read_only"
     event("planning", {"backend": "gemini", "model": model, "effort": "configured"})
     async with process_diagnostics(proc, "gemini", event, environment):
         initialized = await handshake(

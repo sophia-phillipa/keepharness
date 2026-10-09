@@ -71,16 +71,54 @@ def test_first_enabled_provider_starts_harness_without_manual_button(tmp_path):
     manager.start.assert_awaited_once()
 
 
-@pytest.mark.parametrize("running", [False, True])
-def test_settings_can_remove_an_integration_that_is_no_longer_installed(tmp_path, running):
-    import copy
+def old_state_with_renamed_integration(tmp_path):
+    """A 0.15 settings file whose allow list names an integration that was renamed since."""
+    settings = json.loads(json.dumps(Manager(tmp_path).settings))
+    settings["personal_setup"] = True
+    codex = settings["services"]["codex"]
+    codex.update(enabled=True, models=["gpt-6-astra"], integrations=["mcp:sophia-engine"])
+    settings["services"]["claude"]["integrations"] = ["plugin:gone@market"]
+    (tmp_path / "settings.json").write_text(json.dumps(settings))
+    return settings
+
+
+def test_old_state_with_integrations_and_personal_setup_loads_without_them(tmp_path):
+    old_state_with_renamed_integration(tmp_path)
 
     manager = Manager(tmp_path)
-    manager.inventory = {"network": {}, "services": [], "binaries": {}}
+
+    assert "personal_setup" not in manager.settings
+    assert not any("integrations" in spec for spec in manager.settings["services"].values())
+    assert manager.settings["services"]["codex"]["enabled"] is True
+    saved = manager.validate(manager.settings)
+    assert "personal_setup" not in saved
+    assert not any("integrations" in spec for spec in saved["services"].values())
+
+
+@pytest.mark.parametrize("running", [False, True])
+def test_harness_starts_on_a_state_where_an_integration_was_renamed(tmp_path, running):
+    from unittest.mock import AsyncMock
+
+    old_state_with_renamed_integration(tmp_path)
+    manager = Manager(tmp_path)
+    manager.inventory = {
+        "network": {},
+        "services": [{"id": "codex", "found": True, "binary": "codex"}],
+        "binaries": {},
+    }
     manager.plugin_catalog = []
-    manager.settings["services"]["codex"]["integrations"] = ["plugin:removed@market"]
+    manager.check = AsyncMock(return_value={"authenticated": True, "models": {}})
+    manager.start = AsyncMock()
     manager.proc = SimpleNamespace(returncode=None) if running else None
-    repaired = copy.deepcopy(manager.settings)
-    repaired["services"]["codex"]["integrations"] = []
-    asyncio.run(manager.apply_settings(repaired))
-    assert manager.settings["services"]["codex"]["integrations"] == []
+    # The renamed id comes back from the admin or an import; it must not be validated or kept.
+    incoming = json.loads(json.dumps(manager.settings))
+    incoming["personal_setup"] = True
+    incoming["services"]["codex"]["integrations"] = ["mcp:ask-sophia-now", "mcp:sophia-engine"]
+
+    asyncio.run(manager.apply_settings(incoming))
+
+    on_disk = json.loads((tmp_path / "settings.json").read_text())
+    assert "personal_setup" not in on_disk
+    assert not any("integrations" in spec for spec in on_disk["services"].values())
+    if not running:
+        manager.start.assert_awaited_once()

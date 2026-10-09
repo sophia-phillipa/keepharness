@@ -79,15 +79,16 @@ for attempt in range(3):
   case "$test_file" in */first-run*.spec.cjs) TH_FIRST_RUN=first-run:reset ;; *) TH_FIRST_RUN=first-run ;; esac
   "${PYTHON:-python3}" -c 'import sys,time,urllib.error,urllib.request
 base,cookie,route=sys.argv[1:4]
-page=urllib.request.urlopen(urllib.request.Request(base+"/",headers={"Cookie":cookie}),timeout=5)
+def retry(make):
+    for attempt in range(10):
+        try:
+            return urllib.request.urlopen(make(),timeout=5)
+        except urllib.error.HTTPError as error:
+            if error.code!=429 or attempt==9: raise
+            time.sleep(int(error.headers.get("Retry-After") or 5))
+page=retry(lambda: urllib.request.Request(base+"/",headers={"Cookie":cookie}))
 admin=page.headers["Set-Cookie"].split(";")[0]
-for attempt in range(3):
-    try:
-        urllib.request.urlopen(urllib.request.Request(base+"/api/"+route,data=b"{}",method="POST",headers={"Cookie":admin,"X-Harness-Admin":"1","Content-Type":"application/json"}),timeout=5)
-        break
-    except urllib.error.HTTPError as error:
-        if error.code!=429 or attempt==2: raise
-        time.sleep(int(error.headers.get("Retry-After") or 5))' "$TH_ADMIN_URL" "$ADMIN_LOCAL_COOKIE" "$TH_FIRST_RUN"
+retry(lambda: urllib.request.Request(base+"/api/"+route,data=b"{}",method="POST",headers={"Cookie":admin,"X-Harness-Admin":"1","Content-Type":"application/json"}))' "$TH_ADMIN_URL" "$ADMIN_LOCAL_COOKIE" "$TH_FIRST_RUN"
   echo "RUN $test_file"
   if ADMIN_URL="$TH_ADMIN_URL" HARNESS_URL="$TH_CHAT_URL" node "$test_file"; then
     echo "PASS FILE $test_file"

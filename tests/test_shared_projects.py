@@ -123,8 +123,6 @@ def test_cloud_native_turn_is_unrestricted(tmp_path, provider):
         config["api_provider"] = {"url": "https://api.deepseek.com", "key_file": str(key)}
     with (
         patch("adapters.codex.native.connection", connection),
-        patch("adapters.codex.native.configurations", return_value={"codex": {}}),
-        patch("adapters.codex.native.inventory", return_value={"codex": []}),
     ):
         asyncio.run(
             run(

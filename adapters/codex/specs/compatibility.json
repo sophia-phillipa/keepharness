@@ -41,11 +41,8 @@
   ],
   "resource_validation": "Offline discovery/admission/transport tests; no live inference",
   "plugin_runtime_inventory": {
-    "config_field": "plugin_inventory",
-    "identifier_format": "plugin:name@marketplace",
-    "selection_field": "integrations",
-    "empty_inventory": "authoritative disabled plugin set",
-    "absent_inventory": "legacy Codex catalogue fallback",
+    "status": "retired (#46)",
+    "behavior": "native runs leave the owner's plugins and MCP servers to the CLI configuration; plugin_inventory and integrations are ignored",
     "validation": "tests/test_native_plugin_inventory.py; no app-server turn or model inference"
   },
   "conversation_title": {

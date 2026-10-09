@@ -39,7 +39,7 @@ def model_config(tmp_path):
         },
     )
     cfg["projects"]["p"]["root"] = str(tmp_path)
-    cfg["local"] = {"binary": "/not-executed", "integrations": ["mcp:must-not-leak"]}
+    cfg["local"] = {"binary": "/not-executed"}
     cfg["local_models"] = ["qwen", "gemma"]
     return cfg
 
@@ -90,7 +90,7 @@ def test_per_model_permissions_reach_inference_and_discovery(tmp_path):
                 backend, _, _, project = run.call_args.args[:4]
                 assert project["permissions"]["internet"] is (model == "qwen")
                 assert ("root" in project) is (model == "qwen")
-                assert backend["integrations"] == []
+                assert "integrations" not in backend
         with pytest.raises(APIError) as error:
             service.assess(
                 identity,
@@ -182,8 +182,6 @@ def test_local_internet_uses_permitted_shell_not_hosted_search(tmp_path):
 
     with (
         patch("adapters.codex.native.connection", connection),
-        patch("adapters.codex.native.configurations", return_value={"codex": {}}),
-        patch("adapters.codex.native.inventory", return_value={"codex": []}),
     ):
         asyncio.run(
             run(
@@ -313,8 +311,6 @@ def test_native_model_policy_network_shell_and_write_scope(tmp_path, allowed):
     policy = {name: allowed for name in ("read", "write", "shell", "internet", "hooks", "upload")}
     with (
         patch("adapters.codex.native.connection", connection),
-        patch("adapters.codex.native.configurations", return_value={"codex": {}}),
-        patch("adapters.codex.native.inventory", return_value={"codex": []}),
     ):
         asyncio.run(
             run(
@@ -428,13 +424,7 @@ def test_local_denies_escalation_without_internet_and_starts_isolated_session(tm
     (session / "native-thread.json").write_text(
         json.dumps({"id": "host-thread", "usage_total": {"outputTokens": 500}})
     )
-    with (
-        patch("adapters.codex.native.connection", connection),
-        patch(
-            "adapters.codex.native.configurations",
-            side_effect=AssertionError("Host credentials must not be read"),
-        ),
-    ):
+    with patch("adapters.codex.native.connection", connection):
         asyncio.run(
             run(
                 {"binary": "fixture"},

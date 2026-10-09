@@ -1,92 +1,41 @@
 from types import SimpleNamespace
-from unittest.mock import patch
+
+import pytest
 
 from adapters.codex.native import RuntimeOptions, thread_parameters
 
+# Old settings (0.15) still carry these; nothing may turn them into a plugin or MCP override (#46).
+RETIRED_KEYS = [
+    {},
+    {"plugin_inventory": ["plugin:installed@marketplace"], "integrations": ["plugin:x@market"]},
+    {"plugin_inventory": [], "integrations": []},
+    {"integrations": ["plugin:legacy@marketplace", "mcp:fixture"], "personal_setup": True},
+]
 
-def test_native_plugin_inventory_does_not_override_owner_state(tmp_path):
-    # A read grant without the shell also asks for the harness reader's roots.
+
+@pytest.mark.parametrize("model_provider", [None, "tail_api"])
+@pytest.mark.parametrize("config", RETIRED_KEYS)
+def test_native_runs_leave_owner_plugins_and_servers_alone(config, model_provider, tmp_path):
     workspace = SimpleNamespace(
         cwd="/tmp/project", permissions={"read": True, "write": True}, roots=[], home=tmp_path
     )
-    runtime = RuntimeOptions(command=["codex"])
-    config = {
-        "plugin_inventory": ["plugin:installed@marketplace", "plugin:other@marketplace"],
-        "integrations": ["plugin:other@marketplace"],
-        "personal_setup": True,
-    }
-
-    with (
-        patch("adapters.codex.native.configurations", return_value={"codex": {}}),
-        patch(
-            "adapters.codex.native.inventory",
-            return_value={"codex": [{"id": "plugin:stale@marketplace", "kind": "plugin"}]},
-        ),
-    ):
-        params = thread_parameters(config, {}, "fixture", workspace, runtime, False)
+    params = thread_parameters(
+        config,
+        {},
+        "fixture",
+        workspace,
+        RuntimeOptions(command=["codex"], model_provider=model_provider),
+        False,
+    )
 
     assert "plugins" not in params["config"]
+    assert not any(name != "harness_reader" for name in params["config"]["mcp_servers"])
 
 
-def test_native_empty_plugin_inventory_does_not_filter_owner_state():
-    workspace = SimpleNamespace(cwd="/tmp/project", permissions={})
-    runtime = RuntimeOptions(command=["codex"])
-
-    with (
-        patch("adapters.codex.native.configurations", return_value={"codex": {}}),
-        patch(
-            "adapters.codex.native.inventory",
-            return_value={"codex": [{"id": "plugin:stale@marketplace", "kind": "plugin"}]},
-        ),
-    ):
-        params = thread_parameters(
-            {"plugin_inventory": [], "integrations": []},
-            {},
-            "fixture",
-            workspace,
-            runtime,
-            False,
-        )
-
-    assert "plugins" not in params["config"]
-
-
-def test_native_plugin_inventory_never_falls_back_to_allow_list():
-    workspace = SimpleNamespace(cwd="/tmp/project", permissions={})
-    runtime = RuntimeOptions(command=["codex"])
-
-    with (
-        patch("adapters.codex.native.configurations", return_value={"codex": {}}),
-        patch(
-            "adapters.codex.native.inventory",
-            return_value={"codex": [{"id": "plugin:legacy@marketplace", "kind": "plugin"}]},
-        ),
-    ):
-        params = thread_parameters(
-            {"integrations": ["plugin:legacy@marketplace"], "personal_setup": True},
-            {},
-            "fixture",
-            workspace,
-            runtime,
-            False,
-        )
-
-    assert "plugins" not in params["config"]
-
-
-def test_isolated_runtime_does_not_read_or_expose_plugin_inventory():
+def test_isolated_runtime_exposes_no_plugins():
     workspace = SimpleNamespace(cwd="/tmp/project", permissions={})
     runtime = RuntimeOptions(command=["codex"], isolated=True)
 
-    with patch("adapters.codex.native.inventory") as inventory:
-        params = thread_parameters(
-            {},
-            {},
-            "fixture",
-            workspace,
-            runtime,
-            False,
-        )
+    params = thread_parameters({}, {}, "fixture", workspace, runtime, False)
 
-    inventory.assert_not_called()
     assert params["config"] == {"mcp_servers": {}, "plugins": {}}

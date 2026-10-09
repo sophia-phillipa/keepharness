@@ -41,9 +41,7 @@ def test_cli_installed_plugins_drive_inventory_validation_and_runtime(tmp_path):
         assert items["local"] == items["deepseek"] == items["codex"]
         settings = copy.deepcopy(manager.settings)
         settings["services"]["codex"]["integrations"] = ["plugin:drive@market"]
-        assert manager.validate(settings)["services"]["codex"]["integrations"] == [
-            "plugin:drive@market"
-        ]
+        assert "integrations" not in manager.validate(settings)["services"]["codex"]
         settings["services"]["codex"].update(enabled=True, models=["fixture"])
         with patch.object(
             manager,
@@ -51,7 +49,7 @@ def test_cli_installed_plugins_drive_inventory_validation_and_runtime(tmp_path):
             AsyncMock(return_value={"authenticated": True, "models": {"fixture": ["low"]}}),
         ):
             config = asyncio.run(manager.build_runtime_config(settings))
-        assert config["codex"]["plugin_inventory"] == ["plugin:drive@market"]
+        assert "plugin_inventory" not in config["codex"]
         with patch("control.integration_catalog.installed_plugins", AsyncMock(return_value=None)):
             asyncio.run(manager.refresh())
         assert manager.integrations()["codex"] == items["codex"]

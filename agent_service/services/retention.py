@@ -9,21 +9,16 @@ The audit keeps one line per turn with ids, times, model and tokens, never conte
 import json
 import logging
 import os
-import re
 import shutil
 import time
-from pathlib import Path
 
 from ..config import MAX_PROJECT_RUNS, MAX_PROJECT_UPLOAD_BYTES, STORAGE_WARNING_RATIO, TERMINAL
-from ..conversation_context import MARKERS, read_json
 from ..errors import APIError
 from ..persistence.db import encoded, private_file
 
 logger = logging.getLogger(__name__)
 
 AUDIT_FILE = "purged-turns.jsonl"
-# Provider session ids are UUID-like; anything shorter could match unrelated file names.
-SESSION_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{15,127}")
 
 
 def set_archived(service, identity, cid, archived):
@@ -73,28 +68,7 @@ def purge_paths(service, cid, rows, files):
         if workspace:
             results = service.root / "workspaces" / workspace / "work" / "_harness_results"
             paths.append((results / row["id"], service.root / "workspaces"))
-    homes = service.config.get("provider_homes")
-    if homes:
-        folders = [path for path, base in paths if base == sessions]
-        root = Path(homes)
-        paths += [(path, root) for path in provider_copies(root, session_ids(folders, rows))]
     return paths
-
-
-def session_ids(folders, rows):
-    """Provider session ids the conversation used: its session markers and turn results.
-
-    Markers set aside (``*.before-*``) still name a session the provider kept.
-    """
-    found = {read_json(marker).get("id") for marker in markers(folders)}
-    found.update(result_of(row).get("thread_id") for row in rows)
-    return {value for value in found if isinstance(value, str) and SESSION_ID.fullmatch(value)}
-
-
-def markers(folders):
-    for folder in folders:
-        for parent, _, names in os.walk(folder):
-            yield from (Path(parent) / name for name in names if name.startswith(MARKERS))
 
 
 def result_of(row):
@@ -103,32 +77,6 @@ def result_of(row):
     except ValueError:
         return {}
     return result if isinstance(result, dict) else {}
-
-
-def provider_copies(root, ids):
-    """Files and folders in the harness-owned provider homes named after one of ``ids``."""
-    if not ids or not root.is_dir() or personal_setup_inside(root):
-        return []
-    found = []
-    for folder, folders, names in os.walk(root.resolve()):
-        found += [Path(folder) / name for name in (*folders, *names) if named(name, ids)]
-        folders[:] = [name for name in folders if not named(name, ids)]
-    return found
-
-
-def named(name, ids):
-    return any(value in name for value in ids)
-
-
-def personal_setup_inside(root):
-    """Whether ``root`` holds or sits in the person's own ~/.codex or ~/.claude (never purged)."""
-    resolved, home = root.resolve(), Path.home().resolve()
-    if home.is_relative_to(resolved) or any(
-        resolved.is_relative_to(home / name) for name in (".codex", ".claude")
-    ):
-        logger.warning("Provider homes overlap the personal setup; provider copies kept")
-        return True
-    return False
 
 
 def remove_paths(paths):

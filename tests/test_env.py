@@ -4,7 +4,6 @@ import asyncio
 import json
 import logging
 import os
-from pathlib import Path
 
 import pytest
 
@@ -94,8 +93,7 @@ def test_child_environment_allowlist(monkeypatch):
     assert child_environment({**os.environ, **homes}) == {**listed, **homes}
 
 
-def test_native_homes_are_inherited_and_deepseek_home_is_separate(tmp_path, monkeypatch):
-    from adapters.shared import provider_setup
+def test_runtime_config_carries_no_provider_homes_or_allow_list(tmp_path, monkeypatch):
     from control.runtime_config import build_cli_provider, build_deepseek
 
     fake_home = tmp_path / "fake-home"
@@ -108,51 +106,42 @@ def test_native_homes_are_inherited_and_deepseek_home_is_separate(tmp_path, monk
         build_cli_provider(
             cfg,
             provider,
-            {"models": []},
+            {"models": [], "integrations": ["mcp:retired"]},
             {"authenticated": True, "models": {}},
             {"binary": "/usr/bin/true", "auth_file": str(fake_home / "host-auth.json")},
             state,
         )
     build_deepseek(
-        cfg, "deepseek", {"models": []}, {"models": {}}, {"binary": "/usr/bin/true"}, state
+        cfg,
+        "deepseek",
+        {"models": [], "integrations": ["mcp:retired"]},
+        {"models": {}},
+        {"binary": "/usr/bin/true"},
+        state,
     )
-    for provider in ("codex", "claude"):
-        assert "provider_homes" not in cfg[provider]
-        assert "auth_file" not in cfg[provider]
-        assert provider_setup.environment(cfg[provider], provider) == {}
-    homes = provider_setup.environment(cfg["deepseek"], "deepseek")
-    assert set(homes) == {"HOME", "CODEX_HOME"}
-    for path in homes.values():
-        assert Path(path).is_relative_to(state / "providers")
-        assert Path(path).stat().st_mode & 0o077 == 0
+    for provider in ("codex", "claude", "deepseek"):
+        assert not {"provider_homes", "integrations", "auth_file"} & cfg[provider].keys()
     assert list(fake_home.iterdir()) == []
+    assert not (state / "providers" / "home").exists()
 
 
-def test_personal_setup_is_an_owner_opt_in_off_by_default(tmp_path):
-    from adapters.shared.provider_setup import run_settings
+def test_personal_setup_and_integrations_are_gone_from_settings_and_runtime(tmp_path):
     from control.runtime_config import base_config
     from control.server import Manager
 
     manager = Manager(tmp_path / "state")
-    checked = manager.validate(manager.settings)
-    assert checked["personal_setup"] is False
-    assert manager.validate({**manager.settings, "personal_setup": True})["personal_setup"]
-    with pytest.raises(ValueError, match="personal setup"):
-        manager.validate({**manager.settings, "personal_setup": "yes"})
-    # The Claude-only global_hooks key is replaced by the opt-in, not kept beside it.
+    assert "personal_setup" not in manager.settings
+    # A payload that still carries the retired keys validates; the keys are not returned.
     legacy = json.loads(json.dumps(manager.settings))
+    legacy["personal_setup"] = "yes"
     legacy["services"]["claude"]["global_hooks"] = True
-    assert "global_hooks" not in manager.validate(legacy)["services"]["claude"]
+    legacy["services"]["codex"]["integrations"] = ["mcp:retired"]
+    checked = manager.validate(legacy)
+    assert "personal_setup" not in checked
+    assert "global_hooks" not in checked["services"]["claude"]
+    assert not any("integrations" in spec for spec in checked["services"].values())
     runtime = base_config(checked, tmp_path / "state", 8094, "http://127.0.0.1:8095/", {})
-    assert runtime["personal_setup"] is False
-    on = {"personal_setup": True}
-
-    def personal(config, data=None):
-        return run_settings(config, "local", data=data or {})["personal_setup"]
-
-    assert personal(on) is True
-    assert personal(on, data={"schedule_id": "s1"}) is False
-    assert personal({}) is False
+    assert "personal_setup" not in runtime
 
 
 def test_admin_sign_in_and_checks_use_the_owner_home(tmp_path, monkeypatch):
@@ -172,7 +161,6 @@ def test_admin_sign_in_and_checks_use_the_owner_home(tmp_path, monkeypatch):
             {"id": "claude", "found": True, "binary": "/fixture/claude"},
         ],
     }
-    providers = tmp_path / "state" / "providers"
     launched = {}
 
     def launch(operations, args, timeout=300, **kwargs):
@@ -192,7 +180,7 @@ def test_admin_sign_in_and_checks_use_the_owner_home(tmp_path, monkeypatch):
     ):
         asyncio.run(manager.check("codex"))
     assert command.call_args.kwargs["env"]["CODEX_HOME"] == str(tmp_path / "terminal-codex")
-    assert listing.call_args.kwargs["env"] is None
+    assert listing.call_args.kwargs.get("env") is None
     with (
         patch(
             "control.discovery.command", AsyncMock(return_value=(0, '{"loggedIn":true}'))
@@ -204,4 +192,4 @@ def test_admin_sign_in_and_checks_use_the_owner_home(tmp_path, monkeypatch):
     ):
         asyncio.run(manager.check("claude"))
     assert command.call_args.kwargs["env"]["CLAUDE_CONFIG_DIR"] == os.environ["CLAUDE_CONFIG_DIR"]
-    assert probe.call_args.args[0]["provider_homes"] == str(providers)
+    assert "provider_homes" not in probe.call_args.args[0]

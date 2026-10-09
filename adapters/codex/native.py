@@ -10,13 +10,12 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from adapters.shared.provider_setup import codex_access_settings, instructions
+from adapters.shared.provider_setup import LANGUAGE_RULE, codex_access_settings
 from adapters.shared.workspace import readable_roots
 from agent_service.reader_mcp import SERVER_NAME as READER
 from agent_service.reader_mcp import server_spec as reader_spec
 from agent_service.tool_metadata import event_metadata, item_markers, item_target
 from agent_service.tools import ToolError
-from control.integrations import configurations, inventory
 
 from .rpc import (
     RPCError,
@@ -78,12 +77,8 @@ def build_command(binary, permissions, hosted_search=True, *, host_config=True):
 def thread_parameters(
     config, project, model, workspace, runtime, unrestricted, *, native_config=None
 ):
-    """Translate harness permissions and integrations to app-server settings."""
+    """Translate harness permissions to app-server settings."""
     cwd, permissions = workspace.cwd, workspace.permissions
-    # Ask: the read-only sandbox makes every write escalate to an approval card.
-    ask = project.get("access_mode", "ask") == "ask" and not runtime.isolated
-    # Automatic: the workspace sandbox on the project; anything beyond asks (decision D11).
-    automatic = project.get("access_mode") == "auto" and not runtime.isolated
     local_provider = runtime.model_provider
     params = {
         "model": model,
@@ -93,7 +88,7 @@ def thread_parameters(
         ),
         "approvalsReviewer": "user",
         "developerInstructions": "Use the native CLI tools and only the configured integrations. Follow the selected project instructions. Ask approval for actions that exceed the configured permissions. Do not claim a tool succeeded without evidence. "
-        + instructions(config, provider="deepseek" if local_provider == "tail_api" else "codex"),
+        + LANGUAGE_RULE,
     }
     params["developerInstructions"] += (
         " Effective permissions for this turn: "
@@ -105,19 +100,6 @@ def thread_parameters(
     params["config"] = {"mcp_servers": {}}
     if runtime.isolated:
         params["config"]["plugins"] = {}
-    if local_provider and config.get("personal_setup") is True and not runtime.isolated:
-        selected = (
-            [] if project.get("access_mode") == "read_only" else config.get("integrations", [])
-        )
-        params["config"]["mcp_servers"] = host_servers(selected, ask or automatic)
-        plugins = (
-            config["plugin_inventory"]
-            if "plugin_inventory" in config
-            else [item["id"] for item in inventory()["codex"] if item["kind"] == "plugin"]
-        )
-        params["config"]["plugins"] = {
-            plugin.split(":", 1)[1]: {"enabled": plugin in selected} for plugin in plugins
-        }
     if not runtime.isolated:
         add_reader(params, workspace, restrict=bool(local_provider), native_config=native_config)
     if config.get("_effect_capability"):
@@ -130,18 +112,6 @@ def thread_parameters(
     if local_provider:
         params["modelProvider"] = local_provider
     return params
-
-
-def host_servers(selected, ask):
-    """The host's connectors, enabled only when selected; ``ask`` shows a card before every call."""
-    return {
-        name: {
-            **spec,
-            "enabled": not name.startswith("harness_effects") and "mcp:" + name in selected,
-            **({"default_tools_approval_mode": "prompt"} if ask else {}),
-        }
-        for name, spec in configurations()["codex"].items()
-    }
 
 
 def add_reader(params, workspace, *, restrict=False, native_config=None):

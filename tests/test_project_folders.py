@@ -175,8 +175,6 @@ def test_rpc_providers_receive_roots_on_every_turn(tmp_path, provider, read, wri
             "adapters.local.backend.wrap",
             side_effect=lambda command, *args: WrappedCommand(command),
         ),
-        patch("adapters.codex.native.configurations", return_value={"codex": {}}),
-        patch("adapters.codex.native.inventory", return_value={"codex": []}),
     ):
         for _ in range(2):
             asyncio.run(

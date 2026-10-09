@@ -143,7 +143,6 @@ def runtime_job_affected(config, active_executors, row, candidate):
     executor = active_executors.get(row["id"]) if row["state"] == "running" else None
     if executor:
         backend, model = executor
-    old = config.get("services", {}).get(backend, {})
     new = candidate.get("services", {}).get(backend, {})
     if not new.get("enabled") or model not in new.get("models", []):
         return True
@@ -151,9 +150,9 @@ def runtime_job_affected(config, active_executors, row, candidate):
         config, backend, model, row["project"]
     ) != maestro.model_permissions(candidate, backend, model, row["project"]):
         return True
-    if old.get("integrations", []) != new.get("integrations", []) or config.get(
+    if config.get("provider_revisions", {}).get(backend) != candidate.get(
         "provider_revisions", {}
-    ).get(backend) != candidate.get("provider_revisions", {}).get(backend):
+    ).get(backend):
         return True
     if backend == "local":
         old_local = config.get("local", {})

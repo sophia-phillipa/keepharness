@@ -6,12 +6,7 @@ import json
 from pathlib import Path
 
 from adapters.shared.process import child_environment, process_diagnostics
-from adapters.shared.provider_setup import (
-    child_source,
-    claude_access_settings,
-    instructions,
-    version_notice,
-)
+from adapters.shared.provider_setup import LANGUAGE_RULE, claude_access_settings, version_notice
 from agent_service.tools import ToolError
 
 from .stream import Stream
@@ -184,9 +179,7 @@ async def run(
         **config,
         "_project_security": await asyncio.to_thread(project_security, config, Path(cwd)),
     }
-    await asyncio.to_thread(
-        version_notice, config["binary"], "claude", event, child_source(config, "claude")
-    )
+    await asyncio.to_thread(version_notice, config["binary"], "claude", event)
     command = build_command(
         config, model, home, permissions, selected, access_mode, additional_roots
     )
@@ -194,7 +187,7 @@ async def run(
         command += ["--effort", effort]
     command += [
         "--append-system-prompt",
-        "\n".join(filter(None, [instructions(config), config.get("append_system_prompt")])),
+        "\n".join(filter(None, [LANGUAGE_RULE, config.get("append_system_prompt")])),
     ]
     event(
         "hook_scope",
@@ -209,7 +202,7 @@ async def run(
     proc = await asyncio.create_subprocess_exec(
         *command,
         cwd=cwd,
-        env=child_environment(child_source(config, "claude")),
+        env=child_environment(),
         stdin=asyncio.subprocess.PIPE,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,

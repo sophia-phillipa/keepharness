@@ -71,22 +71,18 @@ other CLI output. Catalogue contents depend on the currently configured
 marketplaces and can change without an adapter release; refresh before presenting
 an install choice and review this section when the plugin CLI schema changes.
 
-## Installed plugin runtime inventory (2026-09-20)
+## Plugins and connectors in native runs (#46)
 
-When `config.plugin_inventory` is present, native thread creation treats it as the
-authoritative list of installed complete plugin IDs (`plugin:name@marketplace`).
-It emits every listed plugin into app-server configuration and enables only IDs
-also selected in `config.integrations`; installed but unselected plugins remain
-disabled. An explicit empty list disables all plugins. Configurations produced
-before this field existed continue to fall back to the legacy Codex catalogue.
-Isolated runtimes still emit empty MCP and plugin configuration.
+Native thread creation no longer emits a `plugins` section and never reads
+`config.plugin_inventory` or `config.integrations` (0.15 settings may still carry them;
+they are ignored). The owner's own Codex plugins and MCP servers stay under the
+owner's `~/.codex` configuration; the only MCP server KeepHarness adds is its own
+reader. Isolated runtimes still emit empty MCP and plugin configuration.
 
 Evidence: `thread_parameters` contract tests in
-`tests/test_native_plugin_inventory.py` cover the authoritative, empty, and
-legacy-fallback cases without an app-server turn or model inference. Documentation
-consulted: this adapter specification's catalogue contract and the existing
-app-server reference recorded above. Review this section if the CLI plugin ID
-format or app-server plugin configuration schema changes.
+`tests/test_native_plugin_inventory.py` cover the retired keys and the isolated case
+without an app-server turn or model inference. Review this section if the
+app-server plugin configuration schema changes.
 
 ## Explicit project and global resources (2026-09-20)
 
