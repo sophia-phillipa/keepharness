@@ -5,7 +5,6 @@ import copy
 import sys
 from unittest.mock import AsyncMock, patch
 
-from adapters.shared.provider_setup import homes_root
 from agent_service.config import validate_runtime_config
 from control import runtime_config
 from control.server import Manager
@@ -53,7 +52,6 @@ def build(manager, settings):
 
 def test_signed_out_providers_are_quarantined_and_the_harness_config_builds(tmp_path):
     manager, settings = manager_with(tmp_path)
-    assert not any(homes_root(manager.state).glob("home/.*/*"))  # the new homes are empty
     cfg = build(manager, settings)
     assert validate_runtime_config(cfg)
     assert cfg["unavailable_models"] == {"codex": {"gpt-5.5": runtime_config.SIGN_IN_REQUIRED}}

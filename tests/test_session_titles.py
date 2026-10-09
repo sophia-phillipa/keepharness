@@ -44,8 +44,6 @@ def test_native_codex_sets_title_on_creation_and_resume(tmp_path):
 
     with (
         patch("adapters.codex.native.connection", connection),
-        patch("adapters.codex.native.configurations", return_value={"codex": {}}),
-        patch("adapters.codex.native.inventory", return_value={"codex": []}),
     ):
         for title in ("First title", "Renamed title"):
             asyncio.run(

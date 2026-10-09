@@ -323,8 +323,6 @@ def requests(log):
 def codex_session(tmp_path, monkeypatch):
     """A conversation folder that still points at a Codex thread the CLI no longer has."""
     monkeypatch.setenv("CODEX_HOME", str(tmp_path / "codex-home"))
-    monkeypatch.setattr("adapters.codex.native.configurations", lambda: {"codex": {}})
-    monkeypatch.setattr("adapters.codex.native.inventory", lambda: {"codex": []})
     session = tmp_path / "session"
     session.mkdir()
     (session / "native-thread.json").write_text('{"id": "old-thread"}')

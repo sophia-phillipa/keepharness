@@ -81,7 +81,7 @@ async def run_native(config, prompt, event, project, model, effort, session_dir,
             model,
             workspace.home,
             workspace.permissions,
-            config.get("integrations", []),
+            [],  # retired connector allow list; the CLI follows its own configuration
             approve,
             workspace.images,
             project.get("access_mode", "ask"),

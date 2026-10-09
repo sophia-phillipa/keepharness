@@ -21,7 +21,6 @@ import adapters
 from adapters.claude import account as claude_account
 from adapters.codex import rpc as codex_rpc
 from adapters.codex.native import session_marker
-from adapters.shared.provider_setup import child_source, run_settings
 from control import local_access, remote_models
 
 from .. import (
@@ -1250,15 +1249,7 @@ class ConversationService:
             execution_mode,
             access_mode,
         )
-        # Only the providers the project may use.
-        eligible = [
-            name
-            for name, policy in self.config.get("services", {}).items()
-            if policy.get("enabled")
-            and project_id in policy.get("projects", [])
-            and policy.get("models")
-        ]
-        return integrations_view.build(self.config, route, usage, eligible)
+        return integrations_view.build(self.config, route, usage)
 
     def resource_catalog(
         self, identity, project_id, backend, model, execution_mode=None, access_mode=None
@@ -2039,9 +2030,7 @@ class ConversationService:
                 return cache[2]
             try:
                 result = await asyncio.wait_for(
-                    codex_rpc.metadata(
-                        binary, "model/list", env=child_source(self.config["codex"], "codex")
-                    ),
+                    codex_rpc.metadata(binary, "model/list"),
                     2,
                 )
                 modalities = {
@@ -2749,14 +2738,7 @@ class ConversationService:
             project_config["test_commands"] = {}
         backend_config = self.config[backend]
         if backend == "local" and "model_permissions" in self.config["services"][backend]:
-            backend_config = {**backend_config, "integrations": [], "unrestricted": False}
-        # Gemini connectors need the network, so an offline schedule runs without them (D03).
-        if offline_schedule and backend == "gemini":
-            backend_config = {**backend_config, "integrations": []}
-        backend_config = {
-            **backend_config,
-            **run_settings(self.config, backend, data=data),
-        }
+            backend_config = {**backend_config, "unrestricted": False}
         if self.config.get("temporary_chat"):
             backend_config["temporary_chat"] = True
             project_config["temporary_chat"] = True
@@ -3118,7 +3100,6 @@ class ConversationService:
             value = await codex_rpc.metadata(
                 self.config["codex"]["binary"],
                 "account/rateLimits/read",
-                env=child_source(self.config["codex"], "codex"),
             )
             self.usage_cache = {
                 "available": True,
@@ -3279,11 +3260,6 @@ class ConversationService:
                 "max_files": workspaces.MAX_FILES,
                 "client_paths": "explicit local upload only",
                 "source_preserved": True,
-            },
-            "integrations": {
-                p: c.get("integrations", [])
-                for p, c in self.config.get("services", {}).items()
-                if c.get("enabled") and "native" in self.execution_modes(p)
             },
             "concurrency": 1,
             "native_read_scope": "provider CLI policy; not a filesystem jail",

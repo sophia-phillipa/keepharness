@@ -230,8 +230,8 @@ const assert = require("node:assert/strict");
       0,
     );
     assert.equal(
-      await page.locator(".provider-connectors .connector-icon").count(),
-      2, // github and the remote gmail plugin added for D48
+      await page.locator("#catalog-items .connector-icon").count(),
+      1,
     );
     assert.match(
       await page.locator("#catalog-items").innerText(),
@@ -247,24 +247,10 @@ const assert = require("node:assert/strict");
       await page.locator("#integration-help").innerText(),
       /Authenticate connector/,
     );
-    const drive = page.getByRole("checkbox", { name: /Drive/ });
-    assert(
-      await drive.isChecked(),
-      "available MCP connector is selected by default for a new provider",
-    );
-    await tabs.getByText("Plugins", { exact: true }).click();
-    const plugin = page.getByRole("checkbox", { name: /github/i });
-    assert(
-      await plugin.isChecked(),
-      "available plugin is selected by default for a new provider",
-    );
-    // D48: a "-remote" plugin never loads in a KeepHarness run, so it is neither preselected nor allowed.
-    const remote = page.getByRole("checkbox", { name: /gmail/i });
-    assert(!(await remote.isChecked()), "remote plugin is not preselected");
-    assert(await remote.isDisabled(), "remote plugin cannot be allowed");
-    assert.match(
-      await page.locator("#integration-selection").innerText(),
-      /Not available in KeepHarness runs/,
+    assert.equal(
+      await page.locator("#integration-selection").count(),
+      0,
+      "no per-provider allow list (#46)",
     );
     await page
       .locator("#inspector-tabs")
@@ -356,17 +342,7 @@ const assert = require("node:assert/strict");
     );
     await tabs.getByText("Plugins", { exact: true }).click();
     await tabs.getByText("Connectors", { exact: true }).click();
-    assert(await page.getByRole("checkbox", { name: /Drive/ }).isChecked());
     await tabs.getByText("Plugins", { exact: true }).click();
-    assert(
-      !(await page.getByRole("checkbox", { name: /github/i }).isChecked()),
-      "saved deselection must remain unchanged",
-    );
-    // P1/P7: independent concepts, clear empty state and provider-specific explanation.
-    assert.match(
-      await page.locator("#integration-selection").innerText(),
-      /In Codex/,
-    );
     await page.locator("#catalog-search").fill("missing-fixture");
     await page
       .locator("#catalog-items")
@@ -419,31 +395,7 @@ const assert = require("node:assert/strict");
     await page
       .getByRole("button", { name: "Edit Claude Code", exact: true })
       .click();
-    // F-41/UI: Claude's own account connectors show up as read-only rows
-    // with their health status, and are never toggleable checkboxes.
-    await tabs.getByText("Connectors", { exact: true }).click();
-    const accountAppRows = page.locator(
-      "#integration-selection .account-app-row",
-    );
-    assert.equal(await accountAppRows.count(), 2);
-    assert.equal(await accountAppRows.locator("input").count(), 0);
-    assert.match(
-      await accountAppRows.filter({ hasText: "Gmail" }).innerText(),
-      /Connected/,
-    );
-    assert.match(
-      await accountAppRows.filter({ hasText: "Postman" }).innerText(),
-      /Needs authentication/,
-    );
     await tabs.getByText("Plugins", { exact: true }).click();
-    assert.match(
-      await page.locator("#integration-selection").innerText(),
-      /In Claude Code/,
-    );
-    assert.match(
-      await page.locator("#integration-selection").innerText(),
-      /No plugins installed/,
-    );
     await page.screenshot({
       path: "/tmp/keepharness-admin-integrations-mobile.png",
       fullPage: true,
@@ -480,20 +432,7 @@ const assert = require("node:assert/strict");
         await page.locator("#integration-provider").inputValue(),
         "codex",
       );
-      assert(
-        !(await page.getByRole("checkbox", { name: /github/i }).isChecked()),
-      );
       await tabs.getByText("Connectors", { exact: true }).click();
-      assert(await page.getByRole("checkbox", { name: /Drive/ }).isChecked());
-      if (provider === "local") {
-        assert(
-          await page.getByRole("checkbox", { name: /Drive/ }).isDisabled(),
-        );
-        assert.match(
-          await page.locator("#integration-selection").innerText(),
-          /are not loaded/,
-        );
-      }
       assert.doesNotMatch(
         await page.locator("#integration-action").innerText(),
         /plugin/i,

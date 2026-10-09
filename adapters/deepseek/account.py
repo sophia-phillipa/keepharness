@@ -32,8 +32,6 @@ def store_key(state, token):
             os.fchmod(directory, 0o700)
             with scoped_home_directory(Path(state) / "providers" / "deepseek") as home:
                 os.fchmod(home, 0o700)
-            with scoped_home_directory(Path(state) / "providers" / "home") as home:
-                os.fchmod(home, 0o700)
 
             def snapshot():
                 try:

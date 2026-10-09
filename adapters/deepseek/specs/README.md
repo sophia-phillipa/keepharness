@@ -6,8 +6,8 @@ Harness baseline: **0.16.0 working-tree**. Reviewed: **2026-10-08**.
 ## Provider state facade
 
 `DeepSeekStateAdapter` reuses the Codex state reader and CLI writer with provider
-`deepseek`, engine `codex`, `CODEX_HOME=<state>/providers/deepseek` and the same
-private `HOME=<state>/providers/home` as execution. State RPCs pin file credential
+`deepseek`, engine `codex`, and `CODEX_HOME` and `HOME` both set to
+`<state>/providers/deepseek`, the same private home as execution. State RPCs pin file credential
 storage and reject symlinked home paths, nonregular or multiply linked private
 config files (including symlinks and hardlinks), and foreign authentication entries
 before starting the CLI. Listing state
@@ -73,9 +73,9 @@ Contract checked against installed Codex CLI 0.155.0-alpha.9.2 generated `v2/Thr
 ## Credential and shell isolation (2026-10-08, issues #48/#49)
 
 The absolute configured key file anchors the state directory. Every attended or scheduled run
-uses `<state>/providers/deepseek` as `CODEX_HOME` and `<state>/providers/home` as `HOME`, regardless
-of inherited homes, stale `provider_homes` or vault injections. `set_api_key` provisions these
-owner-only directories. A missing, linked, foreign-owned or nonprivate home refuses with
+uses `<state>/providers/deepseek` as both `CODEX_HOME` and `HOME`, regardless
+of inherited homes or vault injections. `set_api_key` provisions this
+owner-only directory. A missing, linked, foreign-owned or nonprivate home refuses with
 `deepseek_credential_isolation`; execution never repairs it or falls back to the owner environment.
 The provider remains `deepseek`, engine `codex`, transport `tail_api`, with
 `requires_openai_auth=false` and `cli_auth_credentials_store="file"` pinned on the command line.

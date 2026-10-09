@@ -68,19 +68,6 @@ async function chooseModel(op, wanted) {
   return id;
 }
 
-// Fixture only: the owner's personal-setup opt-in (D01) lives in the harness config, which the
-// harness reloads when the file changes; wait until it reports the new revision.
-async function setPersonalSetup(op, on) {
-  const file = path.join(op.fixture.root, "chat.json");
-  const config = { ...JSON.parse(fs.readFileSync(file, "utf8")), personal_setup: on, config_revision: crypto.randomUUID() };
-  fs.writeFileSync(file + ".tmp", JSON.stringify(config));
-  fs.renameSync(file + ".tmp", file);
-  await op.until(
-    async () => (await op.page.evaluate(() => fetch("/v1/version").then((r) => r.json()))).config_revision === config.config_revision,
-    "the harness did not reload the configuration",
-  );
-}
-
 // Fixture only: the admin answers the owner, who holds the install secret (D09). Mint the
 // one-time link `keepharness open` prints, from the secret in the fixture's admin state.
 function adminOpenUrl(op) {
@@ -148,4 +135,4 @@ function escapeRegex(text) {
   return String(text).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-module.exports = { home, row, cancelWaiting, dismissTour, newChat, chooseModel, setPersonalSetup, adminOpenUrl, chooseAccess, send, submit, waitAnswer, ask, catalog, escapeRegex };
+module.exports = { home, row, cancelWaiting, dismissTour, newChat, chooseModel, adminOpenUrl, chooseAccess, send, submit, waitAnswer, ask, catalog, escapeRegex };

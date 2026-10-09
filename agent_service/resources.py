@@ -9,8 +9,6 @@ import tomllib
 from itertools import islice
 from pathlib import Path, PurePosixPath
 
-from adapters.shared.provider_setup import homes_root
-
 from .errors import UserMessageError
 from .invocations import Invocation, InvocationError
 
@@ -209,10 +207,8 @@ def roots(backend, engine, config, owner):
     home = Path.home()
     state = engine in ("codex", "claude") and config.get("control_state_dir")
     if state and backend == "deepseek":
-        return homes_root(state) / "deepseek", [homes_root(state) / "home/.agents/skills"]
-    if state and backend == "local":
-        home = homes_root(state) / "home"
-        return home / ".codex", [home / ".agents/skills"]
+        deepseek_home = Path(state) / "providers" / "deepseek"
+        return deepseek_home, [deepseek_home / ".agents/skills"]
     if engine == "codex":
         return Path(os.environ.get("CODEX_HOME", home / ".codex")), [home / ".agents/skills"]
     if engine == "claude":

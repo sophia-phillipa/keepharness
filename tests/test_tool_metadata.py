@@ -512,8 +512,6 @@ def _codex_tool_events(tmp_path, adapter, notifications):
 
     with (
         patch("adapters.codex.native.connection", connection),
-        patch("adapters.codex.native.configurations", return_value={"codex": {}}),
-        patch("adapters.codex.native.inventory", return_value={"codex": []}),
     ):
         asyncio.run(
             run(

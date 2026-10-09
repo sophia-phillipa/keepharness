@@ -15,7 +15,6 @@ from typing import Any, NamedTuple
 from control.integrations import inventory
 
 from . import approval_policy, maestro
-from .config import EXECUTION_MODES
 
 logger = logging.getLogger(__name__)
 
@@ -32,7 +31,7 @@ INTERNAL_PREFIX = "harness_effects"  # the harness's own publication server, not
 PUBLIC_KEYS = ("id", "kind", "name", "transport", "status")
 
 ISOLATED = "Isolated conversations use no host connectors or plugins."
-NOT_ALLOWED = "Not allowed for this provider. Change it in Settings › System › Providers."
+NOT_ALLOWED = "This provider does not use host connectors or plugins; Codex and Claude Code use their own native configuration."
 GEMINI_READ_ONLY = "Read-only access turns connectors off for Gemini."
 READ_ONLY = "Read-only access turns connectors and plugins off."
 NATIVE = "Availability and approvals follow the native CLI configuration and selected access mode."
@@ -41,18 +40,12 @@ GEMINI_INTERNET = "Gemini connectors need the internet permission."
 ASKS = "Each connector call asks for your approval."
 UNATTENDED = "Connector calls run without asking (full access)."
 INVENTORY_UNREADABLE = "Could not read the connector and plugin inventory."
-PERSONAL_SETUP_OFF = (
-    "Your Codex and Claude Code connectors and plugins come with your personal setup,"
-    " which is off. Turn it on in Settings › System."
-)
+DEEPSEEK_OWN_HOME = "DeepSeek runs in its own home and sees none of your Codex or Claude Code connectors or plugins."
 # Separate-home DeepSeek runs disable apps; native Codex inherits the CLI configuration.
 REMOTE_PLUGIN = (
     "Remote ChatGPT plugins bring their tools as Codex apps, which harness runs turn off."
 )
 APPS_OFF_BACKENDS = frozenset({"deepseek"})
-# control.integrations.inventory() hands these backends the Codex lists: one inventory, not two.
-SHARED_INVENTORY = {"deepseek": "codex", "local": "codex"}
-ELSEWHERE_LIMIT = 50
 
 
 def app_based(item: Item, backend: str) -> bool:
@@ -141,9 +134,9 @@ def read_catalog() -> dict[str, list[Item]] | None:
 def load_items(
     config: Settings, backend: str, catalog: dict[str, list[Item]] | None
 ) -> tuple[list[Item], list[str]]:
-    """The backend's installed items; harness-owned homes see host connectors only by opt-in (D01)."""
-    if backend == "deepseek" and config.get("personal_setup") is not True:
-        return [], [PERSONAL_SETUP_OFF]
+    """The backend's installed items; DeepSeek's own home sees no host connectors (D01)."""
+    if backend == "deepseek":
+        return [], [DEEPSEEK_OWN_HOME]
     return read_inventory(config, backend, catalog)
 
 
@@ -226,78 +219,18 @@ def family_key(item: Item) -> str:
     return re.sub(r"[_ ]", "-", bare_name(item).lower())
 
 
-def family_label(key: str, names: list[str]) -> str:
-    """The name as the menu shows it when it carries its own casing ("GitHub"); a lowercase id is title-cased."""
-    return next((name for name in names if name != name.lower()), key.replace("-", " ").title())
-
-
-def connected_elsewhere(
-    config: Settings,
-    route: Route,
-    here: list[Item],
-    providers: Sequence[str],
-    catalog: dict[str, list[Item]] | None,
-) -> list[Item]:
-    """Tools another enabled provider has allowed that this route's provider lacks or has not allowed."""
-    if route.backend in NATIVE_BACKENDS:
-        return []  # Inventory alone cannot justify a native enable/switch recommendation.
-    on_route: dict[str, bool] = {}  # family -> allowed on this route's provider
-    names: dict[str, list[str]] = {}  # family -> display names, this route's first
-    for item in here:
-        key = family_key(item)
-        on_route[key] = on_route.get(key, False) or item["allowed"]
-        names.setdefault(key, []).append(bare_name(item))
-    own_inventory = SHARED_INVENTORY.get(route.backend, route.backend)
-    found: dict[str, list[Item]] = {}
-    for backend in dict.fromkeys(providers):
-        if backend in NATIVE_BACKENDS:
-            continue  # Native availability is unverified, not an enforced harness allow-list.
-        if SHARED_INVENTORY.get(backend, backend) == own_inventory:
-            continue
-        if EXECUTION_MODES.get(backend) == ("scoped",):
-            continue  # scoped-only runs never use host connectors, whatever the inventory holds
-        allowed = set(config.get("services", {}).get(backend, {}).get("integrations", []))
-        seen: dict[str, list[bool]] = {}  # family -> [allowed, effective_capable]
-        for item in load_items(config, backend, catalog)[0]:
-            ok = item["id"] in allowed
-            key = family_key(item)
-            names.setdefault(key, []).append(bare_name(item))
-            flags = seen.setdefault(key, [False, False])
-            flags[0] |= ok
-            flags[1] |= ok and not app_based(item, backend)
-        for key, (ok, capable) in seen.items():
-            found.setdefault(key, []).append(
-                {"backend": backend, "allowed": ok, "effective_capable": capable}
-            )
-    return [
-        {
-            "key": key,
-            "label": family_label(key, names.get(key, [])),
-            "here": "enable" if key in on_route else "absent",
-            "providers": found[key],
-        }
-        for key in sorted(found)
-        if not on_route.get(key) and any(p["allowed"] for p in found[key])
-    ][:ELSEWHERE_LIMIT]
-
-
 def build(
     config: Settings,
     route: Route,
     usage_rows: Sequence[sqlite3.Row],
-    providers: Sequence[str] = (),
 ) -> Item:
-    """The ``/v1/integrations`` response for one route; ``usage_rows`` come from the repository.
-
-    ``providers`` are the backends the owner may use for this project, for the tools connected on a provider other than this one.
-    """
+    """The ``/v1/integrations`` response for one route; ``usage_rows`` come from the repository."""
     catalog = read_catalog()
     items, warnings = load_items(config, route.backend, catalog)
-    allowed = set(config.get("services", {}).get(route.backend, {}).get("integrations", []))
     limits = route_limits(config, route)
     used, other_tools = attribute_usage(items, usage_rows)
     for item in items:
-        item["allowed"] = item["id"] in allowed
+        item["allowed"] = False  # no harness allow list: native CLIs follow their own config
         item["reason"] = item_reason(item["allowed"], limits) or (
             REMOTE_PLUGIN if app_based(item, route.backend) else ""
         )
@@ -312,7 +245,7 @@ def build(
         "effective_note": limits.note,
         "items": items,
         "other_tools": other_tools,
-        "elsewhere": connected_elsewhere(config, route, items, providers, catalog),
+        "elsewhere": [],
         "window_days": WINDOW_DAYS,
         "warnings": warnings,
     }

@@ -18,7 +18,6 @@ def facade(tmp_path, monkeypatch):
     state = tmp_path / "state"
     home = state / "providers" / "deepseek"
     home.mkdir(parents=True)
-    (state / "providers" / "home").mkdir()
     (home / "config.toml").write_text("[plugins.private]\nenabled = true\n")
     (home / "fake-app-server.json").write_text(
         json.dumps(
@@ -45,10 +44,10 @@ def test_deepseek_snapshot_and_writer_stay_in_private_home(facade):
     assert fresh.provider == "deepseek"
     assert not next(item for item in fresh.items if item.id == private.id).enabled
     assert "enabled = false" in (home / "config.toml").read_text()
-    assert adapter.environment["HOME"] == str(home.parent / "home")
-    # The engine also reads the system-managed rules; nothing else may leave the private homes.
+    assert adapter.environment["HOME"] == adapter.environment["CODEX_HOME"] == str(home)
+    # The engine also reads the system-managed rules; nothing else may leave the private home.
     assert all(
-        str(home.parent) in str(path) or path.is_relative_to("/etc/codex")
+        path.is_relative_to(home) or path.is_relative_to("/etc/codex")
         for path in adapter.watch_paths(None)
     )
 
@@ -83,7 +82,7 @@ def test_deepseek_service_read_returns_its_provider_identity(facade):
 def test_deepseek_shared_root_is_private_and_named(facade):
     service, home = facade
     adapter = service._adapter("deepseek")
-    root = home.parent / "home" / ".agents" / "skills"
+    root = home / ".agents" / "skills"
     path = str(root / "notes" / "SKILL.md")
     fixture = home / "fake-app-server.json"
     data = json.loads(fixture.read_text())
@@ -96,15 +95,13 @@ def test_deepseek_shared_root_is_private_and_named(facade):
     assert root in adapter.watch_paths(None)
 
 
-@pytest.mark.parametrize("directory", ["deepseek", "home"])
-def test_deepseek_facade_refuses_linked_home_before_cli(facade, tmp_path, directory):
+def test_deepseek_facade_refuses_linked_home_before_cli(facade, tmp_path):
     from adapters.shared.provider_state import ProviderStateSchemaError
 
     service, home = facade
     moved = tmp_path / "foreign"
-    linked = home.parent / directory
-    linked.rename(moved)
-    linked.symlink_to(moved, target_is_directory=True)
+    home.rename(moved)
+    home.symlink_to(moved, target_is_directory=True)
     with pytest.raises(ProviderStateSchemaError):
         service._adapter("deepseek").read_state(None)
     assert not (moved / "fake-app-server.log").exists()

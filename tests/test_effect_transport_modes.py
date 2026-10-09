@@ -97,20 +97,12 @@ def test_native_configs_use_owned_server_and_disable_host_impersonation(tmp_path
         {"binary": "fixture"}, "fixture", tmp_path, {}, ["mcp:harness_effects"], "full", []
     )
     assert "harness_effects" not in json.loads((tmp_path / "mcp.json").read_text())["mcpServers"]
-    monkeypatch.setattr("adapters.codex.native.configurations", lambda: {"codex": host})
     workspace = SimpleNamespace(cwd=tmp_path, permissions={})
     params = thread_parameters(
         {**config, "plugin_inventory": []}, {}, "fixture", workspace, RuntimeOptions([]), False
     )
     assert params["config"]["mcp_servers"]["harness_effects_fixture"] == {**owned, "enabled": True}
-    params = thread_parameters(
-        {"plugin_inventory": [], "integrations": ["mcp:harness_effects"], "personal_setup": True},
-        {},
-        "fixture",
-        workspace,
-        RuntimeOptions([]),
-        False,
-    )
+    params = thread_parameters({}, {}, "fixture", workspace, RuntimeOptions([]), False)
     assert "harness_effects" not in params["config"]["mcp_servers"]
     import os
 

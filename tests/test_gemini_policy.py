@@ -35,7 +35,7 @@ def test_policy_denies_unknown_tools_and_read_only_writes(tmp_path):
     assert env["GEMINI_CLI_SYSTEM_SETTINGS_PATH"] == str(tmp_path / "gemini-settings.json")
 
 
-def test_policy_removes_api_routing_and_filters_mcp(tmp_path):
+def test_policy_removes_api_routing_and_allows_no_mcp_server(tmp_path):
     from adapters.gemini.policy import prepare
 
     with (
@@ -45,18 +45,13 @@ def test_policy_removes_api_routing_and_filters_mcp(tmp_path):
             "os.environ",
             {"GEMINI_API_KEY": "secret", "GOOGLE_GEMINI_BASE_URL": "https://elsewhere"},
         ),
-        patch(
-            "adapters.gemini.policy.configurations",
-            return_value={"gemini": {"drive": {}, "other": {}}},
-        ),
     ):
-        command, env = prepare(
-            {"binary": "gemini", "integrations": ["mcp:drive"]}, tmp_path, {"internet": True}, "ask"
-        )
+        command, env = prepare({"binary": "gemini"}, tmp_path, {"internet": True}, "ask")
     assert "GEMINI_API_KEY" not in env and "GOOGLE_GEMINI_BASE_URL" not in env
-    assert command[command.index("--allowed-mcp-server-names") + 1] == "drive"
+    # No harness-side connector list (#46): the placeholder name matches no real server.
+    assert command[command.index("--allowed-mcp-server-names") + 1].startswith("keepharness-none-")
     rules = tomllib.loads((tmp_path / "gemini-policy.toml").read_text())["rule"]
-    assert any(r.get("mcpName") == "drive" and r["decision"] == "ask_user" for r in rules)
+    assert not any(r.get("mcpName") for r in rules)
     assert "secret" not in (tmp_path / "gemini-settings.json").read_text()
 
 

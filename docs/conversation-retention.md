@@ -41,11 +41,9 @@ request. The purge removes:
 - the session folders (`sessions/<conversation>` and `sessions/<turn>` for workflow step
   stages), step-engine run folders (`maestro/<turn>`, a persisted folder name kept from
   the removed Maestro planner) and workspace answer copies
-  (`workspaces/<id>/work/_harness_results/<turn>`);
-- provider sessions in the harness-owned provider homes (`provider_homes`, the state's
-  `providers/` folder): every file or folder named after a session id found in the
-  conversation's session markers or turn results. A provider home that holds or sits in the
-  person's own `~/.codex` or `~/.claude` is never walked.
+  (`workspaces/<id>/work/_harness_results/<turn>`).
+
+Provider sessions in the CLIs' own homes are not touched.
 
 Afterwards every turn's `/v1/jobs/{id}`, `/events`, `/spans` and `/artifacts/result.json`
 answers 404. The audit keeps one line per turn in `purged-turns.jsonl` (state folder,

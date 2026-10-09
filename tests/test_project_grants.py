@@ -156,7 +156,7 @@ def test_models_advertise_local_admin_link_on_vpn_hostname(tmp_path):
         app.state.service.db.close()
 
 
-def test_admin_accepts_project_only_delegate_and_explicit_personal_setup(tmp_path):
+def test_admin_accepts_project_only_delegate_and_drops_the_retired_personal_setup(tmp_path):
     from control.runtime_config import base_config
 
     manager = Manager(tmp_path / "state")
@@ -165,15 +165,11 @@ def test_admin_accepts_project_only_delegate_and_explicit_personal_setup(tmp_pat
     settings = {
         **manager.settings,
         "projects": [{"id": "p", "root": str(root), "permissions": {"delegate": True}}],
+        "personal_setup": True,  # retired in 0.16.0: ignored, never echoed back
     }
-    # The owner's personal-setup opt-in replaced the Claude-only global_hooks (decision D01).
-    settings["personal_setup"] = True
     checked = manager.validate(settings)
     assert checked["projects"][0]["permissions"] == {"delegate": True}
     assert "delegate" not in checked["services"]["claude"]["permissions"]
-    assert checked["personal_setup"] is True
+    assert "personal_setup" not in checked
     runtime = base_config(checked, tmp_path / "state", 8094, "http://127.0.0.1:8095/", {})
-    assert runtime["personal_setup"] is True
-    settings["personal_setup"] = "true"
-    with pytest.raises(ValueError, match="personal setup"):
-        manager.validate(settings)
+    assert "personal_setup" not in runtime

@@ -26,10 +26,7 @@ def runtime_options(config, permissions):
         PRODUCT.env_prefix + "_API_KEY": token,
     }
     command = build_command(
-        config["binary"],
-        command_permissions(config, permissions),
-        hosted_search=False,
-        host_config=False,
+        config["binary"], command_permissions(permissions), hosted_search=False, host_config=False
     )
     command += [
         "-c",

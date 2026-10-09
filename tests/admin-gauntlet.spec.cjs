@@ -176,6 +176,9 @@ const assert = require("node:assert/strict"),
               });
             response = {
               items: [
+                ...state.integrations.codex.filter(
+                  (item) => item.id === "mcp:hostile",
+                ),
                 {
                   id: "plugin:example@fixture",
                   name: "Example",
@@ -304,11 +307,11 @@ const assert = require("node:assert/strict"),
         }
         if (profile === 4) {
           await edit();
+          await models().nth(1).check();
           await page
             .getByRole("button", { name: "Connectors", exact: true })
             .focus();
           await page.keyboard.press("Enter");
-          await page.getByRole("checkbox", { name: /Drive/ }).uncheck();
           page.once("dialog", (d) => d.dismiss());
           await page.keyboard.press("Escape");
           assert(
@@ -409,13 +412,10 @@ const assert = require("node:assert/strict"),
           await page
             .getByRole("button", { name: "Connectors", exact: true })
             .click();
-          assert.equal(
-            await page.locator("#integration-selection img").count(),
-            0,
-          );
+          assert.equal(await page.locator("#integrations img").count(), 0);
           assert.equal(await page.evaluate(() => window.pwned), undefined);
           assert.match(
-            await page.locator("#integration-selection").innerText(),
+            await page.locator("#integrations").innerText(),
             /<img/i,
           );
         }
@@ -523,17 +523,11 @@ const assert = require("node:assert/strict"),
             .locator("#catalog-status")
             .filter({ hasText: "Catalog unavailable" })
             .waitFor();
-          assert(
-            await page.getByRole("checkbox", { name: /Example/ }).isChecked(),
-          );
           failCatalog = false;
           await page.click("#catalog-refresh");
           await page
             .getByRole("button", { name: "Install New " + round, exact: true })
             .waitFor();
-          assert(
-            await page.getByRole("checkbox", { name: /Example/ }).isChecked(),
-          );
         }
         if (profile === 15) {
           await edit();

@@ -20,11 +20,7 @@ from adapters.claude.auth import cli_login_environment
 from adapters.codex.rpc import metadata
 from adapters.deepseek import account as deepseek
 from adapters.gemini import account as gemini
-from adapters.shared.provider_setup import (
-    child_source,
-    homes_root,
-    login_environment,
-)
+from adapters.shared.provider_setup import login_environment
 from agent_service.config import VERSION_FILE
 from agent_service.errors import UserMessageError
 from agent_service.work_items import validate_pattern
@@ -98,6 +94,15 @@ def migrate_local_ai_directory(root: Path, state: Path) -> None:
         target.write_text(text.replace("local-ai/", "local_ai/"))
 
 
+def drop_retired_settings(settings):
+    """Forget the 0.15 personal-setup switch and the per-provider integrations allow list (#46)."""
+    if isinstance(settings, dict):
+        settings.pop("personal_setup", None)
+        for spec in (settings.get("services") or {}).values():
+            if isinstance(spec, dict):
+                spec.pop("integrations", None)
+
+
 def clamp_legacy_bind(settings):
     """Load a saved or imported non-loopback ``vpn_bind`` (VPN key era) as 127.0.0.1 (D-039)."""
     if isinstance(settings, dict) and settings.get("vpn_bind", "127.0.0.1") != "127.0.0.1":
@@ -143,7 +148,6 @@ class Manager:
                         "models": [],
                         "projects": ["sem-projeto"],
                         "mode": "native",
-                        "integrations": [],
                         "permissions": {k: False for k in PERMISSIONS},
                     }
                     for p in ("codex", "claude", "gemini", "local", "deepseek")
@@ -157,6 +161,7 @@ class Manager:
             }
         )
         clamp_legacy_bind(self.settings)
+        drop_retired_settings(self.settings)
         self.settings["services"].setdefault(
             "deepseek",
             {
@@ -165,7 +170,6 @@ class Manager:
                 "models": [],
                 "projects": ["sem-projeto"],
                 "mode": "native",
-                "integrations": [],
                 "permissions": {k: False for k in PERMISSIONS},
             },
         )
@@ -177,7 +181,6 @@ class Manager:
                 "models": [],
                 "projects": ["sem-projeto"],
                 "mode": "native",
-                "integrations": [],
                 "permissions": {k: False for k in PERMISSIONS},
             },
         )
@@ -261,10 +264,6 @@ class Manager:
             data.get("services", {}).get(p, {}).get("enabled") is True
             for p in ("codex", "claude", "gemini", "deepseek")
         )
-        # The owner's own Codex and Claude Code setup in their conversations (decision D01).
-        if type(data.get("personal_setup", False)) is not bool:
-            raise UserMessageError("Use my personal setup must be an explicit boolean.")
-        out["personal_setup"] = data.get("personal_setup", False)
         # Full access in the chat's access menu: off until the owner turns it on (decision D11).
         if type(data.get("full_access", False)) is not bool:
             raise UserMessageError("Allow Full access must be an explicit boolean.")
@@ -477,12 +476,6 @@ class Manager:
                 raise UserMessageError(
                     "Enable global uploads before allowing attachments on the service."
                 )
-            selected = spec.get("integrations", [])
-            available = {x["id"] for x in self.integrations().get(provider, [])}
-            if not isinstance(selected, list) or any(x not in available for x in selected):
-                raise UserMessageError("Integration not found. Refresh the inventory.")
-            if selected and not perms["internet"]:
-                raise UserMessageError("Connectors require internet access in this version.")
             enabled = spec.get("enabled") is True
             allowed_projects = ["sem-projeto", *[p["id"] for p in projects]]
             if enabled and not models:
@@ -491,7 +484,6 @@ class Manager:
                 "added": spec.get("added") is True or enabled or bool(models),
                 # Providers are native-only; isolation is chosen per conversation.
                 "mode": "native",
-                "integrations": selected,
                 "enabled": enabled,
                 "models": list(dict.fromkeys(models)),
                 "projects": allowed_projects,
@@ -637,7 +629,6 @@ class Manager:
 
     async def apply_settings(self, data):
         settings = self.validate(data)
-        # The new configuration may repair integrations removed from the CLI.
         current = {
             "port": self.settings.get("port", 8095),
             "vpn_bind": self.settings.get("vpn_bind", "127.0.0.1"),
@@ -684,11 +675,9 @@ class Manager:
         """
         if provider == "codex":
             # The login KeepHarness signed in with, in its own home (decision D02).
-            code, _ = await discovery.command(
-                binary, "login", "status", env=login_environment(self.state, "codex")
-            )
+            code, _ = await discovery.command(binary, "login", "status", env=login_environment())
             return {"signed_in": code == 0, "identity": None}
-        env = cli_login_environment(self.state)
+        env = cli_login_environment()
         code, raw = await discovery.command(binary, "auth", "status", "--json", env=env)
         try:
             status = json.loads(raw) if code == 0 else {}
@@ -741,11 +730,7 @@ class Manager:
             # The login KeepHarness signed in with, in its own home (decision D02).
             authenticated = (await self.signed_in("codex", info["binary"]))["signed_in"]
             if authenticated:
-                listing = await metadata(
-                    info["binary"],
-                    "model/list",
-                    env=child_source({"provider_homes": str(homes_root(self.state))}, "codex"),
-                )
+                listing = await metadata(info["binary"], "model/list")
                 self.provider_models[provider] = {
                     m["id"]: [e["reasoningEffort"] for e in m.get("supportedReasoningEfforts", [])]
                     or ["low"]
@@ -756,9 +741,7 @@ class Manager:
             self.provider_models[provider] = {}
             if authenticated:
                 self.provider_models[provider] = claude.model_catalog(
-                    await claude.metadata(
-                        {"binary": info["binary"], "provider_homes": str(homes_root(self.state))}
-                    )
+                    await claude.metadata({"binary": info["binary"]})
                 )
         self.auth[provider] = authenticated
         self.audit("provider_check:" + provider)

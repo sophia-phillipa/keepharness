@@ -16,7 +16,6 @@ from pathlib import Path
 from types import MappingProxyType
 
 from adapters.deepseek import account as deepseek
-from adapters.shared.provider_setup import homes_root
 from agent_service.errors import UserMessageError
 
 from . import local_access
@@ -52,7 +51,6 @@ def base_config(settings, state, admin_port, browser_url, provider_revisions):
         "default_backend": settings.get("default_backend", ""),
         "project_registration": True,
         "control_state_dir": str(state),
-        "personal_setup": settings.get("personal_setup") is True,
         "full_access": settings.get("full_access") is True,
         "admin_url": f"http://127.0.0.1:{admin_port}/",
         "local_access": settings.get("vpn_bind", "127.0.0.1") == "127.0.0.1",
@@ -121,8 +119,6 @@ def build_deepseek(cfg, provider, spec, checked, info, state):
             "url": deepseek.API,
             "key_file": str(deepseek.key_file(state)),
         },
-        "integrations": spec.get("integrations", []),
-        "provider_homes": str(homes_root(state)),
     }
     cfg["deepseek_models"] = {m: checked["models"][m] for m in spec["models"]}
 
@@ -175,7 +171,6 @@ def build_cli_provider(cfg, provider, spec, checked, info, state):
     cfg[provider] = {
         "binary": str(binary),
         "python": sys.executable,
-        "integrations": spec.get("integrations", []),
     }
     if provider not in ("codex", "claude"):
         cfg[provider]["auth_file"] = info["auth_file"]

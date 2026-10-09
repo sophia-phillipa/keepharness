@@ -209,8 +209,6 @@ def run_app_server_turn(executable, session, provider, project, tmp_path):
 @pytest.fixture
 def app_server_home(tmp_path, monkeypatch):
     monkeypatch.setenv("CODEX_HOME", str(tmp_path / "codex-home"))
-    monkeypatch.setattr("adapters.codex.native.configurations", lambda: {"codex": {}})
-    monkeypatch.setattr("adapters.codex.native.inventory", lambda: {"codex": []})
 
 
 def image_project(tmp_path, size):
@@ -272,8 +270,6 @@ def native_codex_turn(tmp_path, notifications, runs=1):
 
     with (
         patch("adapters.codex.native.connection", connection),
-        patch("adapters.codex.native.configurations", return_value={"codex": {}}),
-        patch("adapters.codex.native.inventory", return_value={"codex": []}),
     ):
         results = [
             asyncio.run(

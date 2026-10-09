@@ -17,12 +17,8 @@ class DeepSeekStateAdapter(CodexStateAdapter):
 
     def __init__(self, state):
         self.state = Path(state)
-        super().__init__(
-            environment={
-                "HOME": str(self.state / "providers" / "home"),
-                "CODEX_HOME": str(self.state / "providers" / "deepseek"),
-            }
-        )
+        home = str(self.state / "providers" / "deepseek")
+        super().__init__(environment={"HOME": home, "CODEX_HOME": home})
 
     def _environment(self):
         # Listing state never needs the API key or any credential contents. Reject

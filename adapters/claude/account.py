@@ -8,7 +8,6 @@ import time
 from datetime import datetime
 
 from adapters.shared.process import child_environment, process_diagnostics
-from adapters.shared.provider_setup import child_source
 
 # Active versions omitted by the CLI picker. Reviewed 2026-09-26 against
 # https://platform.claude.com/docs/en/about-claude/model-deprecations and
@@ -50,7 +49,7 @@ async def metadata(config, subtype="initialize"):
             '{"disableAllHooks":true,"enabledPlugins":{}}',
             "--no-session-persistence",
             cwd=cwd,
-            env=child_environment(child_source(config, "claude")),
+            env=child_environment(),
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,

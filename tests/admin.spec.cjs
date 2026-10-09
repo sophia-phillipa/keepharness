@@ -163,14 +163,6 @@ const assert = require("node:assert/strict");
   const permissions = p.locator("#permission-editor");
   await p
     .locator("#inspector-tabs")
-    .getByText("Connectors", { exact: true })
-    .click();
-  await p
-    .locator("#integration-selection")
-    .getByLabel("Drive", { exact: true })
-    .check();
-  await p
-    .locator("#inspector-tabs")
     .getByText("Model and hardware", { exact: true })
     .click();
   assert.match(
@@ -199,7 +191,11 @@ const assert = require("node:assert/strict");
   assert(saved.services.codex.enabled);
   assert.deepEqual(saved.services.codex.models, ["model-one"]);
   assert(saved.projects.some((project) => project.id === "demo"));
-  assert.deepEqual(saved.services.codex.integrations, ["mcp:drive"]);
+  assert.deepEqual(
+    saved.services.codex.integrations ?? [],
+    [],
+    "the per-provider allow list is no longer edited (#46)",
+  );
   assert.equal(saved.uploads_enabled, false); // Effective cloud grants are normalized by the server, covered in Python.
   // The provider list re-renders after the save toast; wait for it instead of counting at once.
   await p.waitForFunction(

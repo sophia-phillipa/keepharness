@@ -42,12 +42,8 @@ def test_codex_automatic_is_a_workspace_sandbox_on_the_project(tmp_path, provide
         "excludeSlashTmp": True,
         "excludeTmpdirEnvVar": True,
     }
-    # Connector calls leave the project too: each one asks.
-    if provider == "deepseek":
-        host = {name: thread["config"]["mcp_servers"][name] for name in HOST_SERVERS}
-        assert {spec["default_tools_approval_mode"] for spec in host.values()} == {"prompt"}
-    else:
-        assert not set(HOST_SERVERS) & thread["config"]["mcp_servers"].keys()
+    # Host connectors never reach the app-server config: the CLI keeps its own.
+    assert not set(HOST_SERVERS) & thread["config"]["mcp_servers"].keys()
 
 
 @pytest.mark.parametrize("provider", ["codex", "deepseek"])

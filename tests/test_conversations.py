@@ -307,7 +307,6 @@ def retention(tmp_path):
     state = tmp_path / "state"
     config = {
         "state_dir": str(state),
-        "provider_homes": str(state / "providers"),
         "origins": ["http://testserver"],
         "projects": {"shared": {}},
         "uploads_enabled": True,
@@ -388,16 +387,6 @@ def test_deleted_conversation_unreadable_and_purged(retention):
     seed_turn(service, "purged-root", files=[gone_file, own_file], thread=PURGED_THREAD)
     seed_turn(service, "purged-next", parent="purged-root", files=[gone_file])
     seed_turn(service, "kept-root", files=[kept_file], thread=KEPT_THREAD)
-    session = state / "sessions" / "purged-root" / "codex"
-    session.mkdir(parents=True)
-    (session / "native-thread.json").write_text(json.dumps({"id": PURGED_THREAD}))
-    rollouts = state / "providers" / "home" / ".codex" / "sessions" / "2026" / "10" / "04"
-    rollouts.mkdir(parents=True)
-    purged_copy = rollouts / f"rollout-2026-10-04T10-00-00-{PURGED_THREAD}.jsonl"
-    kept_copy = rollouts / f"rollout-2026-10-04T11-00-00-{KEPT_THREAD}.jsonl"
-    for copy in (purged_copy, kept_copy):
-        copy.write_text('{"text":"provider copy"}\n')
-
     response = client.delete("/v1/conversations/purged-root")
 
     assert response.status_code == 200, response.text
@@ -413,8 +402,6 @@ def test_deleted_conversation_unreadable_and_purged(retention):
     assert not (state / "files" / "shared" / gone_file).exists()
     assert not (state / "files" / "shared" / own_file).exists()
     assert not (state / "sessions" / "purged-root").exists()
-    assert not purged_copy.exists()
-    assert kept_copy.exists()
     # The kept conversation's upload shared the bytes by sha256 and survives whole.
     assert (state / "files" / "shared" / kept_file / "source").read_bytes() == shared
     assert client.get("/v1/conversations/kept-root").status_code == 200
@@ -541,23 +528,3 @@ def test_capability_card_retention_matches_archive_and_permanent_delete(retentio
     text = client.get("/.well-known/agent-capabilities.json").json()["retention"]
     assert "Archive" in text and "Unarchive" in text and "Delete permanently" in text
     assert "hidden on deletion" not in text and "admin handles" not in text
-
-
-def test_purge_never_reaches_the_personal_codex_or_claude_setup(tmp_path, monkeypatch):
-    from pathlib import Path
-
-    from agent_service.services import retention
-
-    monkeypatch.setattr(Path, "home", lambda: tmp_path)
-    ids = {PURGED_THREAD}
-    for folder in (".codex/sessions", ".claude/projects", "state/providers/home/.codex"):
-        (tmp_path / folder).mkdir(parents=True)
-        (tmp_path / folder / f"rollout-{PURGED_THREAD}.jsonl").write_text("{}")
-
-    assert retention.provider_copies(tmp_path, ids) == []
-    assert retention.provider_copies(tmp_path / ".codex", ids) == []
-    assert retention.provider_copies(tmp_path / ".claude", ids) == []
-    owned = tmp_path / "state" / "providers"
-    assert retention.provider_copies(owned, ids) == [
-        owned / "home" / ".codex" / f"rollout-{PURGED_THREAD}.jsonl"
-    ]

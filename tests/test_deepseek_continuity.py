@@ -151,11 +151,7 @@ def test_deepseek_resumes_full_history_with_reasoning(
             )
 
     try:
-        with (
-            patch("adapters.codex.native.configurations", return_value={"codex": {}}),
-            patch("adapters.codex.native.inventory", return_value={"codex": []}),
-        ):
-            asyncio.run(turns())
+        asyncio.run(turns())
     finally:
         server.shutdown()
         server.server_close()

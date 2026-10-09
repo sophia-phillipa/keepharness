@@ -211,28 +211,23 @@ def snapshot(root):
     )
 
 
-def provider_turn(tmp_path, provider, *, personal=False, mode="auto", scheduled=False):
+def provider_turn(tmp_path, provider, *, personal=False, mode="auto"):
     """One stubbed native turn; returns what the fake CLI saw."""
     import adapters
-    from adapters.shared.provider_setup import run_settings
 
     record = tmp_path / (provider + "-record.json")
     body = FAKE_CLAUDE if provider == "claude" else FAKE_CODEX
     binary = write_executable(tmp_path / ("fake-" + provider), body, record)
     config = {
         "binary": str(binary),
-        "provider_homes": str(tmp_path / "state" / "providers"),
+        # Retired 0.15 keys: still passed, never acted on (#46).
         "integrations": ["mcp:sentinel_mcp"],
+        "personal_setup": personal,
         "unrestricted": True,
-        # What the dispatch adds for an owner's own conversation (not scheduled).
-        **run_settings(
-            {"personal_setup": personal}, provider, data={"schedule_id": "s"} if scheduled else {}
-        ),
     }
     if provider == "deepseek":
         key = tmp_path / "state" / "deepseek.key"
         (key.parent / "providers" / "deepseek").mkdir(mode=0o700, parents=True)
-        (key.parent / "providers" / "home").mkdir(mode=0o700, parents=True)
         key.write_text("fixture-key")
         config["api_provider"] = {"url": "http://127.0.0.1:9/v1", "key_file": str(key)}
     session = tmp_path / "sessions" / provider
@@ -295,6 +290,8 @@ def test_deepseek_keeps_its_dedicated_home(tmp_path, personal_home):
     record = provider_turn(tmp_path, "deepseek")
     assert snapshot(personal_home) == before
     assert Path(record["env"]["CODEX_HOME"]) == tmp_path / "state/providers/deepseek"
+    assert record["env"]["HOME"] == record["env"]["CODEX_HOME"]
+    assert not (tmp_path / "state/providers/home").exists()
     assert SENTINEL not in seen_text(record)
 
 

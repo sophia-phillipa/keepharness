@@ -21,15 +21,8 @@ SECRET = "SECRET-TOKEN-123"
 DAY = 86400
 NATIVE = "Availability and approvals follow the native CLI configuration and selected access mode."
 ISOLATED = "Isolated conversations use no host connectors or plugins."
-NOT_ALLOWED = "Not allowed for this provider. Change it in Settings › System › Providers."
-REMOTE_PLUGIN = (
-    "Remote ChatGPT plugins bring their tools as Codex apps, which harness runs turn off."
-)
+NOT_ALLOWED = "This provider does not use host connectors or plugins; Codex and Claude Code use their own native configuration."
 GEMINI_READ_ONLY = "Read-only access turns connectors off for Gemini."
-READ_ONLY = "Read-only access turns connectors and plugins off."
-GEMINI_INTERNET = "Gemini connectors need the internet permission."
-ASKS = "Each connector call asks for your approval."
-NO_ASK = "Connector calls run without asking (full access)."
 
 
 @pytest.fixture
@@ -96,12 +89,11 @@ enabled = true
     return root
 
 
-def service_entry(models, integrations=(), **permissions):
+def service_entry(models, **permissions):
     return {
         "enabled": True,
         "models": list(models),
         "projects": ["p"],
-        "integrations": list(integrations),
         "permissions": {"read": True, **permissions},
     }
 
@@ -117,14 +109,13 @@ def settings(tmp_path):
             "b": {"sha256": hashlib.sha256(b"b").hexdigest(), "projects": ["p", "q"]},
         },
         "services": {
-            "codex": service_entry(["m"], ["mcp:github", "plugin:notes@market"]),
-            "claude": service_entry(["m"], ["mcp:github", "plugin:notes@market"]),
-            "gemini": service_entry(["m"], ["mcp:search"], internet=True),
+            "codex": service_entry(["m"]),
+            "claude": service_entry(["m"]),
+            "gemini": service_entry(["m"], internet=True),
             "local": service_entry(["m"]),
         },
         "codex": {"unrestricted": True},
         "claude": {"unrestricted": True},
-        "personal_setup": True,  # host connectors come only with the owner's opt-in (D01)
     }
 
 
@@ -295,44 +286,6 @@ def test_claude_inventory_has_connectors_then_plugins_sorted_by_name(client):
     assert ids == ["mcp:files", "mcp:github", "plugin:docs@market", "plugin:notes@market"]
 
 
-def test_installed_plugin_catalog_replaces_the_profile_plugins(client, settings):
-    settings.setdefault("deepseek", {})["plugin_inventory"] = [
-        "plugin:notes@market",
-        "plugin:extra@market",
-    ]
-    settings["services"].setdefault(
-        "deepseek", service_entry(["m"], ["mcp:github", "plugin:notes@market"])
-    )
-    items = items_by_id(view(client, backend="deepseek"))
-    assert items["plugin:extra@market"]["status"] == "installed"
-    assert items["plugin:extra@market"]["allowed"] is False
-    assert items["plugin:notes@market"]["allowed"] is True
-
-
-def test_remote_chatgpt_plugins_are_not_effective_in_deepseek_runs(client, settings):
-    # Separate-home DeepSeek runs set features.apps=false; remote ChatGPT plugins bring their
-    # tools as apps, so a real run never sees them (checked live 2026-10-03).
-    settings.setdefault("deepseek", {})["plugin_inventory"] = [
-        "plugin:github@openai-curated-remote",
-        "plugin:notes@market",
-    ]
-    settings["services"]["deepseek"] = service_entry(["m"], [])
-    settings["services"]["deepseek"]["integrations"] = [
-        "plugin:github@openai-curated-remote",
-        "plugin:notes@market",
-    ]
-    settings["services"].setdefault(
-        "deepseek", service_entry(["m"], ["mcp:github", "plugin:notes@market"])
-    )
-    items = items_by_id(view(client, backend="deepseek"))
-    remote = items["plugin:github@openai-curated-remote"]
-    assert remote["allowed"] is True and remote["effective"] is False
-    assert remote["reason"] == REMOTE_PLUGIN
-    assert items["plugin:notes@market"]["effective"] is True
-    claude = items_by_id(view(client, backend="claude"))
-    assert all(item["reason"] != REMOTE_PLUGIN for item in claude.values())
-
-
 # -- allowed / effective / reason matrix --------------------------------------------------------
 
 
@@ -351,13 +304,6 @@ def test_codex_native_defers_availability_to_the_cli(client):
     }
 
 
-def test_deepseek_shares_the_codex_inventory(client, settings):
-    settings["services"]["deepseek"] = service_entry(["m"], ["mcp:github"])
-    state = effective_state(view(client, backend="deepseek"))
-    assert state["mcp:github"] == (True, True, "")
-    assert state["mcp:files"] == (False, False, NOT_ALLOWED)
-
-
 @pytest.mark.parametrize("backend", ["claude", "codex"])
 @pytest.mark.parametrize("mode", ["ask", "auto", "full", "read_only"])
 @pytest.mark.parametrize("unrestricted,shell", [(True, True), (False, True), (True, False)])
@@ -373,48 +319,29 @@ def test_native_approvals_follow_cli_settings(client, settings, backend, mode, u
     )
 
 
-def test_deepseek_read_only_turns_connectors_and_plugins_off(client, settings):
-    settings["services"]["deepseek"] = service_entry(["m"], ["mcp:github", "plugin:notes@market"])
-    body = view(client, backend="deepseek", access_mode="read_only").json()
-    assert {(item["effective"], item["reason"]) for item in body["items"] if item["allowed"]} == {
-        (False, READ_ONLY)
-    }
+@pytest.mark.parametrize("access_mode", ["ask", "auto", "full", "read_only"])
+def test_deepseek_sees_no_host_connectors_in_its_own_home(client, settings, access_mode):
+    settings["services"]["deepseek"] = service_entry(["m"])
+    body = view(client, backend="deepseek", access_mode=access_mode).json()
+    assert body["items"] == []
+    assert body["warnings"] == [integrations_view.DEEPSEEK_OWN_HOME]
 
 
-def test_deepseek_ask_gates_every_connector_call(client, settings):
-    settings["services"]["deepseek"] = service_entry(["m"], ["mcp:github"])
-    body = view(client, backend="deepseek", access_mode="ask").json()
-    assert body["effective_note"] == ASKS
-    assert effective_state(view(client, backend="deepseek"))["mcp:github"] == (True, True, "")
+def test_deepseek_ignores_a_plugin_catalog_kept_in_the_settings(client, settings):
+    settings["services"]["deepseek"] = service_entry(["m"])
+    settings.setdefault("deepseek", {})["plugin_inventory"] = ["plugin:extra@market"]
+    assert view(client, backend="deepseek").json()["items"] == []
 
 
-def test_gemini_with_internet_uses_allowed_connectors(client):
-    assert effective_state(view(client, backend="gemini")) == {"mcp:search": (True, True, "")}
-
-
-def test_gemini_connectors_need_the_internet_permission(client, settings):
-    settings["services"]["gemini"]["permissions"]["internet"] = False
-    assert effective_state(view(client, backend="gemini")) == {
-        "mcp:search": (True, False, GEMINI_INTERNET)
-    }
-
-
-def test_project_grant_supplies_the_gemini_internet_permission(client, settings):
-    settings["services"]["gemini"]["permissions"]["internet"] = False
-    settings["projects"]["p"] = {"permissions": {"internet": True}}
-    assert effective_state(view(client, backend="gemini"))["mcp:search"] == (True, True, "")
-
-
-def test_gemini_read_only_turns_connectors_off(client):
-    assert effective_state(view(client, backend="gemini", access_mode="read_only")) == {
-        "mcp:search": (True, False, GEMINI_READ_ONLY)
-    }
-
-
-def test_gemini_item_that_is_not_allowed_says_so(client, settings):
-    settings["services"]["gemini"]["integrations"] = []
+def test_gemini_items_are_never_allowed_by_the_harness(client):
     assert effective_state(view(client, backend="gemini")) == {
         "mcp:search": (False, False, NOT_ALLOWED)
+    }
+
+
+def test_gemini_read_only_says_connectors_are_off(client):
+    assert effective_state(view(client, backend="gemini", access_mode="read_only")) == {
+        "mcp:search": (False, False, GEMINI_READ_ONLY)
     }
 
 
@@ -602,15 +529,6 @@ def test_missing_profiles_are_an_empty_inventory_without_warnings(client, home):
     assert (body["items"], body["warnings"]) == ([], [])
 
 
-@pytest.mark.parametrize("backend", ["deepseek"])
-def test_personal_connectors_do_not_appear_without_the_opt_in(client, settings, backend):
-    settings["personal_setup"] = False
-    settings["services"]["deepseek"] = service_entry(["m"], ["mcp:github"])
-    body = view(client, backend=backend).json()
-    assert body["items"] == []
-    assert body["warnings"] == [integrations_view.PERSONAL_SETUP_OFF]
-
-
 # -- tools connected on another provider ---------------------------------------------------------
 
 
@@ -636,149 +554,19 @@ def test_plugin_directory_javascript_family_cases_share_the_python_contract():
         assert integrations_view.family_key(case["item"]) == case["key"]
 
 
-def elsewhere(client, **query):
-    response = view(client, **query)
-    assert response.status_code == 200, response.text
-    return {entry["key"]: entry for entry in response.json()["elsewhere"]}
-
-
 @pytest.fixture
-def github_on_codex(home, settings):
-    """GitHub is a plugin on Codex and an installed but not allowed MCP server on Claude Code."""
+def github_on_codex(home):
+    """GitHub is a plugin on Codex and an installed MCP server on Claude Code."""
     with (home / ".codex/config.toml").open("a") as profile:
         profile.write('\n[plugins."github@openai-curated"]\nenabled = true\n')
-    settings["services"]["codex"]["integrations"] = ["plugin:github@openai-curated"]
-    settings["services"]["claude"]["integrations"] = []
-    settings["services"]["gemini"]["integrations"] = []
-    settings["services"]["deepseek"] = service_entry(["m"], ["plugin:github@openai-curated"])
 
 
-def test_native_inventory_does_not_offer_unverified_enable_actions(client, github_on_codex):
-    assert elsewhere(client, backend="claude") == {}
-    assert elsewhere(client, backend="codex") == {}
-
-
-def test_a_tool_allowed_elsewhere_is_absent_where_it_is_not_installed(client, github_on_codex):
-    entry = elsewhere(client, backend="gemini")["github"]
-    assert entry["here"] == "absent"
-    assert entry["providers"] == [
-        {"backend": "deepseek", "allowed": True, "effective_capable": True}
-    ]
-
-
-def test_a_tool_allowed_elsewhere_can_be_enabled_where_installed(client, github_on_codex, home):
-    (home / ".gemini/settings.json").write_text(
-        json.dumps({"mcpServers": {"github": {"command": "fixture"}}})
-    )
-    entry = elsewhere(client, backend="gemini")["github"]
-    assert entry["here"] == "enable"
-    assert entry["providers"] == [
-        {"backend": "deepseek", "allowed": True, "effective_capable": True}
-    ]
-
-
-def test_a_tool_already_allowed_on_this_provider_is_not_reported(
-    client, github_on_codex, settings, home
-):
-    (home / ".gemini/settings.json").write_text(
-        json.dumps({"mcpServers": {"github": {"command": "fixture"}}})
-    )
-    settings["services"]["gemini"]["integrations"] = ["mcp:github"]
-    assert "github" not in elsewhere(client, backend="gemini")
-
-
-def test_providers_sharing_one_inventory_are_not_elsewhere_for_each_other(client, github_on_codex):
-    assert "github" not in elsewhere(client, backend="deepseek")
-    assert "github" not in elsewhere(client, backend="codex")
-
-
-def test_a_disabled_provider_does_not_count(client, github_on_codex, settings):
-    settings["services"]["deepseek"]["enabled"] = False
-    assert "github" not in elsewhere(client, backend="gemini")
-
-
-def test_nothing_is_reported_without_the_personal_setup(client, github_on_codex, settings):
-    settings["personal_setup"] = False
-    assert view(client, backend="gemini").json()["elsewhere"] == []
-
-
-def test_a_blocked_route_still_reports_what_is_connected_elsewhere(client, github_on_codex):
-    entry = elsewhere(client, backend="gemini", access_mode="read_only")["github"]
-    assert entry["here"] == "absent"
-
-
-def test_a_remote_plugin_is_allowed_elsewhere_but_not_effective_capable(
-    client, github_on_codex, settings, home
-):
-    (home / ".codex/config.toml").write_text('[plugins."slack@openai-remote"]\nenabled = true\n')
-    settings["services"]["deepseek"]["integrations"] = ["plugin:slack@openai-remote"]
-    entry = elsewhere(client, backend="gemini")["slack"]
-    assert entry["providers"][0] == {
-        "backend": "deepseek",
-        "allowed": True,
-        "effective_capable": False,
-    }
-
-
-def test_elsewhere_is_capped(client, github_on_codex, settings, monkeypatch):
-    names = [f"tool-{number:03d}" for number in range(60)]
-    fake = {"codex": [{"id": "mcp:" + n, "name": n, "kind": "mcp"} for n in names]}
-    monkeypatch.setattr(
-        integrations_view,
-        "inventory",
-        lambda: {
-            "claude": [],
-            "gemini": [],
-            "local": fake["codex"],
-            "deepseek": fake["codex"],
-            **fake,
-        },
-    )
-    settings["services"]["deepseek"]["integrations"] = ["mcp:" + n for n in names]
-    entries = view(client, backend="gemini").json()["elsewhere"]
-    assert [entry["key"] for entry in entries] == names[: integrations_view.ELSEWHERE_LIMIT]
-    assert integrations_view.ELSEWHERE_LIMIT == 50
-
-
-def test_elsewhere_label_keeps_the_name_as_the_menu_shows_it(
-    client, github_on_codex, settings, monkeypatch
-):
-    fake = [
-        {"id": "mcp:GitHub", "name": "GitHub", "kind": "mcp"},
-        {"id": "plugin:PostgreSQL@market", "name": "PostgreSQL@market", "kind": "plugin"},
-        {"id": "mcp:linear_app", "name": "linear_app", "kind": "mcp"},
-    ]
-    monkeypatch.setattr(
-        integrations_view,
-        "inventory",
-        lambda: {"claude": [], "gemini": [], "local": fake, "deepseek": fake, "codex": fake},
-    )
-    settings["services"]["deepseek"]["integrations"] = [item["id"] for item in fake]
-    labels = {key: entry["label"] for key, entry in elsewhere(client, backend="gemini").items()}
-    # Display casing wins; a lowercase id falls back to the title-cased key.
-    assert labels == {"github": "GitHub", "postgresql": "PostgreSQL", "linear-app": "Linear App"}
-
-
-def test_a_provider_not_allowed_for_the_project_is_not_counted(client, github_on_codex, settings):
-    settings["services"]["deepseek"]["projects"] = ["q"]
-    assert "github" not in elsewhere(client, backend="gemini")
-
-
-def test_a_provider_without_allowed_models_is_not_counted(client, github_on_codex, settings):
-    settings["services"]["deepseek"]["models"] = []
-    assert "github" not in elsewhere(client, backend="gemini")
-
-
-def test_the_scoped_only_local_backend_is_never_a_source(client, settings):
-    settings["personal_setup"] = False
-    settings["services"]["local"]["integrations"] = ["mcp:github"]
-    body = view(client, backend="gemini").json()
-    assert all(
-        provider["backend"] != "local"
-        for entry in body["elsewhere"]
-        for provider in entry["providers"]
-    )
-    assert "github" not in {entry["key"] for entry in body["elsewhere"]}
+@pytest.mark.parametrize("backend", ["claude", "codex", "gemini", "deepseek", "local"])
+def test_nothing_is_reported_as_connected_elsewhere(client, settings, github_on_codex, backend):
+    settings["services"].setdefault("deepseek", service_entry(["m"]))
+    response = view(client, backend=backend)
+    assert response.status_code == 200, response.text
+    assert response.json()["elsewhere"] == []
 
 
 def test_the_inventory_is_read_once_per_view(client, github_on_codex, monkeypatch):
@@ -791,9 +579,7 @@ def test_the_inventory_is_read_once_per_view(client, github_on_codex, monkeypatc
 
 @pytest.mark.parametrize("backend", ["codex", "claude"])
 @pytest.mark.parametrize("mode", ["ask", "auto", "full", "read_only"])
-def test_native_inventory_does_not_invent_cli_availability(client, settings, backend, mode):
-    settings["personal_setup"] = False
-    settings["services"][backend]["integrations"] = []
+def test_native_inventory_does_not_invent_cli_availability(client, backend, mode):
     body = view(client, backend=backend, access_mode=mode).json()
     assert body["items"]
     assert body["warnings"] == []

@@ -100,9 +100,6 @@ def candidates(config, project, uploads=False, execution_mode=None):
                         "model": model,
                         "efforts": efforts,
                         "permissions": permissions,
-                        "integrations": []
-                        if provider == "local" and "model_permissions" in spec
-                        else spec.get("integrations", []),
                         "mode": mode,
                         "operations": sorted(set(operations)),
                     }

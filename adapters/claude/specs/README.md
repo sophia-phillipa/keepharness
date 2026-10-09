@@ -138,12 +138,11 @@ and model, while tool grants remain controlled by the Harness. This catalog
 materialization route is covered by synthetic adapter tests, not a paid live
 certification of `--agents` execution.
 
-Hooks use `--setting-sources project` by default. The owner's personal-setup
-opt-in (`personal_setup: true`, which replaced `global_hooks` in 0.15.0) also
-requires the hooks grant and changes the emitted scope to `global_and_project`:
-it adds the `user` setting source and passes the owner's own `hooks` from
-`~/.claude/settings.json` through `--settings`. Guests and scheduled runs never
-get it. An unrelated global hook is not enabled by a project hook grant alone.
+Hooks use `--setting-sources project` by default. There is no personal-setup
+opt-in any more (retired in 0.16.0, #46): Claude Code reads the owner's own
+`~/.claude` through the CLI's native settings, so the harness does not pass the
+owner's `hooks` through `--settings`. An unrelated global hook is not enabled by
+a project hook grant alone.
 
 A leading native command is preserved only when the Harness can retain its
 native position and context. Other invocations use the inline fallback.

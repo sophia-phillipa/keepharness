@@ -171,13 +171,10 @@ const assert = require("node:assert/strict");
       .getByRole("button", { name: "Install Sentry", exact: true })
       .waitFor();
     await tabs.getByText("Connectors", { exact: true }).click();
-    const drive = page.getByRole("checkbox", { name: /Drive/ });
-    await drive.uncheck();
     await page.locator("#wizard-back").click();
     assert(await page.locator("#provider-wizard").isVisible());
     await tabs.getByText("Plugins", { exact: true }).click();
     await tabs.getByText("Connectors", { exact: true }).click();
-    assert(!(await drive.isChecked()));
     failSave = true;
     await page.click("#save");
     await page
@@ -185,7 +182,6 @@ const assert = require("node:assert/strict");
       .filter({ hasText: "Simulated failure" })
       .waitFor();
     await tabs.getByText("Connectors", { exact: true }).click();
-    assert(!(await drive.isChecked()));
     failSave = false;
     await page.click("#save");
     await page.waitForFunction(() =>
@@ -257,11 +253,6 @@ const assert = require("node:assert/strict");
       "claude",
     );
     await tabs.getByText("Connectors", { exact: true }).click();
-    assert(await page.getByRole("checkbox", { name: /Linear/ }).isChecked());
-    assert.equal(
-      await page.getByRole("checkbox", { name: /Drive/ }).count(),
-      0,
-    );
     await page.setViewportSize({ width: 390, height: 844 });
     assert.equal(
       await page.evaluate(
