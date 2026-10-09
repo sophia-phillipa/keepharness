@@ -530,3 +530,22 @@ def test_the_admin_refuses_a_held_port_before_any_startup_work(tmp_path, monkeyp
     assert f"127.0.0.1:{port}" in str(refused.value.code)
     assert f"pid {os.getpid()}" in str(refused.value.code)
     assert created == [] and started == [] and not (tmp_path / "state").exists()
+
+
+def test_product_module_runs_from_the_checkout_root_with_the_host_python(tmp_path):
+    """install.sh queries the identity with the host's python3, before any venv exists.
+
+    Run as a file (``python3 control/product.py``) the module cannot import ``agent_service``;
+    package mode keeps the checkout root on ``sys.path``.
+    """
+    root = Path(__file__).resolve().parents[1]
+    completed = subprocess.run(
+        [sys.executable, "-I", "-m", "control.product", "--field", "slug"],
+        cwd=root,
+        capture_output=True,
+        text=True,
+        timeout=60,
+        env={"PATH": os.environ.get("PATH", ""), "HOME": str(tmp_path)},
+    )
+    assert completed.returncode == 0, completed.stderr
+    assert completed.stdout.strip() == "keepharness"
