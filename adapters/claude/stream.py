@@ -13,6 +13,7 @@ from adapters.shared.process import (
 )
 from agent_service.tool_metadata import command_name, tool_markers, tool_target
 from agent_service.tools import ToolError
+from agent_service.turn_edits import CLAUDE_EDIT_TOOLS, Budget, normalize_claude
 
 # The error kinds Claude Code puts on an assistant message, as the harness code the worker maps
 # to an account condition (queue_worker.PROVIDER_CONDITIONS) or to UI copy. Any other kind stays
@@ -110,6 +111,8 @@ class Stream:
         self.context = None
         self.started = time.monotonic()
         self.first = None
+        self.edits = Budget()  # turn_edit records of this run
+        self.edit_inputs = {}  # full input of a pending edit tool call, until its tool_result
 
     def consume(self, item):
         parent = item.get("parent_tool_use_id")
@@ -174,6 +177,11 @@ class Stream:
                             "status": ("failed" if block.get("is_error") else "completed"),
                         },
                     )
+                    # Only a successful edit changed files; errors and shell commands record nothing.
+                    name, args = self.edit_inputs.pop(tid, (None, None))
+                    if name and not block.get("is_error"):
+                        records = normalize_claude(name, args, self.root)
+                        self.edits.emit(self.event, [{**r, "tool_id": tid} for r in records])
         elif kind == "result":
             if item.get("is_error") or item.get("subtype") != "success":
                 raise self.failure(item.get("result"))
@@ -192,6 +200,12 @@ class Stream:
                 extra.update(tool_markers(block.get("name"), block.get("input")))
                 if extra:
                     self.tools[tool_id] = {**metadata, **extra}
+            if (
+                metadata is not None
+                and self.root is not None
+                and block.get("name") in CLAUDE_EDIT_TOOLS
+            ):
+                self.edit_inputs[tool_id] = (block["name"], block.get("input"))
 
     def track_usage(self, value):
         """Report usage from a ``message_start`` or ``message_delta`` stream event."""

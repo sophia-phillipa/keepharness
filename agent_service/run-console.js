@@ -1127,7 +1127,9 @@
       if (sequence !== state.sequence || id !== state.run) return;
       const known = new Set(state.logs.map((item) => item.id));
       state.logs.push(
-        ...(data.events || []).filter((item) => !known.has(item.id)),
+        ...(data.events || []).filter(
+          (item) => item.type !== "turn_edit" && !known.has(item.id),
+        ),
       );
       state.after = data.next_after ?? state.logs.at(-1)?.id ?? state.after;
       if (!live) state.more = Boolean(data.has_more);
@@ -1741,6 +1743,7 @@
       target.append(view);
     },
     observe(event) {
+      if (event.type === "turn_edit") return;
       if (event.job_id === state.run || job === state.run) {
         if (state.tab === "Logs") void loadLogs(true);
       }

@@ -206,6 +206,23 @@ class MessageRepository:
     def all_events(self, job):
         return self.db.execute("SELECT * FROM events WHERE job=? ORDER BY id", (job,)).fetchall()
 
+    def turn_edits(self, job):
+        """A job's stored ``turn_edit`` payloads, in the order they were written."""
+        rows = self.db.execute(
+            "SELECT data FROM events WHERE job=? AND type='turn_edit' ORDER BY id", (job,)
+        ).fetchall()
+        return [json.loads(row["data"]) for row in rows]
+
+    def ran_shell(self, job):
+        return (
+            self.db.execute(
+                "SELECT 1 FROM events WHERE job=? AND type='tool_start' "
+                "AND json_extract(data,'$.tool') IN ('commandExecution','Bash')",
+                (job,),
+            ).fetchone()
+            is not None
+        )
+
     def requests(self, job):
         return self.db.execute(
             "SELECT type,data FROM events WHERE job=? AND type IN ('approval_required','gate_required') ORDER BY id DESC",

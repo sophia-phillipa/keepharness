@@ -10694,3 +10694,92 @@ body.panel-order-reversed #sidebar .sidebar-tree {
     gap: 4px;
   }
 }
+
+/* #57 WP3: files changed by a completed turn, read-only, under its own answer */
+.turn-review {
+  margin-top: 10px;
+  font-size: 12px;
+}
+.turn-review-toggle {
+  border: 1px solid var(--th-border);
+  border-radius: var(--th-radius);
+  background: var(--th-panel);
+  color: var(--th-text);
+  padding: 4px 10px;
+  font: inherit;
+  cursor: pointer;
+}
+.turn-review-toggle:hover,
+.turn-review-file:hover {
+  background: var(--th-hover);
+}
+.turn-review-note {
+  margin: 6px 0 0;
+  color: var(--th-text);
+}
+.turn-review-list {
+  display: grid;
+  gap: 4px;
+  margin: 6px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.turn-review-file {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  width: 100%;
+  min-width: 0;
+  border: 0;
+  border-radius: var(--th-radius);
+  background: transparent;
+  color: var(--th-text);
+  padding: 4px 8px;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.turn-review-path {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-family: ui-monospace, monospace;
+}
+.turn-review-op {
+  flex: none;
+  border: 1px solid var(--th-border);
+  border-radius: var(--th-radius);
+  padding: 0 6px;
+}
+.turn-review-moved {
+  flex: 1 1 100%;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--th-text);
+}
+.turn-review-diff {
+  margin: 4px 0 0 8px;
+}
+.turn-review-diff pre {
+  max-height: 240px;
+  margin: 4px 0 0;
+  overflow: auto;
+  border: 1px solid var(--th-border);
+  border-radius: var(--th-radius);
+  background: var(--th-code);
+  color: var(--th-text);
+  padding: 8px;
+  font:
+    12px/1.5 ui-monospace,
+    monospace;
+  white-space: pre;
+}
+.turn-review-more {
+  color: var(--th-text);
+  padding: 0 8px;
+}

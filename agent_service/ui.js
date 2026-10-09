@@ -4793,9 +4793,181 @@ function assistant(id = "", model = $("model").value, replayTools = false) {
       a.body.rawAnswer || a.body.textContent,
       copy.querySelector(".action-label"),
     );
-  a.el.append(copy, askAgainButton(a.el));
+  const review = document.createElement("div");
+  review.className = "turn-review";
+  review.dataset.testid = "turn-review";
+  review.hidden = true;
+  a.el.append(review, copy, askAgainButton(a.el));
   window.runConsole?.attachAnswer(a.el, id);
-  return { ...a, activity, activitySummary, milestones, meta, chip };
+  return { ...a, activity, activitySummary, milestones, meta, chip, review };
+}
+
+// #57 WP3: files changed by a completed turn, read-only, under its own answer
+// (contract: dossier/turn-file-review.md §2.5 and §2.9). Only text nodes are
+// written; the diff text goes into a <pre> through textContent.
+const TURN_REVIEW_TERMINAL = [
+  "completed",
+  "failed",
+  "cancelled",
+  "interrupted",
+];
+const TURN_REVIEW_MAX_ROWS = 10;
+const TURN_REVIEW_DIFF_LABELS = {
+  binary: "Binary file: no text diff",
+  oversized: "Diff too large to show",
+  unavailable: "Diff not available",
+  partial: "Partial diff: fragments only",
+};
+
+function turnReviewNote(text, testid = "") {
+  const note = document.createElement("p");
+  note.className = "turn-review-note";
+  if (testid) note.dataset.testid = testid;
+  note.textContent = text;
+  return note;
+}
+
+function turnReviewOp(op) {
+  return ["created", "modified", "deleted"].includes(op) ? op : "unknown";
+}
+
+function turnReviewDiffNode(file) {
+  const box = document.createElement("div");
+  box.className = "turn-review-diff";
+  box.dataset.testid = "turn-review-diff";
+  box.hidden = true;
+  for (const edit of file.edits ?? []) {
+    const label = TURN_REVIEW_DIFF_LABELS[edit.diff_state];
+    if (label) box.append(turnReviewNote(label));
+    if (
+      (edit.diff_state === "diff" || edit.diff_state === "partial") &&
+      typeof edit.diff === "string" &&
+      edit.diff
+    ) {
+      const pre = document.createElement("pre");
+      pre.textContent = edit.diff;
+      box.append(pre);
+    }
+  }
+  if (!box.childElementCount)
+    box.append(turnReviewNote(TURN_REVIEW_DIFF_LABELS.unavailable));
+  return box;
+}
+
+// Ids that tie each review toggle to the region it opens (aria-controls).
+let turnReviewIds = 0;
+
+function turnReviewRow(file) {
+  // A null path is an edit outside the project: it is shown, never opened.
+  const shownPath = file.path ?? "path outside the project";
+  const item = document.createElement("li");
+  item.className = "turn-review-item";
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "turn-review-file";
+  button.dataset.testid = "turn-review-file";
+  button.setAttribute("aria-expanded", "false");
+  button.title = shownPath;
+  const path = document.createElement("span");
+  path.className = "turn-review-path";
+  path.textContent = shownPath;
+  const op = document.createElement("span");
+  op.className = "turn-review-op";
+  op.dataset.testid = "turn-review-op";
+  op.textContent = turnReviewOp(file.op);
+  button.append(path, op);
+  const movedFrom = file.edits?.find((edit) => edit.moved_from)?.moved_from;
+  if (movedFrom) {
+    const moved = document.createElement("span");
+    moved.className = "turn-review-moved";
+    moved.dataset.testid = "turn-review-moved";
+    moved.textContent = "renamed from " + movedFrom;
+    button.append(moved);
+  }
+  const diff = turnReviewDiffNode(file);
+  diff.id = "turn-review-diff-" + ++turnReviewIds;
+  button.setAttribute("aria-controls", diff.id);
+  button.addEventListener("click", () => {
+    const open = button.getAttribute("aria-expanded") !== "true";
+    button.setAttribute("aria-expanded", String(open));
+    diff.hidden = !open;
+  });
+  item.append(button, diff);
+  return item;
+}
+
+function renderTurnReview(slot, data) {
+  const files = data.files;
+  const toggle = document.createElement("button");
+  toggle.type = "button";
+  toggle.className = "turn-review-toggle";
+  toggle.dataset.testid = "turn-review-toggle";
+  toggle.setAttribute("aria-expanded", "false");
+  toggle.textContent =
+    files.length === 1 ? "1 file changed" : `${files.length} files changed`;
+  const list = document.createElement("ul");
+  list.className = "turn-review-list";
+  list.dataset.testid = "turn-review-list";
+  list.hidden = true;
+  list.id = "turn-review-list-" + ++turnReviewIds;
+  toggle.setAttribute("aria-controls", list.id);
+  list.append(...files.slice(0, TURN_REVIEW_MAX_ROWS).map(turnReviewRow));
+  if (files.length > TURN_REVIEW_MAX_ROWS) {
+    const more = document.createElement("li");
+    more.className = "turn-review-more";
+    more.textContent = `and ${files.length - TURN_REVIEW_MAX_ROWS} more`;
+    list.append(more);
+  }
+  toggle.addEventListener("click", () => {
+    const open = toggle.getAttribute("aria-expanded") !== "true";
+    toggle.setAttribute("aria-expanded", String(open));
+    list.hidden = !open;
+  });
+  const notices = [];
+  if (data.job_state !== "completed")
+    notices.push(
+      turnReviewNote(
+        "Stopped before finishing: this list covers only the changes made so far.",
+        "turn-review-stopped",
+      ),
+    );
+  if (data.shell_unattributed)
+    notices.push(
+      turnReviewNote(
+        "Shell commands may have changed other files.",
+        "turn-review-shell",
+      ),
+    );
+  if (data.truncated)
+    notices.push(
+      turnReviewNote(
+        "The list is incomplete; some changed files may be missing.",
+        "turn-review-truncated",
+      ),
+    );
+  slot.replaceChildren(toggle, ...notices, list);
+  slot.hidden = false;
+}
+
+// Fetches once per job and only for a terminal state; renders nothing when the
+// job captured no files (state "none" or an empty list).
+async function loadTurnReview(answer, jobId, state) {
+  const slot = answer.review;
+  if (!TURN_REVIEW_TERMINAL.includes(state) || slot.dataset.job === jobId)
+    return;
+  slot.dataset.job = jobId;
+  let data;
+  try {
+    data = await json(
+      "/v1/jobs/" + encodeURIComponent(jobId) + "/file-changes",
+    );
+  } catch (error) {
+    slot.dataset.job = "";
+    console.warn("Couldn't load the files changed by this turn.", error);
+    return;
+  }
+  if (data.state !== "captured" || !data.files?.length) return;
+  renderTurnReview(slot, data);
 }
 // D37: "Ask again" sends the question this answer replied to as a new turn, on the model now selected.
 function askAgainButton(answer) {
@@ -5414,6 +5586,7 @@ async function result(
     : (activityIcons[r.state] || "•") + " " + (labels[r.state] || r.state);
   if (active) {
     active.chip.textContent = $("activity-state").textContent;
+    loadTurnReview(active, expectedJob, r.state);
     const data = r.result || {};
     if (data.context_usage) paintContext(data.context_usage, data.metrics);
     else if (data.metrics) paintLocalUsage(data.metrics);
@@ -5731,6 +5904,7 @@ async function load(id, legacy = false, restoredView = null, scrollTop) {
         messageResourceChips(userMessage, r.request?.resource_selections);
       }
       active = assistant(r.id, model, !["queued", "running"].includes(r.state));
+      loadTurnReview(active, r.id, r.state);
       restoreGates(r.gates);
       const planCard = active.el.querySelector(".maestro-plan-card");
       if (planCard) renderPlanOutcome(planCard, r.state);
