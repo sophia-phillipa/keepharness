@@ -129,6 +129,17 @@ module.exports = {
           await op.see(page.getByTestId("plugins-panel"));
           await idle();
           await op.see(page.getByTestId("plugins-chip-hooks"));
+          // The server serves a provider-state snapshot for 5 s (COALESCE_SECONDS). The admin's
+          // Providers page may have read Claude just before the seed, so wait until the seeded hook shows.
+          await op.until(
+            async () => {
+              await refresh();
+              await open("hooks");
+              return /curl/.test(await section(/Claude/).innerText().catch(() => ""));
+            },
+            "the seeded Claude hook never reached the Plugins list",
+            30000,
+          );
         },
         { fixtureOnly: true, critical: true },
       );
