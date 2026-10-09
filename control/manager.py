@@ -10,7 +10,7 @@ import socket
 import sys
 import time
 import uuid
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from pathlib import Path
 
 import httpx
@@ -20,7 +20,11 @@ from adapters.claude.auth import cli_login_environment
 from adapters.codex.rpc import metadata
 from adapters.deepseek import account as deepseek
 from adapters.gemini import account as gemini
-from adapters.shared.provider_setup import child_source, homes_root, login_environment
+from adapters.shared.provider_setup import (
+    child_source,
+    homes_root,
+    login_environment,
+)
 from agent_service.config import VERSION_FILE
 from agent_service.errors import UserMessageError
 from agent_service.work_items import validate_pattern
@@ -667,6 +671,43 @@ class Manager:
                 )
                 raise
 
+    async def signed_in(self, provider, binary):
+        """Ask the CLI whether its account is signed in; shared by the check and the login poll.
+
+        ``identity`` tells credentials apart, so a renewal is told from the old login still being
+        valid. Claude: the status JSON has no expiry in Claude Code 2.1.294 (``loggedIn``,
+        ``authMethod``, ``apiProvider``, ``configDirectory``, ``email``, ``orgId``), so the identity
+        is the mtime, size and inode of ``.credentials.json`` in the CLI's own ``configDirectory``
+        (else ``CLAUDE_CONFIG_DIR``, else ``~/.claude``; the CLI never writes the provider home),
+        plus ``expiresAt`` when a version reports it. A filesystem with coarse mtimes (1-2 s) can
+        only delay a confirmation, never confirm falsely: an unchanged file has an unchanged identity.
+        """
+        if provider == "codex":
+            # The login KeepHarness signed in with, in its own home (decision D02).
+            code, _ = await discovery.command(
+                binary, "login", "status", env=login_environment(self.state, "codex")
+            )
+            return {"signed_in": code == 0, "identity": None}
+        env = cli_login_environment(self.state)
+        code, raw = await discovery.command(binary, "auth", "status", "--json", env=env)
+        try:
+            status = json.loads(raw) if code == 0 else {}
+        except ValueError:
+            status = {}
+        if not isinstance(status, dict):
+            status = {}
+        folder = (
+            status.get("configDirectory") or env.get("CLAUDE_CONFIG_DIR") or Path.home() / ".claude"
+        )
+        identity = [status.get("expiresAt")]
+        with suppress(OSError):
+            stat = (Path(folder) / ".credentials.json").stat()
+            identity += [stat.st_mtime_ns, stat.st_size, stat.st_ino]
+        return {
+            "signed_in": status.get("loggedIn") is True,
+            "identity": None if identity == [None] else ":".join(map(str, identity)),
+        }
+
     async def check(self, provider):
         if provider not in ("codex", "claude", "gemini", "local", "deepseek"):
             raise UserMessageError("Unknown service.")
@@ -698,10 +739,7 @@ class Manager:
             return result
         if provider == "codex":
             # The login KeepHarness signed in with, in its own home (decision D02).
-            code, _ = await discovery.command(
-                info["binary"], "login", "status", env=login_environment(self.state, "codex")
-            )
-            authenticated = code == 0
+            authenticated = (await self.signed_in("codex", info["binary"]))["signed_in"]
             if authenticated:
                 listing = await metadata(
                     info["binary"],
@@ -714,13 +752,7 @@ class Manager:
                     for m in listing.get("data", [])
                 }
         else:
-            code, raw = await discovery.command(
-                info["binary"], "auth", "status", "--json", env=cli_login_environment(self.state)
-            )
-            try:
-                authenticated = code == 0 and json.loads(raw).get("loggedIn") is True
-            except ValueError:
-                authenticated = False
+            authenticated = (await self.signed_in("claude", info["binary"]))["signed_in"]
             self.provider_models[provider] = {}
             if authenticated:
                 self.provider_models[provider] = claude.model_catalog(

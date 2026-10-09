@@ -402,19 +402,29 @@ async def login_provider(request, manager, data):
         result = existing
     else:
         # Codex and Claude Code sign in once, into the harness-owned home (decision D02).
+        async def finished():
+            if provider == "claude":
+                await manager.claude_login_completed()
+            try:
+                await manager.check(provider)  # the Check account button's work, refreshing models
+            except (UserMessageError, OSError):
+                pass  # the button reports it; the login itself succeeded
+
         options = (
             {
                 "env": cli_login_environment(manager.state),
-                "on_success": manager.claude_login_completed,
+                "on_success": finished,
                 "interactive": True,
             }
             if provider == "claude"
-            else {"env": login_environment(manager.state, "codex")}
+            else {"env": login_environment(manager.state, "codex"), "on_success": finished}
             if provider == "codex"
             else {}
         )
+        if provider != "gemini":
+            options["signed_in"] = lambda: manager.signed_in(provider, binary)
         # A person signs in in the browser and may paste a code back: allow 15 minutes.
-        result = manager.operations.launch(command, timeout=900, **options)
+        result = manager.operations.launch(command, timeout=900, login=True, **options)
         result.update(provider=provider, kind="provider-login")
     return result
 

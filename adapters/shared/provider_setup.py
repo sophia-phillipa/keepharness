@@ -52,13 +52,6 @@ def login_environment(state, provider):
     }
 
 
-def credential_file(state, provider):
-    """Where the admin's sign-in leaves the login that isolated runs copy."""
-    name = "auth.json" if provider == "codex" else ".credentials.json"
-    _, folder = CONFIG_FOLDERS[provider]
-    return homes_root(state) / folder / name
-
-
 def personal_setup_on(config, *, owner, schedule_id=None):
     """The effective personal setup of a run or view: opted in, the owner's own, not scheduled."""
     return config.get("personal_setup") is True and owner and not schedule_id

@@ -225,6 +225,7 @@ def test_panel_gemini_login_launches_oauth_helper(tmp_path):
             launch.assert_called_once_with(
                 [sys.executable, "-m", "adapters.gemini.account", "--binary", "/fixture/gemini"],
                 timeout=900,
+                login=True,  # no status command, but its one-time link still expires
             )
 
 

@@ -1635,7 +1635,21 @@ body:has(#provider-dialog[open]) {
   color: var(--th-muted);
   font-size: 12px;
 }
-#operations .operation-code input {
+#operations .login-url {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin: 10px 0;
+}
+#operations .login-url input {
+  flex: 1;
+  user-select: text;
+}
+#operations .login-url-text {
+  overflow-wrap: anywhere;
+}
+#operations .operation-code input,
+#operations .login-url input {
   min-width: 0;
   height: 34px;
   padding: 0 10px;

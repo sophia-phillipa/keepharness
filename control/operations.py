@@ -1,6 +1,7 @@
 """Explicit UI-triggered CLI operations; no shell interpolation or automatic installs."""
 
 import asyncio
+import contextlib
 import os
 import re
 import signal
@@ -22,6 +23,17 @@ ANSI_PARTIAL = re.compile(r"\x1b(?:\[[0-?]*[ -/]*|\][^\x07\x1b\n]*\x1b?|[ -/]+)?
 MAX_HELD_ESCAPE = 2048
 
 
+# The first https:// URL a login CLI prints: the sign-in page, held on the job for the UI only.
+# The host is captured so an expired link can keep it and drop the one-time path and state.
+LOGIN_URL = re.compile(r"https://([^\s\"'<>/?#]*)[^\s\"'<>]*")
+# Status polling after a login starts: first delay, growth, cap, and the total time (seconds).
+POLL_DELAY, POLL_FACTOR, POLL_CAP, POLL_LIMIT = 2, 1.5, 10, 600
+# Once status says signed in, the time the CLI gets to finish writing its credentials and exit.
+EXIT_GRACE = 5
+# What a one-time link leaves behind when the output cut splits the URL: its state and code.
+LINK_TAIL = re.compile(r"(?<![\w-])(?:state|code)=[^\s&]+")
+
+
 def released(held):
     """The text of an OSC sequence that never ended; other unfinished sequences are noise."""
     return held[2:] if held.startswith("\x1b]") else ""
@@ -37,6 +49,17 @@ def strip_ansi(text):
     return done, held
 
 
+def terminate(proc):
+    """Ask a CLI and everything it started to stop."""
+    try:
+        if os.name == "posix":
+            os.killpg(proc.pid, signal.SIGTERM)
+        else:
+            proc.terminate()
+    except ProcessLookupError:
+        pass
+
+
 class Operations:
     def __init__(self):
         self.jobs = {}
@@ -44,6 +67,9 @@ class Operations:
         self.by_id = {}
         self.stdin = {}
         self.codes = {}  # the code last pasted into a job, kept in memory to redact an echo of it
+        self.watched = {}  # jobs with a status check: set once the pasted code is written to the CLI
+        self.confirmed = set()  # logins the status confirmed, then the poller had to stop
+        self.login_urls = {}  # login jobs: the sign-in link seen so far, expired when the job ends
 
     def append_output(self, jid, fresh):
         """Add text to a job's output, redacting an echo of the pasted code."""
@@ -51,14 +77,72 @@ class Operations:
         if self.codes.get(jid):
             text = text.replace(self.codes[jid], "[redacted]")
         self.jobs[jid]["output"] = text[-12000:]
+        if jid in self.login_urls and (url := LOGIN_URL.search(text)):
+            self.login_urls[jid] = url.group(0).rstrip(".,;)")
+            if jid in self.watched:  # shown to the UI only for logins with a status check
+                self.jobs[jid]["login_url"] = self.login_urls[jid]
 
-    def launch(self, args, timeout=300, *, env=None, on_success=None, interactive=False):
-        """Run one CLI; ``interactive`` keeps stdin open for one pasted line (login codes)."""
+    def launch(
+        self,
+        args,
+        timeout=300,
+        *,
+        env=None,
+        on_success=None,
+        interactive=False,
+        signed_in=None,
+        login=False,
+    ):
+        """Run one CLI; ``interactive`` keeps stdin open for one pasted line (login codes).
+
+        A login passes ``signed_in``, an async check returning ``{"signed_in": bool, "identity":
+        str | None}``: its sign-in URL becomes the job's ``login_url`` while it runs, and once the
+        status says signed in the job completes without waiting for the CLI. A non-interactive
+        login skips polling when already signed in (a renewal): the CLI's own exit ends it. An
+        interactive one takes its baseline identity before the code is pasted and confirms only
+        when the account is signed in with a different identity (old credentials do not count).
+        Every login job (``login=True``, implied by ``signed_in``) expires its one-time link at the end.
+        """
         jid = uuid.uuid4().hex
         self.jobs[jid] = {"id": jid, "state": "running", "output": "", "accepts_input": False}
+        if signed_in:
+            self.watched[jid] = asyncio.Event()
+        if login or signed_in:
+            self.login_urls[jid] = None
+
+        async def poll(proc):
+            with contextlib.suppress(OSError, TimeoutError):
+                try:
+                    before = (
+                        await signed_in()
+                    )  # before any code is pasted: the credentials as they are
+                finally:
+                    # The baseline is taken first, so a pasted code cannot land in it; a job that
+                    # already ended has no stdin left and must not reopen its input.
+                    if interactive and jid in self.stdin:
+                        self.jobs[jid]["accepts_input"] = True
+                if interactive:
+                    await self.watched[jid].wait()
+                elif before["signed_in"]:  # signed in already: only the CLI's own exit ends it
+                    return
+                delay = POLL_DELAY
+                async with asyncio.timeout(POLL_LIMIT):
+                    while True:
+                        await asyncio.sleep(delay)
+                        now = await signed_in()
+                        if now["signed_in"] and (
+                            not before["signed_in"] or now["identity"] != before["identity"]
+                        ):
+                            with contextlib.suppress(asyncio.TimeoutError):
+                                await asyncio.wait_for(proc.wait(), EXIT_GRACE)
+                            if proc.returncode is None:
+                                self.confirmed.add(jid)  # stopped by us, not a failed exit
+                                terminate(proc)
+                            return
+                        delay = min(delay * POLL_FACTOR, POLL_CAP)
 
         async def run():
-            proc = None
+            proc = poller = None
             held = ""
             try:
                 proc = await asyncio.create_subprocess_exec(
@@ -71,7 +155,11 @@ class Operations:
                 )
                 if interactive:
                     self.stdin[jid] = proc.stdin
-                    self.jobs[jid]["accepts_input"] = True
+                    self.jobs[jid][
+                        "accepts_input"
+                    ] = not signed_in  # a poller opens it after the baseline
+                if signed_in:
+                    poller = asyncio.create_task(poll(proc))
                 async with asyncio.timeout(timeout):
                     while True:
                         chunk = await proc.stdout.read(2048)
@@ -81,7 +169,10 @@ class Operations:
                         self.append_output(jid, fresh)
                     # An OSC that never ended must not swallow the output that followed it.
                     self.append_output(jid, released(held))
-                    succeeded = await proc.wait() == 0
+                    code = await proc.wait()
+                    if poller:  # a login that ended is not polled, nor its process signalled
+                        poller.cancel()
+                    succeeded = code == 0 or jid in self.confirmed  # not a CLI's own failed exit
                     if succeeded and on_success:
                         await on_success()
                     self.jobs[jid].update(state="completed" if succeeded else "failed")
@@ -96,14 +187,20 @@ class Operations:
                 self.jobs[jid]["accepts_input"] = False
                 self.stdin.pop(jid, None)
                 self.codes.pop(jid, None)
+                self.watched.pop(jid, None)
+                if jid in self.login_urls:  # a login job: the one-time sign-in link expires
+                    output, link = self.jobs[jid]["output"], self.login_urls.pop(jid)
+                    if link:
+                        output = output.replace(
+                            link, f"https://{LOGIN_URL.match(link)[1]}/… (link expired)"
+                        )
+                    self.jobs[jid]["output"] = LINK_TAIL.sub("(link expired)", output)
+                self.confirmed.discard(jid)
+                self.jobs[jid].pop("login_url", None)  # one-time URL: held only while it runs
+                if poller:
+                    poller.cancel()
                 if proc and proc.returncode is None:
-                    try:
-                        if os.name == "posix":
-                            os.killpg(proc.pid, signal.SIGTERM)
-                        else:
-                            proc.terminate()
-                    except ProcessLookupError:
-                        pass
+                    terminate(proc)
                     try:
                         await asyncio.wait_for(proc.wait(), 5)
                     except asyncio.TimeoutError:
@@ -131,6 +228,8 @@ class Operations:
         self.jobs[jid]["accepts_input"] = False
         self.stdin.pop(jid, None)
         self.codes[jid] = text.strip()
+        if jid in self.watched:
+            self.watched[jid].set()
         stream.write(text.encode() + b"\n")
         await stream.drain()
         stream.close()
