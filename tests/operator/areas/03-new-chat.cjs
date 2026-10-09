@@ -38,11 +38,14 @@ module.exports = {
       ? [["claude", "claude-sonnet-5-5"], ["claude-opus", "claude-opus-5-5"], ["claude-legacy", "claude-sonnet-4-5"], ["gemini", "gemini-fixture"]]
       : [["real", null]];
     for (const [name, model] of providers) {
-      await op.step("send-" + name, `New chat with ${model || "a real provider (Claude first)"}: send and get an answer`, async () => {
+      await op.step("send-" + name, `New chat with ${model || "a real provider (OPERATOR_REAL_BACKENDS order)"}: send and get an answer`, async () => {
         await newChat(op);
         const chosen = await chooseModel(op, model);
         const text = op.fixtureMode ? `Hello ${chosen}` : "Reply with exactly the word READY and nothing else.";
-        const answer = await ask(op, text, op.fixtureMode ? new RegExp("OPERATOR_OK from the " + escapeRegex(chosen)) : /READY/i);
+        // Real mode: a signed-out provider answers with a renew card; that is the owner's state, not a defect.
+        const answer = await ask(op, text, op.fixtureMode ? new RegExp("OPERATOR_OK from the " + escapeRegex(chosen)) : /READY|Renew \w+ access/i);
+        const renew = !op.fixtureMode && answer.match(/Renew (\w+) access/);
+        if (renew) op.skip(`${renew[1]} is signed out on this machine (${chosen}); set OPERATOR_REAL_BACKENDS to a signed-in provider`);
         op.check(answer.includes(chosen) || !op.fixtureMode, "the answer footer does not name " + chosen);
       });
     }
