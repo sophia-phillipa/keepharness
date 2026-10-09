@@ -546,6 +546,72 @@ const snapshot = (provider, items, fingerprint) => ({
     assert.equal(await sw("Slack", "Codex").count(), 0);
 
     assert.deepEqual(settingsCalls, []);
+    // DeepSeek rows remain independent of their Codex engine.
+    readError = null;
+    state.inventory.services.push({
+      id: "deepseek",
+      name: "DeepSeek",
+      found: true,
+    });
+    server.deepseek = {
+      ...snapshot(
+        "deepseek",
+        [
+          stateItem("plugin:private", "Private"),
+          stateItem("skill:shared", "Shared Skill", {
+            kind: "skill",
+            reason:
+              "Shared Skills root: /private/.agents/skills. Content changes affect other providers using this root; this switch changes only this provider's config.",
+          }),
+          stateItem("app:mail", "Private Mail", {
+            kind: "app",
+            scope: "profile",
+            writable: false,
+            reason: "Profile app.",
+          }),
+          stateItem("hook:check", "Check Hook", {
+            kind: "hook",
+            scope: "profile",
+            writable: false,
+            reason: "Read-only hook.",
+          }),
+          stateItem("instructions:guide", "Project Guide", {
+            kind: "instructions",
+            writable: false,
+            reason: "Read-only instructions.",
+          }),
+        ],
+        "fp-deepseek-1",
+      ),
+      engine: "codex",
+    };
+    await page.reload();
+    await page.locator('[data-testid="plugins-mode"]').click();
+    await sw("Private", "DeepSeek").waitFor();
+    await sw("Private", "DeepSeek").click();
+    await page.waitForFunction(() => !document.body.hasAttribute("aria-busy"));
+    assert.equal(posts.at(-1).provider, "deepseek");
+    assert.equal(posts.at(-1).fingerprint, "fp-deepseek-1");
+    await page.locator('[data-testid="plugins-chip-skills"]').click();
+    assert.match(
+      await row("Shared Skill").innerText(),
+      /Content changes affect other providers using this root/,
+    );
+    assert.equal(await sw("Shared Skill", "DeepSeek").isEnabled(), true);
+    await page.locator('[data-testid="plugins-chip-apps"]').click();
+    assert.match(await row("Private Mail").innerText(), /Profile/);
+    assert.equal(await sw("Private Mail", "DeepSeek").isEnabled(), false);
+    await page.locator('[data-testid="plugins-chip-hooks"]').click();
+    assert.match(await row("Check Hook").innerText(), /Profile/);
+    assert.equal(await sw("Check Hook", "DeepSeek").isEnabled(), false);
+    await page.locator('[data-testid="plugins-chip-instructions"]').click();
+    assert.equal(await sw("Project Guide", "DeepSeek").isEnabled(), false);
+    assert.equal(
+      await row("Project Guide")
+        .getByRole("button", { name: "Project Guide actions" })
+        .isEnabled(),
+      false,
+    );
     assert.deepEqual(errors, []);
     console.log("PASS admin plugins switches");
   } finally {

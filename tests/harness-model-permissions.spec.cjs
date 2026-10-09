@@ -125,7 +125,15 @@ const assert = require("node:assert/strict");
       /Internet allowed/,
     );
     await p.selectOption("#project", "sem-projeto", { force: true });
-    await p.waitForFunction(() => document.querySelector("#attach").disabled);
+    // The attach button is also disabled while the new project's permissions load, so wait for
+    // the loaded permissions themselves.
+    await p.waitForFunction(
+      () =>
+        document.querySelector("#attach").disabled &&
+        /Internet disabled/.test(
+          document.querySelector("#model-permissions").textContent,
+        ),
+    );
     assert.match(
       await p.locator("#model-permissions").innerText(),
       /Internet disabled/,

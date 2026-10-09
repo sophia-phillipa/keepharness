@@ -222,7 +222,14 @@ const contrast = (a, b) => {
     );
     assert.deepEqual(
       await panel.locator('[data-testid^="plugins-chip-"]').allInnerTexts(),
-      ["Plugins 3", "Apps 1", "MCPs 1", "Skills"],
+      [
+        "Plugins 3",
+        "Apps 1",
+        "MCPs 1",
+        "Skills 0",
+        "Hooks 0",
+        "Instructions 0",
+      ],
     );
     assert.equal(
       await panel
@@ -321,10 +328,15 @@ const contrast = (a, b) => {
         .getAttribute("aria-pressed"),
       "true",
     );
-    assert.equal(await rows.count(), 0);
-    assert.match(
-      await panel.locator('[data-testid="plugins-empty"]').innerText(),
-      /Apps are not listed here yet/,
+    assert.equal(await rows.count(), 1);
+    assert.equal(
+      await rows.first().getAttribute("data-item-id"),
+      "account-app:claude.ai Gmail",
+    );
+    assert.equal(
+      await rows.first().getByRole("switch").count(),
+      0,
+      "account connectors retain their catalog identity without a fabricated switch",
     );
     await panel.locator('[data-testid="plugins-chip-plugins"]').click();
     assert.equal(await rows.count(), 3);
