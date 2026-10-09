@@ -20,7 +20,7 @@ let providers = {},
   uiBuild = "",
   reloadPending = false;
 const temporaryPreviews = new Map();
-let temporarySession = "", temporaryStarting = false, temporaryPreviousDraft = null, temporaryHeartbeat = 0;
+let temporarySession = "", temporaryStarting = false, temporaryPreviousDraft = null, temporaryHeartbeat = 0, viewDiscarded = false;
 let queuedTurns = [];
 let executionMode = "native";
 let draftMode = { mode: "native", modeChosen: false, retiredLock: false };
@@ -3042,7 +3042,7 @@ function newConversation(title = "New Conversation", projectId = $("project").va
   }
   if (!keepTemporary && !leaveTemporaryChat()) return false;
   clearProjectTrust();
-  saveView();
+  saveOutgoingView();
   const draftProject = $("project").value;
   const changedProject = projectId !== draftProject;
   $("project").value = projectId;
@@ -4925,7 +4925,7 @@ async function load(id, legacy = false, restoredView = null, scrollTop) {
   if (temporarySession && id !== conversation && !leaveTemporaryChat()) return;
   if (submitting || cancelling || uploads) return;
   clearProjectTrust();
-  if (!loading && !restoredView) saveView();
+  if (!loading && !restoredView) saveOutgoingView();
   let savedDraft = restoredView;
   if (!savedDraft) {
     savedDraft = readDraft("conversation-draft:" + id);
@@ -6146,6 +6146,7 @@ function leaveTemporaryChat() {
 }
 function discardTemporaryChat() {
   const id = temporarySession;
+  viewDiscarded = true;
   clearInterval(temporaryHeartbeat);
   if (controller) controller.abort();
   controller = null;
@@ -6210,7 +6211,8 @@ async function startTemporaryChat() {
     closeSidebar();
     $("prompt").focus();
   } catch (error) {
-    if (replacing && temporaryPreviousDraft) restoreView(temporaryPreviousDraft);
+    temporaryStarting = false; // newConversation refuses to run while a start is pending
+    if (replacing) await returnFromTemporaryChat();
     temporaryPreviousDraft = null;
     status("Couldn't start temporary chat: " + error.message);
   }
@@ -6218,11 +6220,16 @@ async function startTemporaryChat() {
 }
 $("new-temporary").onclick = startTemporaryChat;
 $("composer-temporary").onclick = startTemporaryChat;
-$("close-temporary-chat").onclick = () => {
-  if (!leaveTemporaryChat()) return;
-  newConversation();
-  if (temporaryPreviousDraft) restoreView(temporaryPreviousDraft);
+// Back to where the temporary chat was opened: its conversation, or the Home draft of its project.
+async function returnFromTemporaryChat() {
+  const origin = temporaryPreviousDraft;
   temporaryPreviousDraft = null;
+  if (origin?.conversation && await navigate({ kind: "conversation", id: origin.conversation }, { record: false }) !== false) return;
+  newConversation();
+}
+$("close-temporary-chat").onclick = async () => {
+  if (!leaveTemporaryChat()) return;
+  await returnFromTemporaryChat();
   $("prompt").focus();
 };
 addEventListener("pagehide", () => { if (temporarySession) discardTemporaryChat(); });
@@ -7655,6 +7662,13 @@ function retireDraft(key) {
   draftViews.delete(key);
   unsavedDrafts.delete(key);
   try { sessionStorage.removeItem(key); } catch {}
+}
+// The view a closed temporary chat leaves behind is not a draft: saving it would overwrite the real
+// draft of the conversation or Home it came from, and persist private temporary text.
+function saveOutgoingView() {
+  const discarded = viewDiscarded;
+  viewDiscarded = false;
+  return discarded || saveView();
 }
 function readDraft(key) {
   if (temporarySession) return null;

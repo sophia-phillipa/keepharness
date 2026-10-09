@@ -16,7 +16,8 @@ const origin = process.env.HARNESS_URL;
       }
       const data = url.pathname === '/v1/projects' ? { projects: ['sem-projeto'], details: {} }
         : url.pathname === '/v1/models' ? { models: [{ id: 'fixture', name: 'Fixture', backend: 'local', efforts: ['low'], permissions: { upload: true }, temporary_chat: true }], providers: { local: true }, uploads_enabled: true }
-        : url.pathname === '/v1/conversations' ? { conversations: [] }
+        : url.pathname === '/v1/conversations' ? { conversations: ['cx', 'cy'].map(id => ({ id, title: 'Conversation ' + id, project: 'sem-projeto', state: 'completed', last_job_id: 't-' + id, execution: { backend: 'local', model: 'fixture' } })) }
+        : /^\/v1\/conversations\/c[xy]$/.test(url.pathname) ? { title: 'Conversation', turns: [{ id: 't-' + url.pathname.slice(-2), project: 'sem-projeto', state: 'completed', request: { backend: 'local', model: 'fixture', prompt: 'Question', effort: 'configured' }, result: { answer: 'Answer' } }] }
         : url.pathname === '/v1/temporary' ? { id: 'temporary-fixture' }
         : url.pathname.startsWith('/v1/temporary/') ? (request.method() === 'DELETE' && ++closed, {})
         : url.pathname === '/v1/activity' ? { jobs: [], needs_you: [], counts: {}, providers: [] }
@@ -72,6 +73,35 @@ const origin = process.env.HARNESS_URL;
     await page.evaluate(() => saveView());
     assert.equal(await page.evaluate(() => JSON.parse(sessionStorage.getItem('conversation-draft:new:sem-projeto')).draft), 'ordinary draft');
     console.log('PASS failed temporary replacement restores ordinary draft before autosave resumes');
+    const draftOf = key => page.evaluate(k => JSON.parse(sessionStorage.getItem(k))?.draft, key);
+    const openConversation = async id => {
+      await page.locator('#history .conversation-row > button', { hasText: 'Conversation ' + id }).click();
+      await page.waitForFunction(i => conversation === i && !loading, id);
+    };
+    await page.fill('#prompt', 'HOME-DRAFT');
+    await openConversation('cx');
+    await page.fill('#prompt', 'X-DRAFT');
+    await page.keyboard.press('Control+Shift+N');
+    await page.locator('#temporary-chat-notice').waitFor({ state: 'visible' });
+    await page.fill('#prompt', 'PRIVATE-MARKER-60-B');
+    page.once('dialog', dialog => dialog.accept());
+    await page.locator('#close-temporary-chat').click();
+    await page.waitForFunction(() => conversation === 'cx' && !loading);
+    assert.equal(await page.locator('#prompt').inputValue(), 'X-DRAFT');
+    await page.evaluate(() => saveView());
+    assert.equal(await draftOf('conversation-draft:cx'), 'X-DRAFT');
+    assert.equal(await draftOf('conversation-draft:new:sem-projeto'), 'HOME-DRAFT');
+    console.log('PASS closing a temporary chat returns to its conversation with both drafts intact');
+    await page.keyboard.press('Control+Shift+N');
+    await page.locator('#temporary-chat-notice').waitFor({ state: 'visible' });
+    await page.fill('#prompt', 'PRIVATE-MARKER-60-C');
+    page.once('dialog', dialog => dialog.accept());
+    await openConversation('cy');
+    assert.equal(await page.locator('#prompt').inputValue(), '');
+    assert.equal(await draftOf('conversation-draft:cx'), 'X-DRAFT');
+    assert.equal(await draftOf('conversation-draft:new:sem-projeto'), 'HOME-DRAFT');
+    assert.equal(await page.evaluate(() => JSON.stringify({ ...sessionStorage, ...localStorage }).includes('PRIVATE-MARKER-60')), false);
+    console.log('PASS leaving a temporary chat for another conversation keeps every draft and stores nothing private');
     await page.keyboard.press('Control+,');
     await page.locator('#settings-dialog').waitFor({ state: 'visible' });
     await page.locator('#settings-close').click();
