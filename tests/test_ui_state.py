@@ -406,3 +406,11 @@ def test_chat_selection_accepts_real_model_and_effort_ids(api, selection):
 def test_chat_selection_rejects_free_text(api, selection):
     response = patch(api, chat_selection=selection)
     assert (response.status_code, response.json()["field"]) == (422, "chat_selection")
+
+
+def test_preference_read_survives_an_exhausted_read_budget(api):
+    # The page boots from this read; when the shared 240-a-minute read budget (polling, lists)
+    # answered it with a 429 the page silently fell back to browser storage and lost its saved state.
+    assert [api.get("/v1/conversations").status_code for _ in range(240)] == [200] * 240
+    assert api.get("/v1/conversations").status_code == 429
+    assert api.get("/v1/ui-state").status_code == 200
