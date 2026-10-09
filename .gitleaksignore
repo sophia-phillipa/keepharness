@@ -18,3 +18,11 @@ c5b683def08495c6829d27d659af84fe9c055af8:tests/test_provider_state_notices.py:ge
 # Made-up authorization header and sequential AWS-shaped fixture exercise metadata redaction.
 29859b253d428a790b839e7d1090132abaf92f8d:tests/test_tool_metadata.py:curl-auth-header:254
 29859b253d428a790b839e7d1090132abaf92f8d:tests/test_tool_metadata.py:aws-access-token:261
+# #61 hook masking: fake credentials fed to the masker in tests, never real
+0ba62443043150b4a99b333a7d81082fb35fc73a:tests/operator/areas/22-hooks-rules.cjs:curl-auth-header:15
+26ed6294bc333ac5ac7d7df1f4be3659ab4a4b37:tests/test_hook_command_masking.py:generic-api-key:350
+26ed6294bc333ac5ac7d7df1f4be3659ab4a4b37:tests/test_hook_command_masking.py:aws-access-token:359
+26ed6294bc333ac5ac7d7df1f4be3659ab4a4b37:tests/test_hook_command_masking.py:aws-access-token:360
+51d19b3d213c9c71ec45a95042cfdb88e96497b3:tests/test_hook_command_masking.py:curl-auth-user:22
+51d19b3d213c9c71ec45a95042cfdb88e96497b3:tests/test_hook_command_masking.py:curl-auth-user:74
+d07a6f63516f33c8e1cb312b7c19b71663494bcc:tests/test_provider_orchestration_security.py:curl-auth-header:131
