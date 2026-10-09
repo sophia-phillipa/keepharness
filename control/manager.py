@@ -22,7 +22,6 @@ from adapters.deepseek import account as deepseek
 from adapters.gemini import account as gemini
 from adapters.shared.provider_setup import (
     child_source,
-    credential_file,
     homes_root,
     login_environment,
 )
@@ -675,8 +674,13 @@ class Manager:
     async def signed_in(self, provider, binary):
         """Ask the CLI whether its account is signed in; shared by the check and the login poll.
 
-        ``identity`` tells credentials apart (Claude: the token's ``expiresAt``, else the credential
-        file's mtime and size), so a renewal is told from the old login still being valid.
+        ``identity`` tells credentials apart, so a renewal is told from the old login still being
+        valid. Claude: the status JSON has no expiry in Claude Code 2.1.294 (``loggedIn``,
+        ``authMethod``, ``apiProvider``, ``configDirectory``, ``email``, ``orgId``), so the identity
+        is the mtime, size and inode of ``.credentials.json`` in the CLI's own ``configDirectory``
+        (else ``CLAUDE_CONFIG_DIR``, else ``~/.claude``; the CLI never writes the provider home),
+        plus ``expiresAt`` when a version reports it. A filesystem with coarse mtimes (1-2 s) can
+        only delay a confirmation, never confirm falsely: an unchanged file has an unchanged identity.
         """
         if provider == "codex":
             # The login KeepHarness signed in with, in its own home (decision D02).
@@ -684,21 +688,24 @@ class Manager:
                 binary, "login", "status", env=login_environment(self.state, "codex")
             )
             return {"signed_in": code == 0, "identity": None}
-        code, raw = await discovery.command(
-            binary, "auth", "status", "--json", env=cli_login_environment(self.state)
-        )
+        env = cli_login_environment(self.state)
+        code, raw = await discovery.command(binary, "auth", "status", "--json", env=env)
         try:
             status = json.loads(raw) if code == 0 else {}
         except ValueError:
             status = {}
-        identity = status.get("expiresAt")
-        if identity is None:
-            with suppress(OSError):
-                stat = credential_file(self.state, "claude").stat()
-                identity = f"{stat.st_mtime_ns}:{stat.st_size}"
+        if not isinstance(status, dict):
+            status = {}
+        folder = (
+            status.get("configDirectory") or env.get("CLAUDE_CONFIG_DIR") or Path.home() / ".claude"
+        )
+        identity = [status.get("expiresAt")]
+        with suppress(OSError):
+            stat = (Path(folder) / ".credentials.json").stat()
+            identity += [stat.st_mtime_ns, stat.st_size, stat.st_ino]
         return {
             "signed_in": status.get("loggedIn") is True,
-            "identity": None if identity is None else str(identity),
+            "identity": None if identity == [None] else ":".join(map(str, identity)),
         }
 
     async def check(self, provider):

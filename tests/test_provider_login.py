@@ -1,6 +1,7 @@
 """Browser renewal chooses CLI credentials only after successful login."""
 
 import asyncio
+import json
 import os
 import sys
 from unittest.mock import AsyncMock, patch
@@ -763,6 +764,45 @@ def test_other_urls_in_the_output_are_kept_when_the_login_link_expires(sleeps):
     asyncio.run(exercise())
 
 
+def test_a_code_cannot_be_pasted_before_the_baseline_status_is_taken():
+    """A code pasted inside the status window must not land in the baseline identity."""
+
+    async def exercise():
+        operations = Operations()
+        seen = []
+
+        async def status():
+            await asyncio.sleep(0.2)
+            seen.append(job["accepts_input"])  # the input is still closed during the baseline
+            return {"signed_in": False, "identity": None}
+
+        job = operations.launch(
+            [sys.executable, "-c", URL_THEN_WAIT], timeout=60, interactive=True, signed_in=status
+        )
+        await asyncio.sleep(0.1)
+        assert job["accepts_input"] is False
+        async with asyncio.timeout(10):
+            while not job["accepts_input"]:
+                await asyncio.sleep(0.01)
+        assert seen == [False]
+        await operations.close()
+
+    asyncio.run(exercise())
+
+
+def test_a_login_expiry_drops_a_state_or_code_left_by_the_output_cut():
+    """The 12000-character cut can leave `state=...` at the start with no `?` or `&` before it."""
+
+    async def exercise():
+        operations = Operations()
+        script = "print('state=SECRETSTATE ok')"
+        job = operations.launch([sys.executable, "-c", script], login=True)
+        await asyncio.gather(*operations.tasks)
+        assert "SECRETSTATE" not in job["output"] and "ok" in job["output"]
+
+    asyncio.run(exercise())
+
+
 def test_a_login_without_a_status_check_expires_its_link_too():
     """Gemini has no status command, yet its one-time sign-in URL must not outlive the job."""
 
@@ -778,26 +818,78 @@ def test_a_login_without_a_status_check_expires_its_link_too():
     asyncio.run(exercise())
 
 
-def test_the_status_check_reports_the_credential_identity(tmp_path):
+def claude_status(folder, **extra):
+    """The shape `claude auth status --json` has in Claude Code 2.1.294 (no expiresAt)."""
+    shown = {
+        "loggedIn": True,
+        "authMethod": "claude.ai",
+        "apiProvider": "firstParty",
+        "configDirectory": str(folder),
+        "email": "a@b.c",
+        "orgId": "org-fixture",
+        **extra,
+    }
+    return AsyncMock(return_value=(0, json.dumps(shown)))
+
+
+def test_the_claude_identity_is_the_credential_in_the_cli_config_directory(tmp_path):
     async def exercise():
         manager = Manager(tmp_path / "state")
-        shown = '{"loggedIn": true, "expiresAt": 1900000000000, "email": "a@b.c"}'
-        with patch("control.discovery.command", AsyncMock(return_value=(0, shown))):
-            assert await manager.signed_in("claude", "claude") == {
-                "signed_in": True,
-                "identity": "1900000000000",
-            }
-        # Without expiresAt the credential file's mtime and size stand in for it.
-        from adapters.shared.provider_setup import credential_file
-
-        file = credential_file(manager.state, "claude")
-        file.parent.mkdir(parents=True)
-        file.write_text("12345")
-        with patch("control.discovery.command", AsyncMock(return_value=(0, '{"loggedIn": true}'))):
+        folder = tmp_path / "cli-home" / ".claude"
+        folder.mkdir(parents=True)
+        with patch("control.discovery.command", claude_status(folder)):
+            missing = await manager.signed_in("claude", "claude")
+            (folder / ".credentials.json").write_text("12345")
             first = await manager.signed_in("claude", "claude")
-            file.write_text("123456")
+            again = await manager.signed_in("claude", "claude")
+            (folder / ".credentials.json").write_text("123456")
             second = await manager.signed_in("claude", "claude")
-        assert first["signed_in"] and first["identity"] and first["identity"] != second["identity"]
+        assert missing == {"signed_in": True, "identity": None}
+        assert first["identity"] and first == again and first["identity"] != second["identity"]
+
+    asyncio.run(exercise())
+
+
+def test_the_claude_identity_replaced_file_changes_even_with_the_same_size(tmp_path):
+    async def exercise():
+        manager = Manager(tmp_path / "state")
+        folder = tmp_path / ".claude"
+        folder.mkdir()
+        file = folder / ".credentials.json"
+        file.write_text("aaaa")
+        with patch("control.discovery.command", claude_status(folder)):
+            first = await manager.signed_in("claude", "claude")
+            file.unlink()
+            file.write_text("bbbb")
+            os.utime(file, ns=(1, 1))
+            second = await manager.signed_in("claude", "claude")
+        assert first["identity"] != second["identity"]
+
+    asyncio.run(exercise())
+
+
+def test_the_claude_identity_falls_back_to_the_config_directory_variable(tmp_path, monkeypatch):
+    async def exercise():
+        manager = Manager(tmp_path / "state")
+        folder = tmp_path / "from-env"
+        folder.mkdir()
+        (folder / ".credentials.json").write_text("12345")
+        monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(folder))
+        shown = AsyncMock(return_value=(0, '{"loggedIn": true}'))
+        with patch("control.discovery.command", shown):
+            assert (await manager.signed_in("claude", "claude"))["identity"]
+
+    asyncio.run(exercise())
+
+
+def test_the_claude_identity_still_honours_expires_at_when_reported(tmp_path):
+    async def exercise():
+        manager = Manager(tmp_path / "state")
+        with patch("control.discovery.command", claude_status(tmp_path, expiresAt=1900000000000)):
+            first = await manager.signed_in("claude", "claude")
+        with patch("control.discovery.command", claude_status(tmp_path, expiresAt=1900000000001)):
+            second = await manager.signed_in("claude", "claude")
+        assert first["identity"] and first["identity"] != second["identity"]
         out = (1, '{"loggedIn": false}')
         with patch("control.discovery.command", AsyncMock(return_value=out)):
             assert (await manager.signed_in("claude", "claude"))["signed_in"] is False

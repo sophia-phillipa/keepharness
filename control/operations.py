@@ -31,7 +31,7 @@ POLL_DELAY, POLL_FACTOR, POLL_CAP, POLL_LIMIT = 2, 1.5, 10, 600
 # Once status says signed in, the time the CLI gets to finish writing its credentials and exit.
 EXIT_GRACE = 5
 # What a one-time link leaves behind when the output cut splits the URL: its state and code.
-LINK_TAIL = re.compile(r"[?&](?:state|code)=[^\s&]+")
+LINK_TAIL = re.compile(r"(?:state|code)=[^\s&]+")
 
 
 def released(held):
@@ -112,7 +112,15 @@ class Operations:
 
         async def poll(proc):
             with contextlib.suppress(OSError, TimeoutError):
-                before = await signed_in()  # before any code is pasted: the credentials as they are
+                try:
+                    before = (
+                        await signed_in()
+                    )  # before any code is pasted: the credentials as they are
+                finally:
+                    if (
+                        interactive
+                    ):  # the baseline is taken first, so a pasted code cannot land in it
+                        self.jobs[jid]["accepts_input"] = True
                 if interactive:
                     await self.watched[jid].wait()
                 elif before["signed_in"]:  # signed in already: only the CLI's own exit ends it
@@ -147,7 +155,9 @@ class Operations:
                 )
                 if interactive:
                     self.stdin[jid] = proc.stdin
-                    self.jobs[jid]["accepts_input"] = True
+                    self.jobs[jid][
+                        "accepts_input"
+                    ] = not signed_in  # a poller opens it after the baseline
                 if signed_in:
                     poller = asyncio.create_task(poll(proc))
                 async with asyncio.timeout(timeout):
