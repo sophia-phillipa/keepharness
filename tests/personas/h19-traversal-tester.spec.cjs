@@ -142,7 +142,10 @@ runPersona("H19", [
 
       // The filesystem root is not a browsable root any more (SEC-RC-10): neither `/` nor
       // any system directory can be listed, so F-05 / F-22 hold by construction.
-      for (const query of ["&limit=200", ...SYSTEM_DIRS.map((dir) => "&path=" + dir)]) {
+      for (const query of [
+        "&limit=200",
+        ...SYSTEM_DIRS.map((dir) => "&path=" + dir),
+      ]) {
         const r = await req.get(
           HARNESS + "/v1/project-files?view=tree&root_id=system" + query,
         );
@@ -158,7 +161,10 @@ runPersona("H19", [
           HARNESS + "/v1/project-files?view=tree&root_id=home&path=" + dir,
         );
         assert(r.status() >= 400, "hidden folder must be refused: " + dir);
-        assert(!Array.isArray((await r.json()).entries), "no listing for " + dir);
+        assert(
+          !Array.isArray((await r.json()).entries),
+          "no listing for " + dir,
+        );
       }
 
       // An unknown root cannot be forged.
@@ -229,7 +235,11 @@ runPersona("H19", [
           },
         }),
       );
-      const parent = fs.mkdtempSync(path.join(os.tmpdir(), "h19s2-"));
+      // The stray-folder checks look in the parent's parent, so it must be a
+      // private directory: a leftover /tmp/x from another run would fail them.
+      const sandbox = fs.mkdtempSync(path.join(os.tmpdir(), "h19s2-"));
+      const parent = path.join(sandbox, "parent");
+      fs.mkdirSync(parent);
       try {
         await page.goto(ADMIN + "/");
         await page.waitForLoadState("networkidle");
@@ -264,8 +274,10 @@ runPersona("H19", [
         // A plain name still works: proves the guard rejects only traversal.
         await page.fill("#folder-picker-new-name", "workspace");
         await page.locator("#folder-picker-create").click();
+        // The handler hides the error before it awaits the server, so an
+        // empty error box proves nothing; the name box clears only on success.
         await page.waitForFunction(
-          () => document.querySelector("#folder-picker-error").hidden,
+          () => document.querySelector("#folder-picker-new-name").value === "",
         );
 
         // Filesystem check: only the legitimate folder exists, and nothing was
@@ -279,7 +291,7 @@ runPersona("H19", [
         );
         assert(!fs.existsSync(path.join(parent, "a")), "no nested a/ created");
       } finally {
-        fs.rmSync(parent, { recursive: true, force: true });
+        fs.rmSync(sandbox, { recursive: true, force: true });
       }
       done();
     },
