@@ -18,6 +18,7 @@
   const NO_PROJECT = "sem-projeto";
   const view = {
     chip: "plugins",
+    skillScope: "user",
     mode: "directory",
     query: "",
     detailKey: "",
@@ -33,7 +34,12 @@
   const states = new Map();
   // "<provider>|<item id>" -> the last write error, shown on that row until the next read or write.
   const rowErrors = new Map();
+  const SKILL_SCOPES = [
+    ["user", "User"],
+    ["project", "Project"],
+  ];
   let list,
+    scopeTabs,
     note,
     status,
     menu,
@@ -116,6 +122,11 @@
 
   // Installed items of one kind, merged by id across the CLIs, each with the providers that have it.
   // Plugins the CLI loads but the catalog does not list are added from its state snapshot.
+  // Project tab: project and local items; User tab: everything else.
+  function inScope(item) {
+    return ["project", "local"].includes(item.scope);
+  }
+
   function installed(kind) {
     const merged = new Map();
     const add = (info, item, made) => {
@@ -146,7 +157,13 @@
         if (item.kind === kind)
           add(
             info,
-            { id: item.id, name: item.name, kind, status: "installed" },
+            {
+              id: item.id,
+              name: item.name,
+              kind,
+              scope: item.scope,
+              status: "installed",
+            },
             true,
           );
     }
@@ -662,7 +679,12 @@
     const hint = node("small", text, "plugins-row-note", "plugin-note");
     hint.id = "plugin-note-" + ++noteCount;
     hint.dataset.provider = info.id;
-    if (stateItem) {
+    // A plugin skill is managed by its plugin: the reason text stays on the row, with no switch.
+    const partOfPlugin =
+      stateItem?.kind === "skill" &&
+      !stateItem.writable &&
+      String(stateItem.reason || "").startsWith("Part of plugin");
+    if (stateItem && !partOfPlugin) {
       const input = node(
         "button",
         undefined,
@@ -680,6 +702,7 @@
       input.onclick = () => writeState(group, info, stateItem);
       cell.append(input);
     } else if (
+      !stateItem &&
       detail &&
       read?.snapshot &&
       variants.length === 1 &&
@@ -1090,8 +1113,11 @@
     if (view.chip !== "plugins") {
       const kind = CHIPS.find(([id]) => id === view.chip)[2];
       const query = view.query.trim().toLocaleLowerCase();
-      const rows = installed(kind).filter((group) =>
-        connectorLabel(group.item).toLocaleLowerCase().includes(query),
+      const rows = installed(kind).filter(
+        (group) =>
+          (kind !== "skill" ||
+            inScope(group.item) === (view.skillScope === "project")) &&
+          connectorLabel(group.item).toLocaleLowerCase().includes(query),
       );
       return rows.length
         ? list.replaceChildren(...rows.map(row))
@@ -1196,6 +1222,12 @@
       ),
     );
     modeButton.hidden = view.chip !== "plugins";
+    scopeTabs.hidden = view.chip !== "skills";
+    for (const tab of scopeTabs.children) {
+      const selected = tab.dataset.scope === view.skillScope;
+      tab.setAttribute("aria-selected", String(selected));
+      tab.tabIndex = selected ? 0 : -1;
+    }
     const search = panel.querySelector(".plugins-search");
     search.placeholder = "Search " + (resourceKind() ? view.chip : "plugins");
     search.setAttribute("aria-label", search.placeholder);
@@ -1276,9 +1308,50 @@
     trustPanel = node("section", undefined, "project-trust", "project-trust");
     trustPanel.setAttribute("role", "region");
     trustPanel.hidden = true;
+    scopeTabs = node(
+      "div",
+      undefined,
+      "plugins-scope-tabs",
+      "plugins-scope-tabs",
+    );
+    scopeTabs.setAttribute("role", "tablist");
+    scopeTabs.setAttribute("aria-label", "Skill scope");
+    scopeTabs.hidden = true;
+    scopeTabs.addEventListener("keydown", (event) => {
+      const tabs = [...scopeTabs.children];
+      const current = tabs.indexOf(document.activeElement);
+      const moves = {
+        ArrowLeft: current - 1,
+        ArrowRight: current + 1,
+        Home: 0,
+        End: tabs.length - 1,
+      };
+      if (!(event.key in moves)) return;
+      event.preventDefault();
+      const target = tabs[(moves[event.key] + tabs.length) % tabs.length];
+      view.skillScope = target.dataset.scope;
+      render();
+      target.focus();
+    });
+    for (const [id, label] of SKILL_SCOPES) {
+      const tab = node(
+        "button",
+        label,
+        "plugins-chip plugins-scope-tab",
+        "plugins-scope-tab-" + id,
+      );
+      tab.type = "button";
+      tab.setAttribute("role", "tab");
+      tab.dataset.scope = id;
+      tab.onclick = () => {
+        view.skillScope = id;
+        render();
+      };
+      scopeTabs.append(tab);
+    }
     list = node("div", undefined, "plugins-list", "plugins-list");
     list.tabIndex = -1; // the focus fallback when a row disappears under a switch
-    panel.append(toolbar, note, status, trustPanel, list);
+    panel.append(toolbar, note, status, trustPanel, scopeTabs, list);
     document.addEventListener("keydown", (event) => {
       if (event.key !== "Escape" || !menu) return;
       event.preventDefault();
