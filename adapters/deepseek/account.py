@@ -7,7 +7,7 @@ from pathlib import Path
 
 import httpx
 
-from adapters.shared.private_files import scoped_home_directory
+from adapters.shared.private_files import scoped_home_directory, trusted_state_root
 from agent_service.errors import UserMessageError
 from agent_service.tools import ToolError
 
@@ -22,7 +22,7 @@ def ensure_private_home(state):
     """Create the private home for a saved key; never chmod or repair an existing folder."""
     if not key_file(state).is_file():
         return
-    with scoped_home_directory(Path(state) / "providers" / "deepseek"):
+    with scoped_home_directory(trusted_state_root(state) / "providers" / "deepseek"):
         pass
 
 

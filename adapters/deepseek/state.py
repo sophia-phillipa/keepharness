@@ -3,7 +3,7 @@
 from pathlib import Path
 
 from adapters.codex.state import CodexStateAdapter
-from adapters.shared.private_files import validate_private_file
+from adapters.shared.private_files import trusted_state_root, validate_private_file
 from adapters.shared.provider_state import ProviderStateSchemaError, SecretStr
 from agent_service.tools import ToolError
 from control.product import PRODUCT
@@ -66,4 +66,4 @@ class DeepSeekStateAdapter(CodexStateAdapter):
         }
 
     def set_api_key(self, secret: SecretStr) -> None:
-        store_key(self.state, secret.get_secret_value())
+        store_key(trusted_state_root(self.state), secret.get_secret_value())

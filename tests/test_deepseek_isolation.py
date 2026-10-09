@@ -11,9 +11,11 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
+from pydantic import SecretStr
 
 from adapters.deepseek import account, backend
 from adapters.deepseek.credentials import keyring_entry_exists
+from adapters.deepseek.state import DeepSeekStateAdapter
 from agent_service.errors import UserMessageError
 from agent_service.tools import ToolError
 
@@ -364,3 +366,58 @@ def test_saved_key_without_private_home_is_provisioned_at_startup(tmp_path):
 def test_private_home_is_not_provisioned_without_saved_key(tmp_path):
     account.ensure_private_home(tmp_path)
     assert not (tmp_path / "providers" / "deepseek").exists()
+
+
+def test_symlinked_state_root_provisions_and_anchors_private_home(tmp_path, monkeypatch):
+    real = tmp_path / "real"
+    real.mkdir(mode=0o700)
+    (real / "deepseek.key").write_text("fixture-deepseek-secret-123")
+    linked = tmp_path / "link"
+    linked.symlink_to(real, target_is_directory=True)
+    monkeypatch.setattr("adapters.deepseek.credentials.keyring_entry_exists", lambda *_: False)
+    account.ensure_private_home(linked)
+    home = real / "providers" / "deepseek"
+    assert home.stat().st_mode & 0o777 == 0o700
+    config = {
+        "binary": "codex",
+        "api_provider": {"url": "http://127.0.0.1:9", "key_file": str(linked / "deepseek.key")},
+    }
+    runtime = backend.runtime_options(config, {})
+    assert runtime.environment["CODEX_HOME"] == str(home.resolve())
+    assert runtime.environment["KEEPHARNESS_API_KEY"] == "fixture-deepseek-secret-123"
+
+
+def test_set_api_key_on_symlinked_state_root_stores_in_real_home(tmp_path):
+    real = tmp_path / "real"
+    real.mkdir(mode=0o700)
+    linked = tmp_path / "link"
+    linked.symlink_to(real, target_is_directory=True)
+    DeepSeekStateAdapter(linked).set_api_key(SecretStr("fixture-linked-key-123456"))
+    assert account.key_file(real).read_text() == "fixture-linked-key-123456"
+    assert (real / "providers" / "deepseek").stat().st_mode & 0o777 == 0o700
+
+
+@pytest.mark.parametrize("via_link", [False, True])
+def test_symlink_planted_under_state_is_refused(tmp_path, monkeypatch, via_link):
+    real = tmp_path / "real"
+    real.mkdir(mode=0o700)
+    (real / "deepseek.key").write_text("fixture-deepseek-secret-123")
+    (real / "providers").mkdir(mode=0o700)
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir(mode=0o700)
+    (real / "providers" / "deepseek").symlink_to(elsewhere, target_is_directory=True)
+    state = tmp_path / "link"
+    if via_link:
+        state.symlink_to(real, target_is_directory=True)
+    else:
+        state = real
+    monkeypatch.setattr("adapters.deepseek.credentials.keyring_entry_exists", lambda *_: False)
+    with pytest.raises(ToolError, match="^unsafe_scoped_home$"):
+        account.ensure_private_home(state)
+    config = {
+        "binary": "codex",
+        "api_provider": {"url": "http://127.0.0.1:9", "key_file": str(state / "deepseek.key")},
+    }
+    with pytest.raises(ToolError, match="^deepseek_credential_isolation$"):
+        backend.runtime_options(config, {})
+    assert list(elsewhere.iterdir()) == []
