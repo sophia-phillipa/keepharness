@@ -5,10 +5,13 @@ stored ``turn_edit`` shape that WP1 produces, and reads back through the reposit
 the route.
 """
 
+import asyncio
 import builtins
 import hashlib
 import io
 import json
+import subprocess
+import sys
 
 import pytest
 from starlette.testclient import TestClient
@@ -47,8 +50,13 @@ def api(tmp_path):
     client.close()
 
 
-def add_job(api, job, state="completed", retry_of=None):
-    payload = {"prompt": f"prompt of {job}", "backend": "codex", "model": "fixture"}
+def add_job(api, job, state="completed", retry_of=None, extra=None):
+    payload = {
+        "prompt": f"prompt of {job}",
+        "backend": "codex",
+        "model": "fixture",
+        **(extra or {}),
+    }
     if retry_of:
         payload["retry_of"] = retry_of
     service = api.app.state.service
@@ -259,6 +267,68 @@ def test_request_reads_no_file_from_disk(api, monkeypatch, tmp_path):
     response = changes(api, "turn")
 
     assert response.status_code == 200
+    assert opened == []
+
+
+def test_retired_cloud_scoped_job_is_served_without_any_cli(api, monkeypatch):
+    add_job(api, "retired", extra={"execution_mode": "scoped"})
+    store(api, "retired", edit("src/a.py", diff="+stored\n"))
+    spawned = []
+    real_popen = subprocess.Popen
+    real_exec = asyncio.create_subprocess_exec
+
+    def popen_spy(*args, **kwargs):
+        spawned.append(args[0] if args else kwargs.get("args"))
+        return real_popen(*args, **kwargs)
+
+    async def exec_spy(*args, **kwargs):
+        spawned.append(args)
+        return await real_exec(*args, **kwargs)
+
+    monkeypatch.setattr(subprocess, "Popen", popen_spy)
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", exec_spy)
+    subprocess.run([sys.executable, "-c", "pass"], check=True)
+    assert len(spawned) == 1, (
+        "the spy must see a real spawn, or the empty list below proves nothing"
+    )
+    spawned.clear()
+
+    response = changes(api, "retired")
+    body = response.json()
+
+    assert response.status_code == 200
+    assert body["job_state"] == "completed"
+    assert paths(body) == ["src/a.py"]
+    assert body["files"][0]["edits"][0]["diff"] == "+stored\n"
+    assert spawned == []
+
+
+def test_symlink_escape_returns_only_the_stored_diff_and_never_reads_the_target(
+    api, monkeypatch, tmp_path
+):
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "secret.txt").write_text("OUTSIDE-SECRET-CONTENT", encoding="utf-8")
+    project = tmp_path / "project"
+    project.mkdir()
+    (project / "link").symlink_to(outside, target_is_directory=True)
+    add_job(api, "escape")
+    store(api, "escape", edit("link/secret.txt", diff="+stored line\n"))
+    opened = []
+    real_io_open = io.open
+
+    def spy(*args, **kwargs):
+        opened.append(args[0])
+        return real_io_open(*args, **kwargs)
+
+    monkeypatch.setattr(builtins, "open", spy)
+    monkeypatch.setattr(io, "open", spy)
+
+    response = changes(api, "escape")
+
+    assert response.status_code == 200
+    assert "+stored line" in response.text
+    assert "OUTSIDE-SECRET-CONTENT" not in response.text
     assert opened == []
 
 
