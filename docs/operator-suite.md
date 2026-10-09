@@ -19,6 +19,10 @@ Code: `tests/operator/` (`run-operator.cjs`, `lib/`, `areas/`, `fixture/`,
 - `xvfb-run` for headless runs; `xprop` for the desktop icon check (optional).
 - For the desktop area: the packaged app (`--app`, `$KEEPHARNESS_DESKTOP_BIN`, or
   `dist/keepharness-<version>-linux-x64/keepharness-bin`). Without it that area is skipped.
+  The production package turns the Electron `EnableNodeCliInspectArguments` fuse off, so
+  Playwright cannot attach to it and the suite refuses it. Use a copy with that fuse
+  turned on (`flipFuses` from `@electron/fuses` on the copied `keepharness-bin`); never
+  ship or install the copy.
 
 ## Run it
 
