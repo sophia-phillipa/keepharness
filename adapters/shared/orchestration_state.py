@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from adapters.shared.command_mask import (
+    NAME,
     PLACEHOLDER,
     mask_argv,
     mask_command,
@@ -37,16 +38,15 @@ _NAMED_VALUE_KEYS = frozenset(
 )
 _URL_KEYS = frozenset({"url", "uri", "endpoint"})
 # Hook fields that are known, bounded and not free text (Claude settings, Codex HooksListResponse).
+_NUMBER_KEYS = frozenset(
+    key.lower() for key in "timeout timeoutSec displayOrder additionalContextLimit".split()
+)
+_BOOL_KEYS = frozenset(key.lower() for key in "async enabled isManaged disableAllHooks".split())
+_ENUM_KEYS = frozenset(key.lower() for key in "type handlerType trustStatus source status".split())
 _PLAIN_KEYS = frozenset(
-    key.lower()
-    for key in (
-        "type handlerType timeout timeoutSec async enabled event eventName source sourcePath "
-        "pluginId origin isManaged trustStatus key displayOrder additionalContextLimit "
-        "server tool model status disableAllHooks"
-    ).split()
+    key.lower() for key in "event eventName sourcePath pluginId origin server tool model".split()
 )
 _TEXT_KEYS = frozenset({"prompt", "statusmessage", "description"})
-_ENV_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_-]{0,63}")
 _FIELD_CHARS = 300
 
 
@@ -213,10 +213,21 @@ def _safe_field(value, key):
         return _safe_scalar(value)
     if lower == "allowedenvvars":
         names = value if isinstance(value, list) else []
-        return [
-            n if isinstance(n, str) and _ENV_NAME.fullmatch(n) else PLACEHOLDER for n in names[:100]
-        ]
-    return _safe_scalar(value) if lower in _PLAIN_KEYS else PLACEHOLDER
+        return [n if isinstance(n, str) and NAME.fullmatch(n) else PLACEHOLDER for n in names[:100]]
+    return _safe_shaped(value, lower)
+
+
+def _safe_shaped(value, lower):
+    """Plain fields pass only with the shape of their kind: number, bool or enum-like name."""
+    if lower in _NUMBER_KEYS:
+        shaped = isinstance(value, (int, float)) and not isinstance(value, bool)
+    elif lower in _BOOL_KEYS:
+        shaped = isinstance(value, bool)
+    elif lower in _ENUM_KEYS:
+        shaped = isinstance(value, str) and NAME.fullmatch(value)
+    else:
+        return _safe_scalar(value) if lower in _PLAIN_KEYS else PLACEHOLDER
+    return value if shaped else PLACEHOLDER
 
 
 def safe_details(hook):
@@ -226,7 +237,7 @@ def safe_details(hook):
     return {
         key: _safe_field(value, key)
         for key, value in list(hook.items())[:80]
-        if isinstance(key, str) and _ENV_NAME.fullmatch(key)
+        if isinstance(key, str) and NAME.fullmatch(key)
     }
 
 

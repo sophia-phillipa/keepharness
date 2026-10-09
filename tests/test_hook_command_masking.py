@@ -331,3 +331,31 @@ def test_long_letter_digit_words_are_opaque_in_any_case(command, secret):
 def test_short_versioned_names_still_pass():
     assert mask_command("python3.12 status") == "python3.12 status"
     assert mask_command("node20 status") == "node20 status"
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("timeout", "hunter2 x"),
+        ("timeoutSec", "30s hunter2"),
+        ("displayOrder", True),
+        ("async", "hunter2"),
+        ("enabled", 1),
+        ("isManaged", "yes hunter2"),
+        ("source", "user hunter2pass"),
+        ("trustStatus", "trusted hunter2"),
+        ("type", "command hunter2"),
+        ("handlerType", "x" * 80),
+        ("status", {"a": "hunter2"}),
+        ("key", "plain-hunter2"),
+    ],
+)
+def test_plain_fields_must_have_the_shape_of_their_kind(field, value):
+    assert safe_details({field: value})[field] == PLACEHOLDER
+
+
+def test_aws_access_key_ids_are_redacted_from_free_text():
+    assert (
+        "AKIAABCDEFGHIJKLMNOP"
+        not in safe_details({"prompt": "use AKIAABCDEFGHIJKLMNOP now"})["prompt"]
+    )

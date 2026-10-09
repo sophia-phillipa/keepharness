@@ -13,7 +13,7 @@ from dataclasses import dataclass
 PLACEHOLDER = "‹value›"
 _OPTION = re.compile(r"(--[a-z][a-z0-9-]{0,30}|-[A-Za-z0-9])")
 _ENV_PREFIX = re.compile(r"[A-Za-z_][A-Za-z0-9_]{0,63}=")
-_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_-]{0,63}")
+NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_-]{0,63}")
 _NAMED = re.compile(r"([A-Za-z_][A-Za-z0-9_-]{0,63})\s*([=:])")
 _SUBCOMMAND = re.compile(r"[a-z][a-z-]{0,19}")
 _EXECUTABLE = re.compile(r"[A-Za-z][A-Za-z0-9._+-]{0,31}")
@@ -186,7 +186,7 @@ def mask_named_values(value: object) -> object:
     """Keep the keys of an env or header mapping and mask every value."""
     if isinstance(value, dict):
         names = (str(key) for key in list(value)[:80])
-        return {name if _NAME.fullmatch(name) else PLACEHOLDER: PLACEHOLDER for name in names}
+        return {name if NAME.fullmatch(name) else PLACEHOLDER: PLACEHOLDER for name in names}
     if isinstance(value, list):
         result = []
         for item in value[:_MAX_ITEMS]:
