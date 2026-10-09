@@ -79,9 +79,9 @@ python3 -m control.install --check-only "$@"
 # Upgrading from Tail Harness (before 0.15.0): stop its service, then move its state once.
 TH_STOPPED=1
 systemctl --user stop tail-harness.service 2>/dev/null || true
-python3 control/product.py --migrate-state
-TH_VENV=$(python3 control/product.py --field venv)
-TH_PRODUCT_SLUG=$(python3 control/product.py --field slug)
+python3 -m control.product --migrate-state
+TH_VENV=$(python3 -m control.product --field venv)
+TH_PRODUCT_SLUG=$(python3 -m control.product --field slug)
 # A venv moved with the Tail Harness folder keeps the old path in its scripts: rebuild it.
 if [ -f "$TH_VENV/bin/pip" ] && ! grep -qF -- "$TH_VENV/bin/" "$TH_VENV/bin/pip"; then
   python3 -m venv --clear "$TH_VENV"

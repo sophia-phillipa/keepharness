@@ -105,7 +105,7 @@ def install(tmp_path):
 def test_check_only_neither_stops_tail_harness_nor_moves_its_state(install):
     calls = install("--check-only")
     assert not any(call.startswith("systemctl") for call in calls)
-    assert "python3 control/product.py --migrate-state" not in calls
+    assert "python3 -m control.product --migrate-state" not in calls
     assert any(call.startswith("python3 -m control.install --check-only") for call in calls)
     assert calls[-1] == "preflight-python -m control.install_check"
 
@@ -121,7 +121,7 @@ def test_install_stops_and_moves_before_the_venv_and_drops_the_old_package(insta
         "preflight-python -m control.install_check",
         "python3 -m control.install --check-only --port 8094",
         "systemctl --user stop tail-harness.service",
-        "python3 control/product.py --migrate-state",
+        "python3 -m control.product --migrate-state",
         f"python3 -m venv {install.venv}",
         "venv-python -m pip uninstall --yes tail-harness",
         f"venv-python -m pip install --quiet {lock}",
@@ -159,7 +159,7 @@ def test_a_failed_preflight_stops_and_moves_nothing(install, failing):
     calls = install("--port", "8094", check=False, FAIL=failing)
     assert install.result.returncode != 0
     assert not any(call.startswith("systemctl") for call in calls)
-    assert "python3 control/product.py --migrate-state" not in calls
+    assert "python3 -m control.product --migrate-state" not in calls
     assert not any(call.startswith("keepharness-install") for call in calls)
     assert "Nothing was stopped or moved" in install.result.stderr
     assert list(install.temporary.iterdir()) == []  # the preflight venv is removed
@@ -315,7 +315,7 @@ def test_work_arriving_during_trial_refuses_before_live_install(install, tmp_pat
     assert not any(
         call.startswith(("systemctl", "venv-python", "keepharness-install")) for call in calls
     )
-    assert "python3 control/product.py --migrate-state" not in calls
+    assert "python3 -m control.product --migrate-state" not in calls
     assert f"python3 -m venv {install.venv}" not in calls
     assert not (install.venv / "bin/python").exists()
     assert list(install.temporary.iterdir()) == []
