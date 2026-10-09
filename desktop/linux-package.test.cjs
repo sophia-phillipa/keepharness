@@ -131,6 +131,13 @@ function installNext(f, v) {
 }
 function current(f, name = 'current') { return fs.realpathSync(path.join(f.opt, 'keepharness', name)); }
 
+test('the installer verifies a package and prints its version without touching HOME', () => {
+  const home = newHome('verify-home');
+  const out = run(path.join(fakePackage('verify', '1.2.3'), 'install-desktop-linux.sh'), ['--verify'], { HOME: home });
+  assert.equal(out, '1.2.3');
+  assert.deepEqual(fs.readdirSync(home), []);
+});
+
 test('uninstall_refuses_empty_root_or_relative_home', () => {
   const f = fixture();
   for (const home of ['', '/', 'relative']) assert.throws(() => run(f.installer, ['--uninstall','--yes'], {HOME:home}), /HOME|Invalid HOME/);
