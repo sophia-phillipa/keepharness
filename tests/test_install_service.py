@@ -160,7 +160,11 @@ def legacy_state(home, port=None):
     for folder in (old, old / "runs"):
         (folder / "harness.identity.json").write_text(json.dumps(LEGACY_MARKER))
     (old / "settings.json").write_text("{}")
-    runtime = {"state_dir": str(old / "runs"), "control_state_dir": str(old), "port": port or free_port()}
+    runtime = {
+        "state_dir": str(old / "runs"),
+        "control_state_dir": str(old),
+        "port": port or free_port(),
+    }
     (old / "runtime.json").write_text(json.dumps(runtime))
     return old
 
@@ -355,7 +359,9 @@ def test_rollback_waits_while_the_state_is_in_use(home):
         listener.bind(("127.0.0.1", 0))
         listener.listen()
         runtime = json.loads((new / "runtime.json").read_text())
-        (new / "runtime.json").write_text(json.dumps({**runtime, "port": listener.getsockname()[1]}))
+        (new / "runtime.json").write_text(
+            json.dumps({**runtime, "port": listener.getsockname()[1]})
+        )
         with pytest.raises(ValueError, match="still answers"):
             install.rollback(home, run=recorder([]))
     assert new.is_dir() and not (home / ".local/share/tail-harness").exists()
@@ -376,6 +382,7 @@ def admin_work(home, monkeypatch, request):
     from types import SimpleNamespace
 
     from starlette.testclient import TestClient
+
     from control.server import create_app
 
     state = PRODUCT.state_path(home)
@@ -398,7 +405,9 @@ def admin_work(home, monkeypatch, request):
             raise urllib.error.HTTPError(url, response.status_code, "refused", {}, None)
         return io.BytesIO(response.content)
 
-    monkeypatch.setattr(install.urllib.request, "build_opener", lambda *args: SimpleNamespace(open=open_url))
+    monkeypatch.setattr(
+        install.urllib.request, "build_opener", lambda *args: SimpleNamespace(open=open_url)
+    )
     monkeypatch.setattr(install, "port_conflict", lambda *args, **kwargs: None)
     monkeypatch.setattr(install, "port_holders", lambda port: [(os.getpid(), "admin")])
     registered = []
@@ -501,6 +510,7 @@ def test_install_old_admin_refuses_without_creating_owner_sessions(admin_work, h
 
 def test_install_admin_auth_rejects_invalid_and_replayed_tickets(tmp_path):
     from starlette.testclient import TestClient
+
     from control.local_access import SESSIONS_FILE, open_ticket
     from control.server import create_app
 
@@ -514,14 +524,18 @@ def test_install_admin_auth_rejects_invalid_and_replayed_tickets(tmp_path):
         assert not (state / SESSIONS_FILE).exists()
 
 
-@pytest.mark.parametrize("error", [http.client.IncompleteRead(b"partial"), http.client.BadStatusLine("broken")])
+@pytest.mark.parametrize(
+    "error", [http.client.IncompleteRead(b"partial"), http.client.BadStatusLine("broken")]
+)
 def test_install_refuses_http_protocol_errors(admin_work, monkeypatch, error):
     from types import SimpleNamespace
 
     def broken_open(*args, **kwargs):
         raise error
 
-    monkeypatch.setattr(install.urllib.request, "build_opener", lambda *args: SimpleNamespace(open=broken_open))
+    monkeypatch.setattr(
+        install.urllib.request, "build_opener", lambda *args: SimpleNamespace(open=broken_open)
+    )
     with pytest.raises(SystemExit, match="Cannot verify queued or running work"):
         install.main(["--port", "19876", "--check-only"])
     assert admin_work[1] == []
@@ -531,6 +545,7 @@ def test_work_refusal_real_opener_carries_admin_cookie(home, monkeypatch):
     from http.server import BaseHTTPRequestHandler, HTTPServer
     from threading import Thread
     from urllib.parse import parse_qs, urlsplit
+
     from control.local_access import KEY_FILE
 
     state = PRODUCT.state_path(home)

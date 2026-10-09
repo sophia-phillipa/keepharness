@@ -3,6 +3,7 @@
 Forks change PRODUCT (and their assets), then run ``python -m control.product``.
 The build backend also refreshes generated assets. No services are started.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -41,7 +42,15 @@ class ProductIdentity:
     lineage: str = "keepharness"
 
     def __post_init__(self):
-        for value in (self.slug, self.mcp_name, self.icon, self.desktop_icon, self.theme_light, self.theme_dark, self.lineage):
+        for value in (
+            self.slug,
+            self.mcp_name,
+            self.icon,
+            self.desktop_icon,
+            self.theme_light,
+            self.theme_dark,
+            self.lineage,
+        ):
             if not re.fullmatch(r"[a-z][a-z0-9-]{0,63}", value):
                 raise UserMessageError("Invalid product identifier")
         if not re.fullmatch(r"[A-Z][A-Z0-9_]{0,63}", self.env_prefix):
@@ -50,7 +59,12 @@ class ProductIdentity:
             raise UserMessageError("Invalid product name")
         for value in (self.state_dir, self.config_dir):
             path = Path(value)
-            if path.is_absolute() or ".." in path.parts or not path.parts or not re.fullmatch(r"[a-zA-Z0-9._/-]+", value):
+            if (
+                path.is_absolute()
+                or ".." in path.parts
+                or not path.parts
+                or not re.fullmatch(r"[a-zA-Z0-9._/-]+", value)
+            ):
                 raise UserMessageError("Product directories must be relative to home")
 
     def state_path(self, home=None):
@@ -78,12 +92,21 @@ STOP_AND_INSTALL = (
 # Provider thread markers (as in agent_service.conversation_context.MARKERS; this module stays
 # stdlib-only). A rollback sets them aside: 0.15 turns live outside the runs/sessions folders
 # 0.14 reads, so a stale marker would resume a pre-upgrade thread and lose every 0.15 turn.
-THREAD_MARKERS = ("native-thread.json", "remote-thread.json", "claude-session.json", "gemini-session.json")
+THREAD_MARKERS = (
+    "native-thread.json",
+    "remote-thread.json",
+    "claude-session.json",
+    "gemini-session.json",
+)
 # Written by ``./install.sh --rollback-to-0.14``: while it exists nothing moves to this identity.
 ROLLBACK_RECORD = ".local/share/tail-harness.rolled-back"
 # Loopback and wildcard addresses as /proc/net/tcp{,6} print them (hex, host byte order).
 LOCAL_ADDRESSES = {
-    "00000000", "0100007F", "0" * 32, "0" * 24 + "01000000", "0000000000000000FFFF00000100007F",
+    "00000000",
+    "0100007F",
+    "0" * 32,
+    "0" * 24 + "01000000",
+    "0000000000000000FFFF00000100007F",
 }
 
 logger = logging.getLogger(__name__)
@@ -132,7 +155,16 @@ def ensure_lineage(state, product=PRODUCT):
     try:
         descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
     except FileNotFoundError:
-        old_state = any((state / name).exists() for name in ("settings.json", "runtime.json", "jobs.sqlite3", "runs", "approval_sessions.sqlite3"))
+        old_state = any(
+            (state / name).exists()
+            for name in (
+                "settings.json",
+                "runtime.json",
+                "jobs.sqlite3",
+                "runs",
+                "approval_sessions.sqlite3",
+            )
+        )
         if old_state and not is_original(product):
             raise UserMessageError("Refusing unmarked state from another product identity")
         try:
@@ -357,7 +389,12 @@ def move_legacy_folders(home, product):
                 "pre-release split your data between them, run ./install.sh --merge-legacy for a "
                 "merge plan (nothing changes without --apply); otherwise remove %s once you no "
                 "longer need it.",
-                old, new, product.name, new, old, old,
+                old,
+                new,
+                product.name,
+                new,
+                old,
+                old,
             )
             continue
         try:
@@ -379,7 +416,8 @@ def set_bridge_aside(folder):
     logger.warning(
         "%s held only a client MCP bridge and no state: set it aside as %s. Run setup-mcp.sh "
         "again to install the bridge in its own folder.",
-        folder, aside,
+        folder,
+        aside,
     )
 
 
@@ -388,7 +426,11 @@ def adopt_moved_state(old, new):
     runtime = new / "runtime.json"
     if runtime.is_file() and not runtime.is_symlink():
         # Rewritten on the next start too; until then the CLI reads these paths.
-        text = re.sub(re.escape(json.dumps(str(old))[1:-1]) + r'(?=[/"])', lambda _: json.dumps(str(new))[1:-1], runtime.read_text())
+        text = re.sub(
+            re.escape(json.dumps(str(old))[1:-1]) + r'(?=[/"])',
+            lambda _: json.dumps(str(new))[1:-1],
+            runtime.read_text(),
+        )
         write_private(runtime, text)
     if read_marker(new) is None:
         write_private(new / "harness.identity.json", json.dumps(LEGACY_MARKER))
@@ -399,7 +441,9 @@ def migration_lock(home):
     """Serialize the move, the merge and a rollback (install.sh runs may overlap)."""
     path = (home / LEGACY_FOLDERS[0]).with_name("tail-harness.migration.lock")
     path.parent.mkdir(parents=True, exist_ok=True)
-    with open(path, "a", opener=lambda name, flags: os.open(name, flags | os.O_NOFOLLOW, 0o600)) as lock:
+    with open(
+        path, "a", opener=lambda name, flags: os.open(name, flags | os.O_NOFOLLOW, 0o600)
+    ) as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
         yield path
 
@@ -487,11 +531,24 @@ def generate(root=None, product=PRODUCT):
     root = Path(root or Path(__file__).resolve().parents[1])
     bridge = root / "agent_service/mcp_bridge.py"
     source = bridge.read_text()
-    match = re.search(r"^PRODUCT = (\{.*\})$", source, re.M)
-    previous = ProductIdentity(**ast.literal_eval(match.group(1))) if match else ProductIdentity()
+    assignment = next(
+        node
+        for node in ast.parse(source).body
+        if isinstance(node, ast.Assign)
+        and any(isinstance(target, ast.Name) and target.id == "PRODUCT" for target in node.targets)
+    )
+    previous = ProductIdentity(**ast.literal_eval(assignment.value))
     # Only presentation/bootstrap files are generated. Persisted protocol identifiers
     # in Python business logic are never replaced.
-    paths = ["pyproject.toml", "agent_service/index.html", "agent_service/ui.js", "agent_service/tour.js", "control/index.html", "control/admin.js", "harness_ui/assets/theme.js"]
+    paths = [
+        "pyproject.toml",
+        "agent_service/index.html",
+        "agent_service/ui.js",
+        "agent_service/tour.js",
+        "control/index.html",
+        "control/admin.js",
+        "harness_ui/assets/theme.js",
+    ]
     for relative in paths:
         path = root / relative
         text = path.read_text()
@@ -499,19 +556,40 @@ def generate(root=None, product=PRODUCT):
             text = text.replace("icons.svg#" + previous.icon, "icons.svg#__PRODUCT_ICON__")
         text = text.replace(previous.name, product.name).replace(previous.slug, product.slug)
         if relative == "harness_ui/assets/theme.js":
-            text = re.sub(r"const defaultLight=.*?;", f"const defaultLight={json.dumps(product.theme_light)};", text)
-            text = re.sub(r"const defaultDark=.*?;", f"const defaultDark={json.dumps(product.theme_dark)};", text)
+            text = re.sub(
+                r"const defaultLight=.*?;",
+                f"const defaultLight={json.dumps(product.theme_light)};",
+                text,
+            )
+            text = re.sub(
+                r"const defaultDark=.*?;",
+                f"const defaultDark={json.dumps(product.theme_dark)};",
+                text,
+            )
         if relative.endswith(".html"):
             text = text.replace("icons.svg#__PRODUCT_ICON__", "icons.svg#" + product.icon)
         write_if_changed(path, text)
-    block = "PRODUCT = " + repr(asdict(product))
-    source = re.sub(r"^PRODUCT = \{.*\}$", lambda _: block, source, flags=re.M)
-    write_if_changed(bridge, source)
+    if previous != product:
+        lines = source.splitlines(keepends=True)
+        lines[assignment.lineno - 1 : assignment.end_lineno] = [
+            "PRODUCT = " + repr(asdict(product)) + "\n"
+        ]
+        write_if_changed(bridge, "".join(lines))
     script = root / "agent_service/setup-mcp.sh"
     text = script.read_text()
-    values = {"TH_PRODUCT_SLUG": product.slug, "TH_PRODUCT_ENV": product.env_prefix, "TH_PRODUCT_BRIDGE": product.state_dir + "-mcp", "TH_PRODUCT_MCP": product.mcp_name}
+    values = {
+        "TH_PRODUCT_SLUG": product.slug,
+        "TH_PRODUCT_ENV": product.env_prefix,
+        "TH_PRODUCT_BRIDGE": product.state_dir + "-mcp",
+        "TH_PRODUCT_MCP": product.mcp_name,
+    }
     for key, value in values.items():
-        text = re.sub(r"^" + key + r"=.*$", lambda _, k=key, v=value: k + "=" + shlex.quote(v), text, flags=re.M)
+        text = re.sub(
+            r"^" + key + r"=.*$",
+            lambda _, k=key, v=value: k + "=" + shlex.quote(v),
+            text,
+            flags=re.M,
+        )
     write_if_changed(script, text)
 
 
@@ -519,19 +597,34 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--identity", type=Path, help="JSON identity for a synthetic build or fork")
     parser.add_argument("--field", choices=("venv", "slug"))
-    parser.add_argument("--migrate-state", action="store_true", help="Move the folders of the product's former name (install.sh)")
+    parser.add_argument(
+        "--migrate-state",
+        action="store_true",
+        help="Move the folders of the product's former name (install.sh)",
+    )
     args = parser.parse_args()
     product = PRODUCT
     if args.migrate_state:
         raise SystemExit(migrate_legacy_state())  # None exits 0; a reason exits 1
     if args.field:
-        print(os.environ.get(product.env_prefix + "_VENV") or (os.environ.get("TH_VENV") if is_original(product) else None) or str(product.state_path() / "venv") if args.field == "venv" else product.slug)
+        print(
+            os.environ.get(product.env_prefix + "_VENV")
+            or (os.environ.get("TH_VENV") if is_original(product) else None)
+            or str(product.state_path() / "venv")
+            if args.field == "venv"
+            else product.slug
+        )
         return
     if args.identity:
         product = ProductIdentity(**json.loads(args.identity.read_text()))
         path = Path(__file__)
         text = path.read_text()
-        text = re.sub(r"(# identity-source:begin\n).*?(\n# identity-source:end)", lambda m: m[1] + "PRODUCT = ProductIdentity(**" + repr(asdict(product)) + ")" + m[2], text, flags=re.S)
+        text = re.sub(
+            r"(# identity-source:begin\n).*?(\n# identity-source:end)",
+            lambda m: m[1] + "PRODUCT = ProductIdentity(**" + repr(asdict(product)) + ")" + m[2],
+            text,
+            flags=re.S,
+        )
         path.write_text(text)
     generate(product=product)
 

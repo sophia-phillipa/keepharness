@@ -39,20 +39,22 @@ const assert = require("node:assert/strict");
           : path === "/v1/models"
             ? {
                 admin_url: "http://127.0.0.1:8094/",
-                models: emptyModels ? [] : [
-                  {
-                    id: "fixture",
-                    name: "Fixture",
-                    backend: "local",
-                    efforts: ["low"],
-                  },
-                  {
-                    id: "cloud-fixture",
-                    name: "Cloud fixture",
-                    backend: "codex",
-                    efforts: ["low"],
-                  },
-                ],
+                models: emptyModels
+                  ? []
+                  : [
+                      {
+                        id: "fixture",
+                        name: "Fixture",
+                        backend: "local",
+                        efforts: ["low"],
+                      },
+                      {
+                        id: "cloud-fixture",
+                        name: "Cloud fixture",
+                        backend: "codex",
+                        efforts: ["low"],
+                      },
+                    ],
                 providers: { local: true, codex: true },
                 uploads_enabled: false,
               }
@@ -63,7 +65,9 @@ const assert = require("node:assert/strict");
                 : {};
       return route.fulfill({ json: data });
     });
-    await page.addInitScript(() => localStorage.setItem("keepharness-tour-seen", "0.16.0"));
+    await page.addInitScript(() =>
+      localStorage.setItem("keepharness-tour-seen", "0.16.0"),
+    );
     await page.goto(process.env.HARNESS_URL || "http://panel.test/");
     await page.locator("#startup-gate").waitFor({ state: "visible" });
     assert.equal(
@@ -84,13 +88,24 @@ const assert = require("node:assert/strict");
     assert.equal(await page.locator("#sidebar .brand").count(), 0);
     // D43: the rail no longer carries an Admin button; Settings holds the shortcut.
     assert.equal(await page.locator("#admin-shortcut-top").count(), 0);
-    assert.equal(await page.locator("#admin-shortcut").count(), 0, "the Admin panel link is gone");
+    assert.equal(
+      await page.locator("#admin-shortcut").count(),
+      0,
+      "the Admin panel link is gone",
+    );
     await page.click("#new");
     // "Open admin panel" opens Settings > Providers on this page, not a window.
-    assert.equal(await page.locator("#admin-link").getAttribute("href"), "http://127.0.0.1:8094/");
+    assert.equal(
+      await page.locator("#admin-link").getAttribute("href"),
+      "http://127.0.0.1:8094/",
+    );
     await page.keyboard.press("Control+,");
     assert.equal(await page.locator("#settings-dialog").isVisible(), true);
-    assert.equal(await page.locator("#admin-shortcut").count(), 0, "Settings holds sections, not an Admin link");
+    assert.equal(
+      await page.locator("#admin-shortcut").count(),
+      0,
+      "Settings holds sections, not an Admin link",
+    );
     await page.keyboard.press("Escape");
     // This page is a network host (panel.test), so Settings > System is hidden and the admin cannot
     // be framed: "Open admin panel" must then fall back to its link instead of doing nothing.
@@ -98,7 +113,9 @@ const assert = require("node:assert/strict");
     await page.click("#models-retry");
     await page.locator("#model-availability").waitFor({ state: "visible" });
     // Against a live harness at 127.0.0.1 System is available: the link opens Settings instead.
-    const systemHidden = await page.locator("#settings-system-nav").evaluate((el) => el.hidden);
+    const systemHidden = await page
+      .locator("#settings-system-nav")
+      .evaluate((el) => el.hidden);
     assert.equal(systemHidden, !process.env.HARNESS_URL);
     await page.click("#admin-link");
     if (systemHidden) await page.waitForURL("http://127.0.0.1:8094/");

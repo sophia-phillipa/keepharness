@@ -22,9 +22,23 @@ def test_authorized_roots_git_badges_and_path_boundaries(tmp_path):
     (project / ".env").write_text("fixture-only\n")
     subprocess.run(["git", "init", "-q", str(project)], check=True)
     subprocess.run(["git", "-C", str(project), "add", "changed.py"], check=True)
-    subprocess.run(["git", "-C", str(project), "-c", "user.name=Fixture", "-c",
-                    "user.email=fixture@example.test", "-c", "commit.gpgsign=false",
-                    "commit", "-qm", "fixture"], check=True)
+    subprocess.run(
+        [
+            "git",
+            "-C",
+            str(project),
+            "-c",
+            "user.name=Fixture",
+            "-c",
+            "user.email=fixture@example.test",
+            "-c",
+            "commit.gpgsign=false",
+            "commit",
+            "-qm",
+            "fixture",
+        ],
+        check=True,
+    )
     (project / "changed.py").write_text("after\n")
     (project / "added.py").write_text("new\n")
     (project / ":(glob)*.txt").write_text("literal filename\n")
@@ -48,11 +62,15 @@ def test_authorized_roots_git_badges_and_path_boundaries(tmp_path):
         assert entries[":(glob)*.txt"]["status"] == "?"
         assert "status" not in entries["nested"]
         assert ".env" not in entries and "escape" not in entries
-        selected = client.get("/v1/project-files", params={"project_id": "p", "view": "authorized",
-                                                          "root_id": "additional-0"})
+        selected = client.get(
+            "/v1/project-files",
+            params={"project_id": "p", "view": "authorized", "root_id": "additional-0"},
+        )
         assert [entry["name"] for entry in selected.json()["entries"]] == ["notes.txt"]
         for params in ({"root_id": "system"}, {"path": "../reference"}, {"path": "escape"}):
-            denied = client.get("/v1/project-files", params={"project_id": "p", "view": "authorized", **params})
+            denied = client.get(
+                "/v1/project-files", params={"project_id": "p", "view": "authorized", **params}
+            )
             assert denied.status_code in (403, 422)
         assert client.get("/v1/project-files?project_id=unknown&view=authorized").status_code == 403
 
@@ -76,20 +94,37 @@ def test_attachment_uses_only_the_requested_authorized_project_root(tmp_path):
     cfg = config(tmp_path / "state")
     cfg["projects"]["p"].update(root=str(project), additional_roots=[str(extra)])
     app = create_app(cfg)
-    with TestClient(app) as client, patch.object(
-        app.state.service, "attach_project_files", AsyncMock(return_value={"attachments": [], "skipped": []})
-    ) as attach:
+    with (
+        TestClient(app) as client,
+        patch.object(
+            app.state.service,
+            "attach_project_files",
+            AsyncMock(return_value={"attachments": [], "skipped": []}),
+        ) as attach,
+    ):
         client.headers["Authorization"] = "Bearer a"
-        response = client.post("/v1/project-files/attach?project_id=p", json={
-            "project_root_id": "additional-0", "paths": ["notes.txt"],
-        })
+        response = client.post(
+            "/v1/project-files/attach?project_id=p",
+            json={
+                "project_root_id": "additional-0",
+                "paths": ["notes.txt"],
+            },
+        )
         assert response.status_code == 200
         assert attach.call_args.args[2] == [("notes.txt", extra / "notes.txt")]
-        for root_id, path in (("system", "notes.txt"), ("root", "../extra/notes.txt"),
-                              ("additional-0", ".env"), ("additional-0", "escape.txt")):
-            response = client.post("/v1/project-files/attach?project_id=p", json={
-                "project_root_id": root_id, "paths": [path],
-            })
+        for root_id, path in (
+            ("system", "notes.txt"),
+            ("root", "../extra/notes.txt"),
+            ("additional-0", ".env"),
+            ("additional-0", "escape.txt"),
+        ):
+            response = client.post(
+                "/v1/project-files/attach?project_id=p",
+                json={
+                    "project_root_id": root_id,
+                    "paths": [path],
+                },
+            )
             assert response.status_code in (403, 422)
         assert attach.call_count == 1
 

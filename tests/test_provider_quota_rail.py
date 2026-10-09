@@ -193,10 +193,18 @@ def test_deepseek_refresh_keeps_known_balance_while_pending(rail, tmp_path, monk
     service, identity = rail
     deepseek_with_key(service, tmp_path)
     del service.deepseek_quota  # Exercise the real refresh with a gated account response.
-    cache_deepseek(service, {
-        "provider": "deepseek", "available": True, "checked_at": 99.0,
-        "balances": [{"currency": "USD", "total": "12.40", "granted": "0", "topped_up": "12.40"}],
-    }, age=FRESH + 1)
+    cache_deepseek(
+        service,
+        {
+            "provider": "deepseek",
+            "available": True,
+            "checked_at": 99.0,
+            "balances": [
+                {"currency": "USD", "total": "12.40", "granted": "0", "topped_up": "12.40"}
+            ],
+        },
+        age=FRESH + 1,
+    )
 
     async def scenario():
         started, release = asyncio.Event(), asyncio.Event()
@@ -204,13 +212,21 @@ def test_deepseek_refresh_keeps_known_balance_while_pending(rail, tmp_path, monk
         async def fetch_balance(_key):
             started.set()
             await release.wait()
-            return None if outcome == "failure" else {
-                "is_available": True,
-                "balance_infos": [{
-                    "currency": "USD", "total_balance": "9.25",
-                    "granted_balance": "0", "topped_up_balance": "9.25",
-                }],
-            }
+            return (
+                None
+                if outcome == "failure"
+                else {
+                    "is_available": True,
+                    "balance_infos": [
+                        {
+                            "currency": "USD",
+                            "total_balance": "9.25",
+                            "granted_balance": "0",
+                            "topped_up_balance": "9.25",
+                        }
+                    ],
+                }
+            )
 
         monkeypatch.setattr(deepseek_account, "fetch_balance", fetch_balance)
         task = asyncio.create_task(service.deepseek_quota())
@@ -344,8 +360,9 @@ def test_a_new_claude_login_drops_the_cached_account_reading(rail, tmp_path, mon
     asyncio.run(service.apply_runtime_config(candidate))
     assert quotas(service, identity)["claude"]["reason"] == "quota_not_read"
     asyncio.run(manager.claude_login_completed())
-    assert manager._previous_runtime()["account_revisions"]["claude"] != (
-        runtime["account_revisions"]["claude"]
+    assert (
+        manager._previous_runtime()["account_revisions"]["claude"]
+        != (runtime["account_revisions"]["claude"])
     )
 
 

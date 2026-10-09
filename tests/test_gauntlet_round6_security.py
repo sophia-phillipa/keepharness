@@ -174,11 +174,7 @@ def test_active_sse_stops_after_revocation(app, revocation):
         )
         assert len(service.requests[("alice", "read")]) == (1 if revocation == "owner" else 2)
         assert (
-            sum(
-                len(entries)
-                for key, entries in service.requests.items()
-                if key[1] == "session"
-            )
+            sum(len(entries) for key, entries in service.requests.items() if key[1] == "session")
             == 1
         )
         assert service.streams["alice"] == 0

@@ -113,7 +113,11 @@ def test_private_key_rejects_planted_links(tmp_path):
 
 SENTINEL = "SENTINEL-PERSONAL-SETUP"
 
-FAKE_CODEX = "SAFE_CONFIG = " + repr(SAFE_CONFIG) + "\n" + """
+FAKE_CODEX = (
+    "SAFE_CONFIG = "
+    + repr(SAFE_CONFIG)
+    + "\n"
+    + """
 import json, os, sys
 from pathlib import Path
 record = {"argv": sys.argv, "env": dict(os.environ), "requests": []}
@@ -138,6 +142,7 @@ for line in sys.stdin:
     elif ident is not None:
         emit({"id": ident, "result": {}})
 """
+)
 
 FAKE_CLAUDE = """
 import json, os, sys

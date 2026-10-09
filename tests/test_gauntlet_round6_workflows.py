@@ -65,7 +65,6 @@ def test_resumed_workflow_projection_preserves_original_context(tmp_path):
 
 
 def test_s27_workflow_mode_requirement_uses_actual_execution_mode(tmp_path):
-    from test_workflow_resume_rerun import setup_run
 
     from agent_service import maestro
     from agent_service.tools import ToolError

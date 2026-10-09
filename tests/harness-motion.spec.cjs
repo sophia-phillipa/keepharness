@@ -58,7 +58,9 @@ const path = require("node:path");
       });
     const errors = [];
     page.on("pageerror", (error) => errors.push(error.message));
-    await page.addInitScript(() => localStorage.setItem("keepharness-tour-seen", "0.16.0"));
+    await page.addInitScript(() =>
+      localStorage.setItem("keepharness-tour-seen", "0.16.0"),
+    );
     await page.goto(origin);
     await page.locator("#startup-gate").waitFor({ state: "hidden" });
     assert.equal(
@@ -76,12 +78,16 @@ const path = require("node:path");
         box.y + box.height <= 844,
       "mobile settings dialog remains in viewport",
     );
-    await page.screenshot({ path: "/tmp/keepharness-account-menu-mobile-final.png" });
+    await page.screenshot({
+      path: "/tmp/keepharness-account-menu-mobile-final.png",
+    });
     await page.click("#settings-close");
     await page.setViewportSize({ width: 1280, height: 860 });
     await page.locator("#settings").focus();
     await page.keyboard.press("Enter");
-    await page.waitForFunction(() => document.activeElement?.getAttribute("role") === "menuitem");
+    await page.waitForFunction(
+      () => document.activeElement?.getAttribute("role") === "menuitem",
+    );
     await page.keyboard.press("Enter"); // the Settings submenu opens first; its first item opens the dialog
     assert(await page.locator("#settings-dialog").isVisible());
     assert.match(

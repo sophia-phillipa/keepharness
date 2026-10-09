@@ -6,11 +6,11 @@ let state,
   wizard = false,
   editing = null,
   unsaved = false;
-const settingsSearchIndexState = window.settingsSearchIndexState = {
+const settingsSearchIndexState = (window.settingsSearchIndexState = {
   lastGoodIndex: null,
   refreshing: true,
   lastError: null,
-};
+});
 function settingsSearchChanged(status, error = null) {
   if (status === "refreshing") {
     settingsSearchIndexState.refreshing = true;
@@ -22,7 +22,11 @@ function settingsSearchChanged(status, error = null) {
     settingsSearchIndexState.refreshing = false;
     settingsSearchIndexState.lastError = error;
   }
-  document.dispatchEvent(new CustomEvent("keepharness:settings-index-change", { detail: { status } }));
+  document.dispatchEvent(
+    new CustomEvent("keepharness:settings-index-change", {
+      detail: { status },
+    }),
+  );
 }
 let profileModel = "",
   profileDirty = false,
@@ -114,7 +118,8 @@ async function requestRaw(path, data) {
           "The server could not complete this action. Check the server log for details.",
         invalid_request:
           "The request is missing required data. Check the fields and try again.",
-        invalid_json: "The request could not be read. Reload the page and try again.",
+        invalid_json:
+          "The request could not be read. Reload the page and try again.",
         provider_state_conflict:
           "The provider changed since this page loaded. Review the refreshed state and try again.",
         provider_state_write_unsupported:
@@ -401,11 +406,15 @@ function remoteServersPanel(info) {
   const saved = element("div", undefined, "remote-server-list");
   for (const server of info.remote_servers || []) {
     const row = element("p", undefined, "remote-server-row"),
-      name = element("span", server.url + (server.has_key ? " · key saved" : "")),
+      name = element(
+        "span",
+        server.url + (server.has_key ? " · key saved" : ""),
+      ),
       status = element(
         "span",
         server.reachable
-          ? server.models.length + (server.models.length === 1 ? " model" : " models")
+          ? server.models.length +
+              (server.models.length === 1 ? " model" : " models")
           : "Unreachable",
         "connector-status connector-status-" +
           (server.reachable ? "connected" : "failed"),
@@ -416,7 +425,11 @@ function remoteServersPanel(info) {
     remove.setAttribute("aria-label", "Remove " + server.url);
     remove.onclick = () =>
       action(async () => {
-        if (!confirm("Remove " + server.url + "? Its saved API key is deleted too."))
+        if (
+          !confirm(
+            "Remove " + server.url + "? Its saved API key is deleted too.",
+          )
+        )
           return;
         await request("remote-model-remove", { url: server.url });
         await refreshInventory();
@@ -959,27 +972,46 @@ const toasted = new Set(); // notice ids already announced in this page session 
 const onOff = (enabled) => (enabled ? "on" : "off");
 const acked = new Set(); // dismissed notice ids; they embed detected_at, so one never legitimately returns
 function setProviderNotices(provider, list) {
-  providerNotices.set(provider, Array.isArray(list) ? list.filter((notice) => !acked.has(notice.id)) : []);
+  providerNotices.set(
+    provider,
+    Array.isArray(list) ? list.filter((notice) => !acked.has(notice.id)) : [],
+  );
 }
 // The sentence as [text, item id, text]: the id is shown in <code>, the rest is plain text.
 function noticeParts(provider, notice) {
   const cli = HarnessUI.providerName(provider);
-  const time = new Date(notice.detected_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
-  const [kind, id] = String(notice.item_id).includes(":") ? String(notice.item_id).split(/:(.*)/s) : ["item", String(notice.item_id)];
+  const time = new Date(notice.detected_at).toLocaleTimeString([], {
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  });
+  const [kind, id] = String(notice.item_id).includes(":")
+    ? String(notice.item_id).split(/:(.*)/s)
+    : ["item", String(notice.item_id)];
   // Older pending skill notices stored the folder name instead of its source file.
-  const source = kind === "skill" && notice.source === id ? "SKILL.md" : notice.source;
+  const source =
+    kind === "skill" && notice.source === id ? "SKILL.md" : notice.source;
   const detail = " (" + source + ", " + time + ")";
   if (notice.change === "reverted")
-    return [`Reverted by ${cli}: ${kind} `, id, ` is ${onOff(notice.after)} again${detail}. Your choice was ${onOff(notice.before)}.`];
-  const what = { added: "was added", removed: "was removed" }[notice.change] || "was turned " + onOff(notice.after);
+    return [
+      `Reverted by ${cli}: ${kind} `,
+      id,
+      ` is ${onOff(notice.after)} again${detail}. Your choice was ${onOff(notice.before)}.`,
+    ];
+  const what =
+    { added: "was added", removed: "was removed" }[notice.change] ||
+    "was turned " + onOff(notice.after);
   return [`${cli} › ${kind} `, id, ` ${what}${detail}.`];
 }
-const noticeSentence = (provider, notice) => noticeParts(provider, notice).join("");
+const noticeSentence = (provider, notice) =>
+  noticeParts(provider, notice).join("");
 const noticeBlocks = () => ["provider-state-notices", "plugins-notices"].map($);
 // Redraws both blocks from the store, toasts the ids not announced yet (one toast per batch) and
 // tells the Plugins list to redraw its row markers.
 function showProviderNotices() {
-  const all = [...providerNotices].flatMap(([provider, list]) => list.map((notice) => ({ provider, notice })));
+  const all = [...providerNotices].flatMap(([provider, list]) =>
+    list.map((notice) => ({ provider, notice })),
+  );
   for (const box of noticeBlocks()) {
     box.hidden = !all.length;
     if (!all.length) {
@@ -987,10 +1019,21 @@ function showProviderNotices() {
       continue;
     }
     const head = element("div", undefined, "provider-notices-head");
-    head.append(element("strong", all.length === 1 ? "Changed outside KeepHarness" : all.length + " changes outside KeepHarness"));
+    head.append(
+      element(
+        "strong",
+        all.length === 1
+          ? "Changed outside KeepHarness"
+          : all.length + " changes outside KeepHarness",
+      ),
+    );
     for (const [provider, list] of providerNotices) {
       if (list.length < 2) continue;
-      const dismissAll = element("button", "Dismiss all " + HarnessUI.providerName(provider), "button secondary");
+      const dismissAll = element(
+        "button",
+        "Dismiss all " + HarnessUI.providerName(provider),
+        "button secondary",
+      );
       dismissAll.dataset.testid = "provider-notice-dismiss-all";
       dismissAll.onclick = () => ackProviderNotices(provider, list);
       head.append(dismissAll);
@@ -1021,7 +1064,9 @@ function showProviderNotices() {
     box.replaceChildren(head, folded);
   }
   // Only the Plugins and Providers screens toast; an id announced elsewhere would be lost, so it waits.
-  const fresh = ["#plugins", "#providers"].includes(location.hash) ? all.filter(({ notice }) => !toasted.has(notice.id)) : [];
+  const fresh = ["#plugins", "#providers"].includes(location.hash)
+    ? all.filter(({ notice }) => !toasted.has(notice.id))
+    : [];
   fresh.forEach(({ notice }) => toasted.add(notice.id));
   if (fresh.length) {
     const [{ provider, notice }] = fresh;
@@ -1040,28 +1085,46 @@ function showProviderNotices() {
 function ackProviderNotices(provider, notices) {
   const ids = notices.slice(0, 100).map((notice) => notice.id);
   return action(async () => {
-    await request("provider-state/notices:ack", { provider, project_id: NOTICE_SCOPE, notice_ids: ids });
+    await request("provider-state/notices:ack", {
+      provider,
+      project_id: NOTICE_SCOPE,
+      notice_ids: ids,
+    });
     ids.forEach((id) => acked.add(id));
     setProviderNotices(provider, providerNotices.get(provider));
     showProviderNotices();
     await refreshProviderNotices();
     // The Dismiss button is gone: keep the focus on the screen instead of <body>.
-    const screen = onProviders() ? document.querySelector("#overview h1") : $("plugins-panel");
-    const next = noticeBlocks().find((box) => !box.hidden && box.offsetParent)?.querySelector("button");
+    const screen = onProviders()
+      ? document.querySelector("#overview h1")
+      : $("plugins-panel");
+    const next = noticeBlocks()
+      .find((box) => !box.hidden && box.offsetParent)
+      ?.querySelector("button");
     if (next) return next.focus();
     screen.tabIndex = -1;
-    screen.addEventListener("blur", () => screen.removeAttribute("tabindex"), { once: true });
+    screen.addEventListener("blur", () => screen.removeAttribute("tabindex"), {
+      once: true,
+    });
     screen.focus();
   });
 }
 // Focus and visibilitychange fire together: callers share the read that is already in flight.
 let noticesRead = null;
-const refreshProviderNotices = () => (noticesRead ||= readProviderNotices().finally(() => (noticesRead = null)));
+const refreshProviderNotices = () =>
+  (noticesRead ||= readProviderNotices().finally(() => (noticesRead = null)));
 async function readProviderNotices() {
   await Promise.all(
     ["codex", "claude"].map(async (id) => {
       try {
-        setProviderNotices(id, (await request("provider-state?provider=" + id + "&project_id=" + NOTICE_SCOPE)).external_changes);
+        setProviderNotices(
+          id,
+          (
+            await request(
+              "provider-state?provider=" + id + "&project_id=" + NOTICE_SCOPE,
+            )
+          ).external_changes,
+        );
       } catch {
         // A CLI that is missing or unreadable has nothing to announce here (its own screens say why),
         // and an old notice must not stay on show for a state that can no longer be read.
@@ -1259,19 +1322,36 @@ function renderStatus() {
   const diagnostics = [];
   if (s.startup_error) diagnostics.push("Startup error: " + s.startup_error);
   if (s.last_exit)
-    diagnostics.push("Last exit: " + s.last_exit.code + " at " + new Date(s.last_exit.at * 1000).toISOString() + " (uptime " + s.last_exit.uptime_seconds + "s)");
+    diagnostics.push(
+      "Last exit: " +
+        s.last_exit.code +
+        " at " +
+        new Date(s.last_exit.at * 1000).toISOString() +
+        " (uptime " +
+        s.last_exit.uptime_seconds +
+        "s)",
+    );
   $("runtime-diagnostics").textContent = diagnostics.join("\n");
   $("runtime-diagnostics").hidden = diagnostics.length === 0;
-  $("environment-tools").replaceChildren(...(state.inventory.tools || []).map(tool => {
-    const row = element("div");
-    row.append(element("h3", tool.name + " — " + (tool.present ? "Available" : "Missing")));
-    for (const [distro, hint] of Object.entries(tool.package_hints || {}))
-      row.append(element("p", distro + ": " + hint, "hint"));
-    return row;
-  }));
+  $("environment-tools").replaceChildren(
+    ...(state.inventory.tools || []).map((tool) => {
+      const row = element("div");
+      row.append(
+        element(
+          "h3",
+          tool.name + " — " + (tool.present ? "Available" : "Missing"),
+        ),
+      );
+      for (const [distro, hint] of Object.entries(tool.package_hints || {}))
+        row.append(element("p", distro + ": " + hint, "hint"));
+      return row;
+    }),
+  );
   for (const provider of state.inventory.services)
     for (const failure of provider.runtime_errors || [])
-      $("environment-tools").append(element("p", failure.url + ": " + failure.error, "hint"));
+      $("environment-tools").append(
+        element("p", failure.url + ": " + failure.error, "hint"),
+      );
   $("add-provider").disabled = working;
   $("wizard-content-lock").disabled = working;
   $("wizard-next").disabled = working;
@@ -1288,11 +1368,14 @@ function renderStatus() {
   const open = $("open-harness");
   open.href = (s.shared ? s.remote_url : s.local_url) || "#";
   open.setAttribute("aria-disabled", String(!s.running));
-  open.title = s.running ? "Open the harness chat" : "The harness is stopped. Start it from Providers, then open it.";
+  open.title = s.running
+    ? "Open the harness chat"
+    : "The harness is stopped. Start it from Providers, then open it.";
   $("save").disabled = working;
 }
 $("open-harness").onclick = (event) => {
-  if (event.currentTarget.getAttribute("aria-disabled") === "true") event.preventDefault();
+  if (event.currentTarget.getAttribute("aria-disabled") === "true")
+    event.preventDefault();
 };
 function render() {
   renderProviders();
@@ -1352,7 +1435,8 @@ $("refresh-log-tail").onclick = async () => {
   button.disabled = true;
   try {
     const result = await request("logs");
-    $("log-tail").textContent = result.lines.join("\n") || "No harness log entries yet.";
+    $("log-tail").textContent =
+      result.lines.join("\n") || "No harness log entries yet.";
   } catch (error) {
     $("log-tail").textContent = "Could not read the log: " + error.message;
   } finally {
@@ -1366,7 +1450,9 @@ async function action(fn) {
   if (trigger && !$("operation-dialog").open) operationOpener = trigger;
   const disabled = trigger?.disabled;
   const label =
-    trigger?.textContent?.trim() || trigger?.getAttribute("aria-label") || "Load panel";
+    trigger?.textContent?.trim() ||
+    trigger?.getAttribute("aria-label") ||
+    "Load panel";
   if (trigger) trigger.disabled = true;
   $("wizard-content-lock").disabled = true;
   $("config-mcp").inert = true;
@@ -1496,7 +1582,10 @@ $("full-access").onchange = () => {
     toggle.disabled = true;
     settingsSearchChanged("changed");
     try {
-      await request("settings", { ...structuredClone(state.settings), full_access: enabled });
+      await request("settings", {
+        ...structuredClone(state.settings),
+        full_access: enabled,
+      });
       await load({ select: false });
       say(
         enabled
@@ -1771,7 +1860,10 @@ async function pollOperations() {
         if (j.state === "running" && j.accepts_input) {
           // Container logins cannot receive the browser callback; Claude shows a code instead.
           const form = element("form", undefined, "operation-code");
-          const label = element("label", "Paste the code Claude shows after you sign in");
+          const label = element(
+            "label",
+            "Paste the code Claude shows after you sign in",
+          );
           const input = element("input");
           input.id = "operation-code-" + j.id;
           input.type = "password";
@@ -1785,7 +1877,10 @@ async function pollOperations() {
           form.onsubmit = (event) => {
             event.preventDefault();
             action(async () => {
-              await request("provider-login-code", { id: j.id, code: input.value.trim() });
+              await request("provider-login-code", {
+                id: j.id,
+                code: input.value.trim(),
+              });
               input.value = "";
               say("Code sent. Finishing the login…");
               pollOperations();
@@ -1931,8 +2026,14 @@ executionPage.append(
 emptyInspector.after(executionPage);
 
 const panelCopy = {
-  catalogs: ["Catalogs and vault", "Manage pinned resources, prerequisites and private integration bindings."],
-  connection: ["Connection / MCP", "Choose the model and effort that connected MCP clients use when they do not name one."],
+  catalogs: [
+    "Catalogs and vault",
+    "Manage pinned resources, prerequisites and private integration bindings.",
+  ],
+  connection: [
+    "Connection / MCP",
+    "Choose the model and effort that connected MCP clients use when they do not name one.",
+  ],
   home: ["Home", "Track operations and server usage in real time."],
   plugins: ["Plugins", "Manage plugins, skills, and MCPs"],
   providers: [
@@ -1991,7 +2092,8 @@ window.addEventListener("hashchange", () => {
 });
 // Coming back to the tab re-reads the notices (no timers); an operation in flight keeps its screen.
 const rereadNotices = () => {
-  if (onProviders() && !working && document.visibilityState === "visible") refreshProviderNotices();
+  if (onProviders() && !working && document.visibilityState === "visible")
+    refreshProviderNotices();
 };
 window.addEventListener("focus", rereadNotices);
 document.addEventListener("visibilitychange", rereadNotices);
@@ -2893,7 +2995,10 @@ function renderMcpDefaults() {
         HarnessUI.selectableModel(backend, m),
       )) {
         select.append(
-          new Option(HarnessUI.providerName(backend) + " · " + model, JSON.stringify([backend, model])),
+          new Option(
+            HarnessUI.providerName(backend) + " · " + model,
+            JSON.stringify([backend, model]),
+          ),
         );
       }
   select.value = saved.model
@@ -3188,14 +3293,18 @@ async function refreshExecution(row) {
       for (const span of data.spans) {
         const item = element("li");
         const outcome = span.attrs?.outcome || "unknown";
-        const status = outcome === "unknown"
-          ? span.end_ts == null
-            ? span.start_ts == null ? "Pending" : "In progress"
-            : "Outcome unknown"
-          : outcome;
-        const duration = Number.isFinite(span.start_ts) && Number.isFinite(span.end_ts)
-          ? ` · ${Math.max(0, span.end_ts - span.start_ts).toFixed(1)} s`
-          : "";
+        const status =
+          outcome === "unknown"
+            ? span.end_ts == null
+              ? span.start_ts == null
+                ? "Pending"
+                : "In progress"
+              : "Outcome unknown"
+            : outcome;
+        const duration =
+          Number.isFinite(span.start_ts) && Number.isFinite(span.end_ts)
+            ? ` · ${Math.max(0, span.end_ts - span.start_ts).toFixed(1)} s`
+            : "";
         item.append(
           element("strong", span.name || span.kind),
           document.createTextNode(` · ${span.kind} · ${status}${duration}`),
@@ -3558,10 +3667,7 @@ async function loadCatalog() {
   catalogPending.add(provider);
   renderCatalog();
   try {
-    integrationCatalogs.set(
-      provider,
-      await requestCatalog(provider),
-    );
+    integrationCatalogs.set(provider, await requestCatalog(provider));
   } catch (error) {
     integrationCatalogs.set(provider, {
       ...(integrationCatalogs.get(provider) || { items: [] }),
@@ -3665,12 +3771,36 @@ renderIntegrationForm();
 
 // One action vocabulary keeps dynamic and static panel buttons consistent.
 const buttonActions = [
-  [/^Pin catalog/, "lock", "Runs this catalog from the chosen immutable revision."],
-  [/^Provision runtime/, "download", "Creates the catalog environment and writable state declared by its manifest."],
-  [/^Re-trust hooks/, "shield", "Trusts the catalog hook files as they are now, so they run again."],
-  [/^Preview update/, "search", "Fetches the catalog and compares resource revisions without moving its pin."],
-  [/^Move pin/, "check", "Applies the exact revision shown in the current update preview."],
-  [/^Remove binding/, "trash", "Removes stored credentials and their project bindings."],
+  [
+    /^Pin catalog/,
+    "lock",
+    "Runs this catalog from the chosen immutable revision.",
+  ],
+  [
+    /^Provision runtime/,
+    "download",
+    "Creates the catalog environment and writable state declared by its manifest.",
+  ],
+  [
+    /^Re-trust hooks/,
+    "shield",
+    "Trusts the catalog hook files as they are now, so they run again.",
+  ],
+  [
+    /^Preview update/,
+    "search",
+    "Fetches the catalog and compares resource revisions without moving its pin.",
+  ],
+  [
+    /^Move pin/,
+    "check",
+    "Applies the exact revision shown in the current update preview.",
+  ],
+  [
+    /^Remove binding/,
+    "trash",
+    "Removes stored credentials and their project bindings.",
+  ],
   [
     /^(Save|Complete and save|Apply)/,
     "device-floppy",

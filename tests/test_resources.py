@@ -63,9 +63,17 @@ def test_trusted_catalog_precedence_relative_ids_and_symlink_boundary(tmp_path, 
     project = tmp_path / "project"
     catalog = tmp_path / "catalog"
     outside = tmp_path / "outside"
-    put(tmp_path / "home", ".codex/agents/reviewer.toml", 'name="demo--reviewer"\ndeveloper_instructions="User"')
+    put(
+        tmp_path / "home",
+        ".codex/agents/reviewer.toml",
+        'name="demo--reviewer"\ndeveloper_instructions="User"',
+    )
     put(catalog, "agents/reviewer.toml", 'name="demo--reviewer"\ndeveloper_instructions="Catalog"')
-    put(project, ".codex/agents/reviewer.toml", 'name="demo--reviewer"\ndeveloper_instructions="Project"')
+    put(
+        project,
+        ".codex/agents/reviewer.toml",
+        'name="demo--reviewer"\ndeveloper_instructions="Project"',
+    )
     put(catalog, "skills/shared/SKILL.md", "---\nname: shared\n---\nInside")
     alias = catalog / "skills/alias"
     alias.symlink_to(catalog / "skills/shared")
@@ -234,10 +242,7 @@ def test_command_expansion_no_execution(tmp_path, monkeypatch):
 
 def test_single_leading_command_expands_all_verbatim_arguments():
     item = {"kind": "command", "name": "inspect", "_body": "ARGS=[$ARGUMENTS]"}
-    assert (
-        resources.prepare_prompt("/inspect first\nsecond  ", [item])
-        == "ARGS=[first\nsecond  ]"
-    )
+    assert resources.prepare_prompt("/inspect first\nsecond  ", [item]) == "ARGS=[first\nsecond  ]"
 
 
 def test_api_permissions_and_revalidation_before_queue(tmp_path, monkeypatch):
@@ -493,13 +498,20 @@ def test_claude_user_skills_load_only_with_the_personal_setup_and_hooks(tmp_path
         assert set(items) == {("skill", "home"), ("command", "homecmd")} | owned, extra
         assert not any(i["selectable"] for i in items.values())
         assert all(i["unavailable_reason"] for i in items.values())
-    hooks = {"projects": {"p": {"root": str(root), "permissions": {"delegate": True, "hooks": True}}}}
+    hooks = {
+        "projects": {"p": {"root": str(root), "permissions": {"delegate": True, "hooks": True}}}
+    }
     assert not any(i["selectable"] for i in listed(**hooks).values())
     items = listed(personal_setup=True, **hooks)
-    assert {k for k, i in items.items() if i["selectable"]} == {("skill", "home"), ("command", "homecmd")}
+    assert {k for k, i in items.items() if i["selectable"]} == {
+        ("skill", "home"),
+        ("command", "homecmd"),
+    }
     assert not items[("skill", "owner")]["selectable"]
     config = provider_home_config(root, state, "claude")
-    project = [i for i in resources.discover(config, "p", "claude")["items"] if i["name"] == "local"]
+    project = [
+        i for i in resources.discover(config, "p", "claude")["items"] if i["name"] == "local"
+    ]
     assert [i["selectable"] for i in project] == [True]
 
 
@@ -566,7 +578,9 @@ def test_codex_owner_prompts_stay_available_with_the_opt_in(tmp_path, monkeypatc
     monkeypatch.delenv("CODEX_HOME", raising=False)
     put(owner / ".codex", "prompts/mine.md", "---\ndescription: mine\n---\nDo it")
     on = provider_home_config(root, state, "codex", personal_setup=True)
-    assert ("command", "mine") not in user_items(provider_home_config(root, state, "codex"), "codex")
+    assert ("command", "mine") not in user_items(
+        provider_home_config(root, state, "codex"), "codex"
+    )
     assert ("command", "mine") not in user_items(on, "codex", owner=False)
     assert user_items(on, "codex")[("command", "mine")]["selectable"] is True
 
@@ -651,7 +665,9 @@ def test_every_client_sees_the_owners_personal_resources_in_catalog_or_palette(
         app.state.service.db.close()
 
 
-def test_a_non_owner_resolution_cannot_resolve_an_owner_resource_id_at_run_time(tmp_path, monkeypatch):
+def test_a_non_owner_resolution_cannot_resolve_an_owner_resource_id_at_run_time(
+    tmp_path, monkeypatch
+):
     from starlette.testclient import TestClient
 
     from agent_service.app import create_app
@@ -672,7 +688,9 @@ def test_a_non_owner_resolution_cannot_resolve_an_owner_resource_id_at_run_time(
             "backend": "gemini",
             "model": "fixture",
             "prompt": "/mine hi",
-            "resource_selections": [{"id": item["id"], "revision": item["revision"], "token": "/mine"}],
+            "resource_selections": [
+                {"id": item["id"], "revision": item["revision"], "token": "/mine"}
+            ],
         }
         service = app.state.service
         assert service.selected_resources(data, owner=True)[0]["name"] == "mine"

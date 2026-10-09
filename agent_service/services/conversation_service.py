@@ -660,6 +660,10 @@ class ConversationService:
         lane = (
             "control" if control else ("write" if request and request.method != "GET" else "read")
         )
+        # The page paints from this read; sharing the polling budget made a busy minute drop
+        # the saved interface state (the page fell back to browser storage).
+        if lane == "read" and request and request.url.path == "/v1/ui-state":
+            lane = "ui_state"
         human = control and getattr(request.state, "approval_session_owner", None) == name
         self.limit(
             (name, "human_control" if human else lane),
@@ -3094,7 +3098,12 @@ class ConversationService:
         if summary is None:
             result = {"provider": "deepseek", "available": False, "reason": "balance_unavailable"}
         else:
-            result = {"provider": "deepseek", "available": True, "checked_at": time.time(), **summary}
+            result = {
+                "provider": "deepseek",
+                "available": True,
+                "checked_at": time.time(),
+                **summary,
+            }
         self.deepseek_usage_cache = (cache_key, time.monotonic(), result)
         return result
 

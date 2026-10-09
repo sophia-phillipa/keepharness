@@ -1,4 +1,5 @@
 """Model mounts protect the effective private state, including resolved aliases."""
+
 import pytest
 
 from control.local_models import validate_profile
@@ -18,7 +19,10 @@ def test_effective_state_is_never_a_model_root(tmp_path, relation):
     binary.touch()
     model.touch()
     with pytest.raises(ValueError, match="credentials"):
-        validate_profile({"binary": str(binary), "model_file": str(model), "allowed_roots": [str(root)]}, state_dir=state)
+        validate_profile(
+            {"binary": str(binary), "model_file": str(model), "allowed_roots": [str(root)]},
+            state_dir=state,
+        )
 
 
 def test_unrelated_root_remains_usable(tmp_path):
@@ -30,4 +34,7 @@ def test_unrelated_root_remains_usable(tmp_path):
     model = tmp_path / "test.gguf"
     binary.touch()
     model.touch()
-    assert validate_profile({"binary": str(binary), "model_file": str(model), "allowed_roots": [str(root)]}, state_dir=state)["allowed_roots"] == [str(root)]
+    assert validate_profile(
+        {"binary": str(binary), "model_file": str(model), "allowed_roots": [str(root)]},
+        state_dir=state,
+    )["allowed_roots"] == [str(root)]

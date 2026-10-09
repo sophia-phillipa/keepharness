@@ -107,8 +107,11 @@ def run_codex_route(tmp_path, provider, project, backend_config=None):
         "integrations": SELECTED,
         "plugin_inventory": ["plugin:notes@market"],
         "personal_setup": True,  # host connectors and plugins are the owner's opt-in (D01)
-        **({"api_provider": {"url": "https://example.invalid", "key_file": str(key)}}
-           if provider == "deepseek" else {}),
+        **(
+            {"api_provider": {"url": "https://example.invalid", "key_file": str(key)}}
+            if provider == "deepseek"
+            else {}
+        ),
         **(backend_config or {}),
     }
     with (

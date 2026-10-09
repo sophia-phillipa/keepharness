@@ -66,7 +66,12 @@ def base_config(settings, state, admin_port, browser_url, provider_revisions):
     for key in ("approval_timeout_seconds", "approval_max_consecutive_expirations"):
         if key in settings:
             cfg[key] = settings[key]
-    for key in ("integrations", "integration_bindings", "effect_integrations", "secret_vault_revision"):
+    for key in (
+        "integrations",
+        "integration_bindings",
+        "effect_integrations",
+        "secret_vault_revision",
+    ):
         if key in settings:
             cfg[key] = json.loads(json.dumps(settings[key]))
     if settings.get("integration_bindings"):
@@ -138,7 +143,9 @@ def catalog_models(cfg, provider, models, catalog):
         raise UserMessageError(CATALOG_MISSING)
     logger.warning(
         "%s: %s Routes unavailable until repaired: %s",
-        provider, CATALOG_MISSING, ", ".join(retired),
+        provider,
+        CATALOG_MISSING,
+        ", ".join(retired),
     )
     cfg["services"][provider]["models"] = kept
     cfg.setdefault("unavailable_models", {})[provider] = dict.fromkeys(retired, CATALOG_MISSING)

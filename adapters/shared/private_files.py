@@ -8,6 +8,12 @@ from pathlib import Path
 from agent_service.tools import ToolError
 
 
+def validate_private_file(metadata):
+    """Require a regular file whose inode belongs only to its private path."""
+    if not stat.S_ISREG(metadata.st_mode) or metadata.st_nlink != 1:
+        raise ToolError("unsafe_scoped_home")
+
+
 @contextmanager
 def scoped_home_directory(home):
     """Pin every directory component; never follow worker-planted symlinks."""
@@ -37,8 +43,5 @@ def scoped_home_read(home, name):
         except FileNotFoundError:
             return None
         with os.fdopen(fd, "r") as stream:
-            metadata = os.fstat(stream.fileno())
-            if not stat.S_ISREG(metadata.st_mode) or metadata.st_nlink != 1:
-                raise ToolError("unsafe_scoped_home")
+            validate_private_file(os.fstat(stream.fileno()))
             return stream.read()
-

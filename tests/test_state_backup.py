@@ -29,7 +29,9 @@ def make_state(root: Path) -> Path:
     (state / "harness.secrets.json").write_text("{}")
     (state / "harness.effect_credentials.json").write_text("{}")
     (state / "runs/sessions/o/c").mkdir(parents=True)
-    (state / "runs/sessions/o/c/mcp.json").write_text('{"mcpServers": {"x": {"env": {"TOKEN": "t"}}}}')
+    (state / "runs/sessions/o/c/mcp.json").write_text(
+        '{"mcpServers": {"x": {"env": {"TOKEN": "t"}}}}'
+    )
     (state / "local-sessions.json").write_text("{}")
     (state / "harness.log").write_text("noise")
     (state / "harness.identity.json").write_text(json.dumps(IDENTITY))
@@ -64,8 +66,12 @@ def test_backup_leaves_out_secrets_the_environment_and_logs_by_default(tmp_path)
     assert {"manifest.json", "settings.json", "runs/jobs.sqlite3", "runs/notes.txt"} <= found
     assert not {n for n in found if n.endswith(".key") or n.startswith(("providers", "venv"))}
     assert not found & {
-        "harness.secrets.json", "harness.effect_credentials.json", "runs/sessions/o/c/mcp.json",
-        "local-sessions.json", "harness.log", "runs/approval_sessions.sqlite3",
+        "harness.secrets.json",
+        "harness.effect_credentials.json",
+        "runs/sessions/o/c/mcp.json",
+        "local-sessions.json",
+        "harness.log",
+        "runs/approval_sessions.sqlite3",
     }
     assert archive.stat().st_mode & 0o777 == 0o600
     assert not [p for p in tmp_path.iterdir() if p.name.startswith(".keepharness-backup")]
@@ -79,8 +85,12 @@ def test_backup_with_secrets_adds_them_but_still_not_the_environment(tmp_path):
 
     found = names(archive)
     assert {
-        "local.key", "vpn.key", "providers/codex/auth.json", "runs/approval_sessions.sqlite3",
-        "harness.effect_credentials.json", "runs/sessions/o/c/mcp.json",
+        "local.key",
+        "vpn.key",
+        "providers/codex/auth.json",
+        "runs/approval_sessions.sqlite3",
+        "harness.effect_credentials.json",
+        "runs/sessions/o/c/mcp.json",
     } <= found
     assert not any(n.startswith("venv") for n in found)
     assert manifest["with_secrets"] is True
@@ -238,7 +248,9 @@ def test_restore_refuses_a_backup_of_another_product_and_an_unsafe_archive(tmp_p
 
     evil = tmp_path / "evil.tar.gz"
     with tarfile.open(evil, "w:gz") as tar:
-        manifest = json.dumps({"format": 1, "identity": IDENTITY, "databases": {}, "bytes": 1}).encode()
+        manifest = json.dumps(
+            {"format": 1, "identity": IDENTITY, "databases": {}, "bytes": 1}
+        ).encode()
         info = tarfile.TarInfo("manifest.json")
         info.size = len(manifest)
         tar.addfile(info, io.BytesIO(manifest))
@@ -329,7 +341,10 @@ def test_restore_never_lets_a_dot_prefixed_environment_member_touch_the_venv(tmp
     state = make_state(tmp_path)
     backup.create(state, tmp_path / "out.tar.gz")
 
-    with tarfile.open(tmp_path / "out.tar.gz") as old, tarfile.open(tmp_path / "dot.tar.gz", "w:gz") as new:
+    with (
+        tarfile.open(tmp_path / "out.tar.gz") as old,
+        tarfile.open(tmp_path / "dot.tar.gz", "w:gz") as new,
+    ):
         for member in old.getmembers():
             new.addfile(member, old.extractfile(member) if member.isfile() else None)
         extra = tarfile.TarInfo("./venv/x")

@@ -20,7 +20,11 @@ let providers = {},
   uiBuild = "",
   reloadPending = false;
 const temporaryPreviews = new Map();
-let temporarySession = "", temporaryStarting = false, temporaryPreviousDraft = null, temporaryHeartbeat = 0, viewDiscarded = false;
+let temporarySession = "",
+  temporaryStarting = false,
+  temporaryPreviousDraft = null,
+  temporaryHeartbeat = 0,
+  viewDiscarded = false;
 let queuedTurns = [];
 let executionMode = "native";
 let draftMode = { mode: "native", modeChosen: false, retiredLock: false };
@@ -51,10 +55,11 @@ function submissionKey(data) {
         ).join(""),
     };
     try {
-      if (!temporarySession) sessionStorage.setItem(
-        "pending-submission",
-        JSON.stringify(pendingSubmission),
-      );
+      if (!temporarySession)
+        sessionStorage.setItem(
+          "pending-submission",
+          JSON.stringify(pendingSubmission),
+        );
     } catch {}
   }
   return pendingSubmission.key;
@@ -80,7 +85,9 @@ function saveConversationActivity() {
   // The store keeps the last entries of the map it is given: put the most recently updated conversations
   // last and drop the ones the list no longer has, so the saved set follows recency, not insertion order.
   const recent = {};
-  for (const c of [...conversations].sort((a, b) => conversationUpdated(a) - conversationUpdated(b)))
+  for (const c of [...conversations].sort(
+    (a, b) => conversationUpdated(a) - conversationUpdated(b),
+  ))
     if (conversationActivity[c.id]) recent[c.id] = conversationActivity[c.id];
   conversationActivity = recent;
   prefs.set("conversation_activity", conversationActivity);
@@ -108,12 +115,24 @@ function conversationStatusKind(c = {}) {
   if (c.state === "failed") return "failed";
   return conversationActivity[c.id]?.unread ? "unread" : "";
 }
-function statusDot(kind, label = STATUS_DOTS[kind], base = "conversation-indicator") {
+function statusDot(
+  kind,
+  label = STATUS_DOTS[kind],
+  base = "conversation-indicator",
+) {
   const indicator = document.createElement("span");
   // "working" keeps the historical class for running and queued rows.
   indicator.className =
-    base + " status-" + kind +
-    (base !== "conversation-indicator" ? "" : kind === "running" || kind === "queued" ? " working" : kind === "unread" ? " unread" : "");
+    base +
+    " status-" +
+    kind +
+    (base !== "conversation-indicator"
+      ? ""
+      : kind === "running" || kind === "queued"
+        ? " working"
+        : kind === "unread"
+          ? " unread"
+          : "");
   indicator.setAttribute("role", "img");
   indicator.setAttribute("aria-label", label);
   indicator.title = label;
@@ -136,7 +155,9 @@ let fileTree = {
   ready: false,
 };
 function setConversationTitle(value) {
-  const full = temporarySession ? "Temporary chat" : String(value || "New Conversation").trim() || "New Conversation",
+  const full = temporarySession
+      ? "Temporary chat"
+      : String(value || "New Conversation").trim() || "New Conversation",
     el = $("conversation-title");
   el.textContent = full.length > 80 ? truncateTitle(full, 79) + "…" : full;
   el.title = full;
@@ -183,72 +204,111 @@ function triggerAtCaret() {
 }
 function unfencedPrompt(text) {
   // Match resources.unfenced while preserving every original character offset.
-  let marker = null, markerDepth = 0, markerIndent = 0, listIndent = 0;
-  let previousBlank = true, indented = false, quoteInList = false;
-  return text.split(/(?<=\n)/).map(source => {
-    let column = 0;
-    let line = Array.from(source, character => {
-      const expanded = character === "\t" ? " ".repeat(4 - column % 4) : character;
-      column += expanded.length;
-      return expanded;
-    }).join("");
-    if (quoteInList) {
-      if (line.startsWith(" ".repeat(listIndent))) line = line.slice(listIndent);
-      else if (line.trim()) { quoteInList = false; listIndent = 0; }
-    }
-    const prefix = /^(?: {0,3}>[ \t]?)+/.exec(line);
-    let depth = prefix ? (prefix[0].match(/>/g) || []).length : 0;
-    let content = prefix ? line.slice(prefix[0].length) : line;
-    const blank = !content.trim(), indentation = /^ */.exec(content)[0].length;
-    if (marker && depth < markerDepth) marker = null;
-    if (!blank && indentation < listIndent && !quoteInList) { listIndent = 0; if (markerIndent) marker = null; }
-    if (!marker) {
-      let item = /^ {0,3}(?:[-+*]|[0-9]+[.)]) +/.exec(content);
-      if (item) {
-        listIndent = 0;
-        while (item) {
-          listIndent += item[0].length;
-          content = content.slice(item[0].length);
-          item = /^ {0,3}(?:[-+*]|[0-9]+[.)]) +/.exec(content);
+  let marker = null,
+    markerDepth = 0,
+    markerIndent = 0,
+    listIndent = 0;
+  let previousBlank = true,
+    indented = false,
+    quoteInList = false;
+  return text
+    .split(/(?<=\n)/)
+    .map((source) => {
+      let column = 0;
+      let line = Array.from(source, (character) => {
+        const expanded =
+          character === "\t" ? " ".repeat(4 - (column % 4)) : character;
+        column += expanded.length;
+        return expanded;
+      }).join("");
+      if (quoteInList) {
+        if (line.startsWith(" ".repeat(listIndent)))
+          line = line.slice(listIndent);
+        else if (line.trim()) {
+          quoteInList = false;
+          listIndent = 0;
         }
       }
-      else if (listIndent && !quoteInList) content = content.slice(listIndent);
-    } else if (markerIndent && !quoteInList) content = content.slice(markerIndent);
-    const nestedQuote = /^(?: {0,3}>[ \t]?)+/.exec(content);
-    if (nestedQuote) {
-      quoteInList = !!listIndent; depth += (nestedQuote[0].match(/>/g) || []).length;
-      content = content.slice(nestedQuote[0].length);
-    }
-    const codeIndent = /^(?: {4}|\t)/.test(content);
-    indented = !marker && ((codeIndent && (previousBlank || indented)) || (blank && indented));
-    let hidden = !!marker || indented;
-    const fence = /^ {0,3}(`{3,}|~{3,})(.*)/.exec(content);
-    if (fence && !indented) {
-      if (!marker && (fence[1][0] !== "`" || !fence[2].includes("`"))) {
-        marker = fence[1]; markerDepth = depth; markerIndent = listIndent; hidden = true;
-      } else if (marker && depth === markerDepth && fence[1][0] === marker[0] && fence[1].length >= marker.length && !fence[2].trim()) { marker = null; hidden = true; }
-    }
-    previousBlank = blank;
-    return hidden ? " ".repeat(source.length) : source;
-  }).join("");
+      const prefix = /^(?: {0,3}>[ \t]?)+/.exec(line);
+      let depth = prefix ? (prefix[0].match(/>/g) || []).length : 0;
+      let content = prefix ? line.slice(prefix[0].length) : line;
+      const blank = !content.trim(),
+        indentation = /^ */.exec(content)[0].length;
+      if (marker && depth < markerDepth) marker = null;
+      if (!blank && indentation < listIndent && !quoteInList) {
+        listIndent = 0;
+        if (markerIndent) marker = null;
+      }
+      if (!marker) {
+        let item = /^ {0,3}(?:[-+*]|[0-9]+[.)]) +/.exec(content);
+        if (item) {
+          listIndent = 0;
+          while (item) {
+            listIndent += item[0].length;
+            content = content.slice(item[0].length);
+            item = /^ {0,3}(?:[-+*]|[0-9]+[.)]) +/.exec(content);
+          }
+        } else if (listIndent && !quoteInList)
+          content = content.slice(listIndent);
+      } else if (markerIndent && !quoteInList)
+        content = content.slice(markerIndent);
+      const nestedQuote = /^(?: {0,3}>[ \t]?)+/.exec(content);
+      if (nestedQuote) {
+        quoteInList = !!listIndent;
+        depth += (nestedQuote[0].match(/>/g) || []).length;
+        content = content.slice(nestedQuote[0].length);
+      }
+      const codeIndent = /^(?: {4}|\t)/.test(content);
+      indented =
+        !marker &&
+        ((codeIndent && (previousBlank || indented)) || (blank && indented));
+      let hidden = !!marker || indented;
+      const fence = /^ {0,3}(`{3,}|~{3,})(.*)/.exec(content);
+      if (fence && !indented) {
+        if (!marker && (fence[1][0] !== "`" || !fence[2].includes("`"))) {
+          marker = fence[1];
+          markerDepth = depth;
+          markerIndent = listIndent;
+          hidden = true;
+        } else if (
+          marker &&
+          depth === markerDepth &&
+          fence[1][0] === marker[0] &&
+          fence[1].length >= marker.length &&
+          !fence[2].trim()
+        ) {
+          marker = null;
+          hidden = true;
+        }
+      }
+      previousBlank = blank;
+      return hidden ? " ".repeat(source.length) : source;
+    })
+    .join("");
 }
 
 function selectedOccurrences() {
   const prose = unfencedPrompt($("prompt").value);
   const used = new Set();
-  return resourceSelections.flatMap(ref => {
-    const escaped = ref.token.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    const match = [...prose.matchAll(new RegExp("(^|\\s)" + escaped + "(?=\\s|$)", "g"))].find(m => !used.has(m.index + m[1].length));
-    if (!match) return [];
-    const start = match.index + match[1].length;
-    used.add(start);
-    return [{ ref, start }];
-  }).sort((a, b) => a.start - b.start);
+  return resourceSelections
+    .flatMap((ref) => {
+      const escaped = ref.token.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const match = [
+        ...prose.matchAll(new RegExp("(^|\\s)" + escaped + "(?=\\s|$)", "g")),
+      ].find((m) => !used.has(m.index + m[1].length));
+      if (!match) return [];
+      const start = match.index + match[1].length;
+      used.add(start);
+      return [{ ref, start }];
+    })
+    .sort((a, b) => a.start - b.start);
 }
 function syncResourceSelections() {
-  resourceSelections = selectedOccurrences().map(item => item.ref);
+  resourceSelections = selectedOccurrences().map((item) => item.ref);
   const tokens = new Set($("prompt").value.split(/\s+/));
-  invalidResourceTokens = new Set([...invalidResourceTokens].filter(token => tokens.has(token)));
+  invalidResourceTokens = new Set(
+    [...invalidResourceTokens].filter((token) => tokens.has(token)),
+  );
 }
 function renderResourceChips() {
   let chips = $("resource-chips");
@@ -268,10 +328,13 @@ function renderResourceChips() {
     chip.setAttribute("aria-label", "Remove " + selection.token);
     chip.textContent = selection.token + " ×";
     chip.onclick = () => {
-      const input = $("prompt"), tokenEnd = start + selection.token.length,
+      const input = $("prompt"),
+        tokenEnd = start + selection.token.length,
         end = tokenEnd + (input.value[tokenEnd] === " " ? 1 : 0);
       input.value = input.value.slice(0, start) + input.value.slice(end);
-      resourceSelections = resourceSelections.filter(value => value !== selection);
+      resourceSelections = resourceSelections.filter(
+        (value) => value !== selection,
+      );
       invalidResourceTokens.delete(selection.token);
       updateComposer();
       input.focus();
@@ -314,11 +377,14 @@ function renderPersonaControl() {
   control.hidden = !activePersona;
   if (!activePersona) return;
   control.querySelector(".persona-label").textContent =
-    (releasePersonaPending ? "Ending after your next message: " : "Agent conversation: ") +
-    activePersona.name;
+    (releasePersonaPending
+      ? "Ending after your next message: "
+      : "Agent conversation: ") + activePersona.name;
   const end = control.querySelector(".persona-end");
   end.disabled = releasePersonaPending;
-  end.textContent = releasePersonaPending ? "Ending…" : "End agent conversation";
+  end.textContent = releasePersonaPending
+    ? "Ending…"
+    : "End agent conversation";
 }
 function setActivePersona(value, preservePending = false) {
   const keepPending =
@@ -388,7 +454,10 @@ function setActiveResourceOption(option = null) {
   const menu = $("resource-menu");
   for (const candidate of menu.querySelectorAll("[role=option]"))
     candidate.setAttribute("aria-selected", String(candidate === option));
-  $("prompt").setAttribute("aria-expanded", String(menu.matches(":popover-open")));
+  $("prompt").setAttribute(
+    "aria-expanded",
+    String(menu.matches(":popover-open")),
+  );
   if (option) $("prompt").setAttribute("aria-activedescendant", option.id);
   else $("prompt").removeAttribute("aria-activedescendant");
 }
@@ -410,7 +479,12 @@ function resourceKeydown(event) {
     return false;
   const options = [...menu.querySelectorAll("[role=option]")],
     index = options.indexOf(document.activeElement),
-    chosen = options[index] || options.find(option => option.getAttribute("aria-selected") === "true") || options[0];
+    chosen =
+      options[index] ||
+      options.find(
+        (option) => option.getAttribute("aria-selected") === "true",
+      ) ||
+      options[0];
   if (
     ["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key) &&
     options.length
@@ -456,13 +530,17 @@ function resourceKeydown(event) {
     chosen.click();
     return true;
   }
-  if (index >= 0 && (event.key.length === 1 || ["Backspace", "Delete", "ArrowLeft", "ArrowRight"].includes(event.key))) {
+  if (
+    index >= 0 &&
+    (event.key.length === 1 ||
+      ["Backspace", "Delete", "ArrowLeft", "ArrowRight"].includes(event.key))
+  ) {
     $("prompt").focus();
   }
   return false;
 }
 $("resource-menu").addEventListener("keydown", resourceKeydown);
-$("resource-menu").addEventListener("toggle", event => {
+$("resource-menu").addEventListener("toggle", (event) => {
   if (event.newState === "closed") setActiveResourceOption();
 });
 function resourceIcon(item) {
@@ -593,19 +671,31 @@ function renderResourceMenu(trigger, items, loading = false, warnings = []) {
             ? "Project"
             : item.scope === "harness"
               ? "Yours"
-            : item.scope === "catalog"
-              ? "Catalog"
-              : item.scope === "builtin"
-                ? "Built-in"
-              : "User",
-        category = item.group || (item.kind === "agent" ? "Agents" : item.kind === "skill" ? "Skills" : item.kind === "workflow" ? "Workflows" : item.kind === "builtin" ? "Built-ins" : "Commands"),
+              : item.scope === "catalog"
+                ? "Catalog"
+                : item.scope === "builtin"
+                  ? "Built-in"
+                  : "User",
+        category =
+          item.group ||
+          (item.kind === "agent"
+            ? "Agents"
+            : item.kind === "skill"
+              ? "Skills"
+              : item.kind === "workflow"
+                ? "Workflows"
+                : item.kind === "builtin"
+                  ? "Built-ins"
+                  : "Commands"),
         groupKey = category + "\0" + scope + "\0" + item.origin;
       if (!groups.has(groupKey)) {
         const section = document.createElement("section"),
           title = document.createElement("h3");
         section.className = "resource-group";
         title.textContent =
-          item.scope === "harness" ? category : category + " · " + scope + " · " + item.origin;
+          item.scope === "harness"
+            ? category
+            : category + " · " + scope + " · " + item.origin;
         section.append(title);
         groups.set(groupKey, section);
         options.append(section);
@@ -626,7 +716,9 @@ function renderResourceMenu(trigger, items, loading = false, warnings = []) {
       glyph.className = "resource-origin-icon";
       glyph.setAttribute("aria-hidden", "true");
       glyph.append(
-        item.scope === "harness" ? providerModelIcon(item.backend, item.model) : resourceIcon(item),
+        item.scope === "harness"
+          ? providerModelIcon(item.backend, item.model)
+          : resourceIcon(item),
       );
       const text = document.createElement("span"),
         name = document.createElement("strong"),
@@ -640,15 +732,17 @@ function renderResourceMenu(trigger, items, loading = false, warnings = []) {
             ? "Skill"
             : item.kind === "workflow"
               ? "Workflow"
-            : item.kind === "builtin"
-              ? "Built-in"
-            : "Command") +
+              : item.kind === "builtin"
+                ? "Built-in"
+                : "Command") +
         (item.description ? " · " + item.description : "") +
         (catalog?.short ? " · " + catalog.short : "") +
         (item.unavailable_reason ? " · " + item.unavailable_reason : "");
       text.append(name, description);
       option.append(glyph, text);
-      option.onclick = () => { if (item.selectable !== false) selectResource(item, trigger); };
+      option.onclick = () => {
+        if (item.selectable !== false) selectResource(item, trigger);
+      };
       option.onfocus = () => {
         setActiveResourceOption(option);
         renderResourcePreview(item);
@@ -661,7 +755,10 @@ function renderResourceMenu(trigger, items, loading = false, warnings = []) {
     const create = document.createElement("button");
     create.type = "button";
     create.className = "resource-create";
-    create.append(HarnessUI.icon("plus"), document.createTextNode("Create agent…"));
+    create.append(
+      HarnessUI.icon("plus"),
+      document.createTextNode("Create agent…"),
+    );
     create.onclick = () => {
       closeResourceMenu();
       openAgentDialog();
@@ -695,13 +792,17 @@ function renderResourceMenu(trigger, items, loading = false, warnings = []) {
     menu.querySelector('[role=option]:not([aria-disabled="true"])') ||
       menu.querySelector("[role=option]"),
   );
-  $("resource-status").textContent = loading ? "Refreshing resources…" :
-    (menu.querySelector(".resource-empty")?.textContent || "");
+  $("resource-status").textContent = loading
+    ? "Refreshing resources…"
+    : menu.querySelector(".resource-empty")?.textContent || "";
   const rect = $("prompt").getBoundingClientRect();
   const availableHeight = Math.max(24, rect.top - 20);
   menu.style.maxHeight = availableHeight + "px";
   // Reserve the majority of the visible menu for selectable rows, even at native zoom.
-  menu.style.setProperty("--resource-preview-height", Math.max(0, Math.min(160, (availableHeight - 24) * 0.4)) + "px");
+  menu.style.setProperty(
+    "--resource-preview-height",
+    Math.max(0, Math.min(160, (availableHeight - 24) * 0.4)) + "px",
+  );
   menu.style.left =
     Math.max(12, Math.min(rect.left, innerWidth - menu.offsetWidth - 12)) +
     "px";
@@ -775,7 +876,15 @@ function showResources(trigger, warnings = []) {
         ? item.kind === "agent" && item.scope === "harness"
         : trigger.prefix === "@"
           ? item.kind === "agent"
-          : ["agent", "skill", "command", "workflow", "rule", "context", "builtin"].includes(item.kind),
+          : [
+              "agent",
+              "skill",
+              "command",
+              "workflow",
+              "rule",
+              "context",
+              "builtin",
+            ].includes(item.kind),
     )
     .map((item) => ({ item, score: resourceMatchScore(item, trigger.query) }))
     .filter((entry) => entry.score >= 0)
@@ -795,8 +904,17 @@ async function refreshResources(trigger) {
     renderResourceMenu(trigger, [], false);
     return;
   }
-  const key = [project, m.backend, m.model, m.execution_mode, $("access-mode").value].join("|");
-  if (resourceCache.key === key && Date.now() - resourceCache.at < RESOURCE_CACHE_MS) {
+  const key = [
+    project,
+    m.backend,
+    m.model,
+    m.execution_mode,
+    $("access-mode").value,
+  ].join("|");
+  if (
+    resourceCache.key === key &&
+    Date.now() - resourceCache.at < RESOURCE_CACHE_MS
+  ) {
     showResources(trigger, resourceCache.warnings);
     return;
   }
@@ -821,7 +939,11 @@ async function refreshResources(trigger) {
     )
       return;
     resourceItems = Array.isArray(data.items) ? data.items : [];
-    Object.assign(resourceCache, { key, at: Date.now(), warnings: Array.isArray(data.warnings) ? data.warnings : [] });
+    Object.assign(resourceCache, {
+      key,
+      at: Date.now(),
+      warnings: Array.isArray(data.warnings) ? data.warnings : [],
+    });
     // The menu follows what is typed now, not what was typed when the request started.
     showResources(triggerAtCaret() || trigger, resourceCache.warnings);
   } catch {
@@ -949,8 +1071,13 @@ const labels = {
   loading: "Preparing model",
 };
 const status = (text) => {
-  if (policyPending && policyError &&
-      (Object.values(labels).includes(text) || ["Failed run", "Run cancelled", "Run interrupted"].includes(text))) text = policyError;
+  if (
+    policyPending &&
+    policyError &&
+    (Object.values(labels).includes(text) ||
+      ["Failed run", "Run cancelled", "Run interrupted"].includes(text))
+  )
+    text = policyError;
   const target = $("status");
   // Repeated progress (one per streamed delta) is announced once.
   if (target.textContent === text && target.className === "visually-hidden")
@@ -1009,16 +1136,34 @@ const modelIcon = (id) => {
 };
 const providerNames = HarnessUI.providerNames; // D42: shared with the admin
 function providerModelIcon(backend, model) {
-  backend ||= models.find(item => item.id === model)?.backend;
-  return HarnessUI.icon({codex: "brand-openai", claude: "brand-claude", gemini: "brand-gemini", deepseek: "brand-deepseek"}[backend] || "stack-2");
+  backend ||= models.find((item) => item.id === model)?.backend;
+  return HarnessUI.icon(
+    {
+      codex: "brand-openai",
+      claude: "brand-claude",
+      gemini: "brand-gemini",
+      deepseek: "brand-deepseek",
+    }[backend] || "stack-2",
+  );
 }
-let composerCondition = null, modelAvailabilityError = "";
+let composerCondition = null,
+  modelAvailabilityError = "";
 function syncComposerAvailability() {
-  const condition = composerCondition?.backend === selected()?.backend ? composerCondition : null;
+  const condition =
+    composerCondition?.backend === selected()?.backend
+      ? composerCondition
+      : null;
   const blocked = !models.length || !!modelAvailabilityError || !!condition;
   $("model-availability").hidden = !blocked;
-  $("model-availability-title").textContent = condition?.title || (modelAvailabilityError ? "Couldn't check the models" : "No model available");
-  $("model-availability-detail").textContent = condition?.message || modelAvailabilityError || "Add and enable a provider in the admin panel.";
+  $("model-availability-title").textContent =
+    condition?.title ||
+    (modelAvailabilityError
+      ? "Couldn't check the models"
+      : "No model available");
+  $("model-availability-detail").textContent =
+    condition?.message ||
+    modelAvailabilityError ||
+    "Add and enable a provider in the admin panel.";
   $("prompt").disabled = blocked;
   return blocked;
 }
@@ -1026,14 +1171,25 @@ function syncComposerAvailability() {
 const capitalized = (word) => word[0].toUpperCase() + word.slice(1);
 function friendlyModelName(id) {
   const claude = /^claude-(opus|sonnet|haiku)-(\d+)(?:-(\d{1,2}))?$/.exec(id);
-  if (claude) return "Claude " + capitalized(claude[1]) + " " + claude[2] + (claude[3] ? "." + claude[3] : "");
+  if (claude)
+    return (
+      "Claude " +
+      capitalized(claude[1]) +
+      " " +
+      claude[2] +
+      (claude[3] ? "." + claude[3] : "")
+    );
   const gpt = /^gpt-(\d+(?:\.\d+)?)(?:-([a-z]+))?$/.exec(id);
   if (gpt) return "GPT-" + gpt[1] + (gpt[2] ? " " + capitalized(gpt[2]) : "");
   return id;
 }
 const modelLabel = (model) =>
-  names[model.id] || (model.name && model.name !== model.id ? model.name : friendlyModelName(model.id));
-const modelName = (id) => (id ? modelLabel(models.find((m) => m.id === id) || { id }) : "No model");
+  names[model.id] ||
+  (model.name && model.name !== model.id
+    ? model.name
+    : friendlyModelName(model.id));
+const modelName = (id) =>
+  id ? modelLabel(models.find((m) => m.id === id) || { id }) : "No model";
 const selectedIdentity = () => {
   const m = selected();
   return m
@@ -1056,93 +1212,160 @@ const efforts = {
   ultra: "Ultra",
 };
 const userErrors = {
-  invalid_temporary: "The temporary chat setting is invalid. Start a new temporary chat and try again.",
-  temporary_session_required: "Start a temporary chat before sending this message. Nothing was sent as a saved conversation.",
-  temporary_backend_unsupported: "This provider does not support temporary chats. Choose Claude, Codex, DeepSeek or a local model.",
-  temporary_session_not_found: "This temporary chat has expired. Close it and start a new temporary chat. Nothing was sent as a saved conversation.",
-  temporary_operation_unsupported: "This action is unavailable in a temporary chat.",
+  invalid_temporary:
+    "The temporary chat setting is invalid. Start a new temporary chat and try again.",
+  temporary_session_required:
+    "Start a temporary chat before sending this message. Nothing was sent as a saved conversation.",
+  temporary_backend_unsupported:
+    "This provider does not support temporary chats. Choose Claude, Codex, DeepSeek or a local model.",
+  temporary_session_not_found:
+    "This temporary chat has expired. Close it and start a new temporary chat. Nothing was sent as a saved conversation.",
+  temporary_operation_unsupported:
+    "This action is unavailable in a temporary chat.",
   temporary_session_limit: "Close another temporary chat before starting one.",
-  temporary_storage_unavailable: "Temporary storage is unavailable. Try again after checking server storage.",
-  retry_source_not_failed: "This turn is not failed anymore, so it can't be retried. The conversation was refreshed.",
-  retry_source_superseded: "A newer turn exists in this conversation, so this one can't be retried. The conversation was refreshed.",
-  retry_not_supported: "Retry isn't available for workflow or scheduled turns. Use Resume workflow or run it again.",
-  catalog_cwd_conflict: "Selected catalogs require different working folders. Run them separately.",
-  catalog_environment_conflict: "Selected catalogs require incompatible environments. Run them separately.",
-  catalog_hook_filter_unsupported: "This execution mode cannot enforce the catalog hook list. Choose a supported native provider.",
-  catalog_runtime_mode_unsupported: "This execution mode cannot provide the catalog runtime. Choose a supported native provider.",
-  catalog_runtime_unavailable: "The catalog runtime is unavailable. Check its prerequisites in Admin.",
-  catalog_preflight_failed: "Catalog prerequisites are missing. Check the catalog in Admin before trying again.",
-  catalog_hook_failed: "A catalog hook failed. Check its run event before trying again.",
-  catalog_hook_timeout: "A catalog hook exceeded its time limit and was stopped.",
-  catalog_hook_unavailable: "A catalog hook could not start. Check its executable path in the manifest.",
-  catalog_hook_output_limit: "A catalog hook exceeded the output limit and was stopped.",
-  effect_integration_scope_denied: "This integration is not bound to the selected project and catalog. Update its binding in Admin.",
-  integration_contract_ambiguous: "Integration contracts conflict. Keep one consistent contract in Admin and the catalog.",
-  integration_contract_invalid: "The integration contract is invalid. Check its declared providers and credential fields in Admin.",
-  integration_contract_unavailable: "The integration contract is missing. Configure it in Admin or the catalog manifest.",
-  integration_credential_field_missing: "A required credential field is missing. Update the write-only binding in Admin.",
-  integration_environment_ambiguous: "Two integrations assign conflicting values to the same environment variable.",
-  integration_environment_unsupported: "This execution mode cannot inject integration credentials. Choose a supported native provider.",
-  secret_binding_invalid: "The credential binding name is invalid. Update it in Admin.",
-  secret_value_invalid: "A credential field is invalid. Enter a nonempty single-line value in Admin.",
-  work_item_locked: "This work item is owned by a running job. Wait until its write access is released.",
-  hooks_not_trusted: "A catalog hook changed or was never trusted, so it was skipped and the turn went on without it. Re-trust the catalog in Admin.",
-  hooks_not_granted: "Catalog hooks were skipped because hook permission was not granted.",
+  temporary_storage_unavailable:
+    "Temporary storage is unavailable. Try again after checking server storage.",
+  retry_source_not_failed:
+    "This turn is not failed anymore, so it can't be retried. The conversation was refreshed.",
+  retry_source_superseded:
+    "A newer turn exists in this conversation, so this one can't be retried. The conversation was refreshed.",
+  retry_not_supported:
+    "Retry isn't available for workflow or scheduled turns. Use Resume workflow or run it again.",
+  catalog_cwd_conflict:
+    "Selected catalogs require different working folders. Run them separately.",
+  catalog_environment_conflict:
+    "Selected catalogs require incompatible environments. Run them separately.",
+  catalog_hook_filter_unsupported:
+    "This execution mode cannot enforce the catalog hook list. Choose a supported native provider.",
+  catalog_runtime_mode_unsupported:
+    "This execution mode cannot provide the catalog runtime. Choose a supported native provider.",
+  catalog_runtime_unavailable:
+    "The catalog runtime is unavailable. Check its prerequisites in Admin.",
+  catalog_preflight_failed:
+    "Catalog prerequisites are missing. Check the catalog in Admin before trying again.",
+  catalog_hook_failed:
+    "A catalog hook failed. Check its run event before trying again.",
+  catalog_hook_timeout:
+    "A catalog hook exceeded its time limit and was stopped.",
+  catalog_hook_unavailable:
+    "A catalog hook could not start. Check its executable path in the manifest.",
+  catalog_hook_output_limit:
+    "A catalog hook exceeded the output limit and was stopped.",
+  effect_integration_scope_denied:
+    "This integration is not bound to the selected project and catalog. Update its binding in Admin.",
+  integration_contract_ambiguous:
+    "Integration contracts conflict. Keep one consistent contract in Admin and the catalog.",
+  integration_contract_invalid:
+    "The integration contract is invalid. Check its declared providers and credential fields in Admin.",
+  integration_contract_unavailable:
+    "The integration contract is missing. Configure it in Admin or the catalog manifest.",
+  integration_credential_field_missing:
+    "A required credential field is missing. Update the write-only binding in Admin.",
+  integration_environment_ambiguous:
+    "Two integrations assign conflicting values to the same environment variable.",
+  integration_environment_unsupported:
+    "This execution mode cannot inject integration credentials. Choose a supported native provider.",
+  secret_binding_invalid:
+    "The credential binding name is invalid. Update it in Admin.",
+  secret_value_invalid:
+    "A credential field is invalid. Enter a nonempty single-line value in Admin.",
+  work_item_locked:
+    "This work item is owned by a running job. Wait until its write access is released.",
+  hooks_not_trusted:
+    "A catalog hook changed or was never trusted, so it was skipped and the turn went on without it. Re-trust the catalog in Admin.",
+  hooks_not_granted:
+    "Catalog hooks were skipped because hook permission was not granted.",
 
-  workflow_source_path_denied: "A workflow input moved outside its authorized folder. Restore it or choose a new input.",
-  workflow_source_size_limit: "A workflow input exceeds the supported size. Reduce it before resuming.",
-  workflow_requirement_denied: "The selected executor does not support this workflow requirement. Check permissions, integrations, operations and mode.",
+  workflow_source_path_denied:
+    "A workflow input moved outside its authorized folder. Restore it or choose a new input.",
+  workflow_source_size_limit:
+    "A workflow input exceeds the supported size. Reduce it before resuming.",
+  workflow_requirement_denied:
+    "The selected executor does not support this workflow requirement. Check permissions, integrations, operations and mode.",
   invalid_workflow_inputs: "Workflow inputs must be a JSON object.",
-  invalid_workflow_recovery: "Use resume or re-run from a valid step with optional workflow inputs.",
+  invalid_workflow_recovery:
+    "Use resume or re-run from a valid step with optional workflow inputs.",
   invalid_workflow_step: "Choose a step number from this workflow.",
-  invocation_model_or_effort_mismatch: "This resource requires a different model or effort. Select its execution settings before submitting.",
-  invocation_backend_mismatch: "This resource requires a different provider. Select its provider before submitting.",
-  local_project_hardlink_denied: "A folder contains hardlinks that cannot be safely isolated. Remove the aliases or choose another folder.",
-  workflow_already_exists: "A workflow with this name already exists. Choose another name.",
+  invocation_model_or_effort_mismatch:
+    "This resource requires a different model or effort. Select its execution settings before submitting.",
+  invocation_backend_mismatch:
+    "This resource requires a different provider. Select its provider before submitting.",
+  local_project_hardlink_denied:
+    "A folder contains hardlinks that cannot be safely isolated. Remove the aliases or choose another folder.",
+  workflow_already_exists:
+    "A workflow with this name already exists. Choose another name.",
   workflow_backend_mismatch: "The workflow backend must match its invocation.",
-  workflow_binding_changed: "Workflow inputs or revisions changed. Resume to validate again and request fresh approval.",
-  workflow_catalog_read_only: "Save workflows in the project collection. Catalogs are read only.",
+  workflow_binding_changed:
+    "Workflow inputs or revisions changed. Resume to validate again and request fresh approval.",
+  workflow_catalog_read_only:
+    "Save workflows in the project collection. Catalogs are read only.",
   workflow_checkpoint_missing: "This run has no recoverable workflow plan.",
-  workflow_effect_not_completed: "Publication is not confirmed. Inspect its gate and effect record before retrying.",
-  workflow_effect_outcome_unknown: "Publication may have happened. Reconcile its outcome before resuming or rerunning.",
+  workflow_effect_not_completed:
+    "Publication is not confirmed. Inspect its gate and effect record before retrying.",
+  workflow_effect_outcome_unknown:
+    "Publication may have happened. Reconcile its outcome before resuming or rerunning.",
   workflow_inputs_invalid: "The workflow inputs do not match the step schema.",
-  workflow_invalid_condition: "Use a condition that references a prior step with from and is or equals.",
-  workflow_invalid_document: "The workflow document is invalid. Check its JSON or YAML.",
-  workflow_unknown_field: "The workflow contains an unsupported field. Check its field names and remove unrecognized entries.",
-  workflow_unknown_step_field: "A workflow step contains an unsupported field. Check that step's field names and remove unrecognized entries.",
-  workflow_invalid_effect: "Publication requires a valid effect request and publish enabled.",
+  workflow_invalid_condition:
+    "Use a condition that references a prior step with from and is or equals.",
+  workflow_invalid_document:
+    "The workflow document is invalid. Check its JSON or YAML.",
+  workflow_unknown_field:
+    "The workflow contains an unsupported field. Check its field names and remove unrecognized entries.",
+  workflow_unknown_step_field:
+    "A workflow step contains an unsupported field. Check that step's field names and remove unrecognized entries.",
+  workflow_invalid_effect:
+    "Publication requires a valid effect request and publish enabled.",
   workflow_invalid_from_step: "Choose a valid starting step for this workflow.",
-  workflow_invalid_gate: "The workflow gate needs a question and distinct choices.",
-  workflow_invalid_id: "Use a short workflow identifier containing letters, numbers, underscores or hyphens.",
+  workflow_invalid_gate:
+    "The workflow gate needs a question and distinct choices.",
+  workflow_invalid_id:
+    "Use a short workflow identifier containing letters, numbers, underscores or hyphens.",
   workflow_invalid_name: "Choose a valid name for the saved workflow.",
   workflow_invalid_publish: "The workflow publish field must be true or false.",
-  workflow_invalid_requirements: "This workflow requires capabilities the selected executor does not provide.",
-  workflow_invalid_save_target: "Choose a project with a writable workflows collection.",
-  workflow_invalid_schema: "Use the supported JSON schema fields for workflow inputs and outputs.",
+  workflow_invalid_requirements:
+    "This workflow requires capabilities the selected executor does not provide.",
+  workflow_invalid_save_target:
+    "Choose a project with a writable workflows collection.",
+  workflow_invalid_schema:
+    "Use the supported JSON schema fields for workflow inputs and outputs.",
   workflow_invalid_step: "The workflow contains an invalid sequential step.",
-  workflow_invalid_step_id: "Each workflow step needs a unique valid identifier.",
-  workflow_invalid_steps: "A workflow must contain one to twelve sequential steps.",
+  workflow_invalid_step_id:
+    "Each workflow step needs a unique valid identifier.",
+  workflow_invalid_steps:
+    "A workflow must contain one to twelve sequential steps.",
   workflow_invalid_version: "This server supports workflow version 1.",
-  workflow_model_or_effort_denied: "Choose a model and effort enabled for this project.",
+  workflow_model_or_effort_denied:
+    "Choose a model and effort enabled for this project.",
   workflow_must_be_standalone: "Select one workflow at a time.",
-  workflow_output_not_approved: "The step output was not approved. Review the evidence before continuing.",
-  workflow_published_step_requires_explicit_rerun: "This changed step already published. Use an explicit re-run with fresh approval.",
-  workflow_requires_successful_chain: "Only a completed, successful chain can be saved as a workflow.",
-  workflow_resource_unavailable: "A required workflow resource is missing or unavailable. Refresh the catalog.",
-  workflow_sequential_only: "This release supports sequential workflows without parallel or repeat steps.",
-  cancellation_retry_required: "Cancellation was not saved because storage is busy. Try Cancel again.",
+  workflow_output_not_approved:
+    "The step output was not approved. Review the evidence before continuing.",
+  workflow_published_step_requires_explicit_rerun:
+    "This changed step already published. Use an explicit re-run with fresh approval.",
+  workflow_requires_successful_chain:
+    "Only a completed, successful chain can be saved as a workflow.",
+  workflow_resource_unavailable:
+    "A required workflow resource is missing or unavailable. Refresh the catalog.",
+  workflow_sequential_only:
+    "This release supports sequential workflows without parallel or repeat steps.",
+  cancellation_retry_required:
+    "Cancellation was not saved because storage is busy. Try Cancel again.",
   job_not_held: "This message is no longer waiting for your choice.",
-  workflow_source_busy: "Wait for the original run to finish or cancel it before recovery.",
-  workflow_step_not_approved: "The workflow step was not approved. No further steps ran.",
+  workflow_source_busy:
+    "Wait for the original run to finish or cancel it before recovery.",
+  workflow_step_not_approved:
+    "The workflow step was not approved. No further steps ran.",
   workflow_too_large: "The workflow exceeds the supported document size.",
-  workflow_yaml_unavailable_use_json: "Use JSON, or install PyYAML to read YAML workflows.",
+  workflow_yaml_unavailable_use_json:
+    "Use JSON, or install PyYAML to read YAML workflows.",
 
   rate_limit:
     "Too many requests in a short time. The server has temporarily limited this access.",
   submission_rate_limit:
     "You sent new requests too quickly. This request wasn't queued.",
-  search_query_too_short: "Type at least two characters to search conversations.",
-  search_rate_limit: "Too many searches in a short time. Wait a moment and search again.",
+  search_query_too_short:
+    "Type at least two characters to search conversations.",
+  search_rate_limit:
+    "Too many searches in a short time. Wait a moment and search again.",
   queue_full:
     "The server queue is full. This request wasn't queued; wait for other runs to finish.",
   work_item_check_busy:
@@ -1230,9 +1453,12 @@ const userErrors = {
   execution_mode_unsupported:
     "This conversation uses an execution mode this model or server no longer offers. Start a new native conversation to continue. Its history is still available.",
   invalid_conversation_title: "Use a title between 1 and 100 characters.",
-  invalid_archived: "Archiving needs a yes or no answer. Refresh the page and try again.",
-  invalid_continuation_target: "Choose Claude or ChatGPT as the app to continue in.",
-  invalid_include_paths: "The include paths option must be yes or no. Refresh the page and try again.",
+  invalid_archived:
+    "Archiving needs a yes or no answer. Refresh the page and try again.",
+  invalid_continuation_target:
+    "Choose Claude or ChatGPT as the app to continue in.",
+  invalid_include_paths:
+    "The include paths option must be yes or no. Refresh the page and try again.",
   service_restarted:
     "The harness restarted during this run. Send your message again.",
   model_removed:
@@ -1247,7 +1473,8 @@ const userErrors = {
   model_denied: "This model is not enabled for you. Choose another model.",
   model_or_effort_unavailable:
     "This model or reasoning level is no longer available. Choose another one.",
-  project_file_forbidden: "This file belongs to private server storage and cannot be attached. Choose a document outside the server state folder.",
+  project_file_forbidden:
+    "This file belongs to private server storage and cannot be attached. Choose a document outside the server state folder.",
   backend_unavailable:
     "This provider is not available right now. Choose another model.",
   capability_unavailable:
@@ -1353,11 +1580,14 @@ const userErrors = {
   // Step engine (workflows and declared "/" chains); codes keep their persisted names.
   maestro_model_or_effort_denied:
     "A workflow step uses a model or effort that is not enabled. Ask the administrator or edit the workflow.",
-  maestro_step_not_allowed: "A workflow step is not allowed here. Edit the workflow.",
-  maestro_invalid_plan_json: "The workflow steps are invalid. Check the workflow.",
+  maestro_step_not_allowed:
+    "A workflow step is not allowed here. Edit the workflow.",
+  maestro_invalid_plan_json:
+    "The workflow steps are invalid. Check the workflow.",
   maestro_invalid_steps: "The workflow steps are invalid. Check the workflow.",
   maestro_invalid_step: "The workflow steps are invalid. Check the workflow.",
-  maestro_invalid_step_description: "The workflow steps are invalid. Check the workflow.",
+  maestro_invalid_step_description:
+    "The workflow steps are invalid. Check the workflow.",
   maestro_step_incomplete: "A workflow step did not finish. Try again.",
   // Invocations and human option gates.
   invalid_invocation: "This resource invocation is invalid. Select it again.",
@@ -1388,8 +1618,10 @@ const userErrors = {
   invalid_gate_options:
     "The provider supplied invalid answer choices. Revise the request and try again.",
   invalid_gate_choice: "That answer is no longer available. Choose again.",
-  approval_already_resolved: "This approval was already decided in another view. Refresh to see the accepted decision.",
-  workflow_source_unavailable: "A workflow input file is missing or unreadable. Restore the workspace input files or attachment sources before resuming.",
+  approval_already_resolved:
+    "This approval was already decided in another view. Refresh to see the accepted decision.",
+  workflow_source_unavailable:
+    "A workflow input file is missing or unreadable. Restore the workspace input files or attachment sources before resuming.",
   gate_already_resolved: "This question was already answered.",
   gate_expired: "This question expired. Ask the agent to present it again.",
   gate_invalidated:
@@ -1401,7 +1633,8 @@ const userErrors = {
     "This publication needs approval from an enrolled human session before it can be sent.",
   effect_arguments_invalid:
     "This publication has unsupported arguments. Ask the agent to prepare a valid request.",
-  effect_sensitive_content: "Publication was not prepared because it contains private credentials. Remove the sensitive content and request approval again.",
+  effect_sensitive_content:
+    "Publication was not prepared because it contains private credentials. Remove the sensitive content and request approval again.",
   effect_artifact_invalid:
     "The publication artifact is invalid. Ask the agent to check its required fields and prepare it again.",
   effect_binding_changed:
@@ -1420,7 +1653,8 @@ const userErrors = {
     "This run can no longer prepare a publication. Start a new message if you still need it.",
   effect_integration_unavailable:
     "This publication integration is unavailable. Ask the server owner to check its configuration.",
-  effect_not_found: "This publication request could not be found. Refresh the run console.",
+  effect_not_found:
+    "This publication request could not be found. Refresh the run console.",
   effect_not_unknown:
     "This publication no longer needs reconciliation. Refresh the run console to see its recorded outcome.",
   effect_operation_unsupported:
@@ -1447,7 +1681,8 @@ const userErrors = {
   project_edit_forbidden: "You can't edit this project.",
   project_registration_disabled:
     "Adding projects is turned off on this server. Ask the administrator to enable it.",
-  host_denied: "This address is not one KeepHarness answers on. Open it by its usual address.",
+  host_denied:
+    "This address is not one KeepHarness answers on. Open it by its usual address.",
   funnel_denied:
     "KeepHarness does not answer requests from the public internet. Turn off Tailscale Funnel for it.",
   project_directory_shared:
@@ -1518,12 +1753,17 @@ const userErrors = {
   service_manager_unavailable_requires_systemd_user:
     "Service control needs the user systemd manager on the server.",
   // Approvals.
-  ambiguous_work_item: "The invocation matches more than one work item. Tag the run with one key or make the arguments unambiguous.",
-  invalid_work_item: "Use a work-item key with at most 128 characters and no control characters.",
-  invalid_work_item_pattern: "The configured work-item pattern is invalid. Ask the project administrator to correct it.",
+  ambiguous_work_item:
+    "The invocation matches more than one work item. Tag the run with one key or make the arguments unambiguous.",
+  invalid_work_item:
+    "Use a work-item key with at most 128 characters and no control characters.",
+  invalid_work_item_pattern:
+    "The configured work-item pattern is invalid. Ask the project administrator to correct it.",
   work_item_project_required: "Choose a project before filtering by work item.",
-  invalid_event_limit: "The event page size is invalid. Reload the run console and try again.",
-  invalid_include_content: "The content visibility option is invalid. Reload the run console and try again.",
+  invalid_event_limit:
+    "The event page size is invalid. Reload the run console and try again.",
+  invalid_include_content:
+    "The content visibility option is invalid. Reload the run console and try again.",
   approval_expired:
     "This approval request expired. Send your message again if you still need it.",
   approval_expiration_limit:
@@ -1573,30 +1813,52 @@ const userErrors = {
     "Resources are not available in this workspace.",
   harness_resources_unavailable: "Resources are not available right now.",
   harness_agent_exists: "An agent with that name already exists.",
-  harness_agent_invalid: "The agent details are not valid. Check each field and try again.",
-  harness_agent_limit: "You have reached the limit of 100 agents. Delete one to add another.",
-  harness_agent_changed: "This agent was changed elsewhere. Reload it and try again.",
+  harness_agent_invalid:
+    "The agent details are not valid. Check each field and try again.",
+  harness_agent_limit:
+    "You have reached the limit of 100 agents. Delete one to add another.",
+  harness_agent_changed:
+    "This agent was changed elsewhere. Reload it and try again.",
   harness_agent_not_found: "That agent no longer exists.",
-  harness_agent_storage_unsafe: "The agents folder cannot be used safely. Check the harness state folder.",
-  page_invalid: "The page is not valid. Check the title and the text and try again.",
+  harness_agent_storage_unsafe:
+    "The agents folder cannot be used safely. Check the harness state folder.",
+  page_invalid:
+    "The page is not valid. Check the title and the text and try again.",
   page_not_found: "That page no longer exists.",
   page_changed: "This page was changed elsewhere. Reload it and try again.",
-  page_limit: "This project has reached the limit of 500 pages. Delete one to add another.",
-  page_storage_unsafe: "The pages folder cannot be used safely. Check the harness state folder.",
-  schedule_invalid: "The schedule is not valid. Check each field and try again.",
-  schedule_agent_unselected: "Pick the agent in the Agent field instead of typing @@name in the prompt.",
-  schedule_agent_missing: "The agent of this schedule no longer exists. Pick another agent or remove it.",
-  schedule_page_missing: "A page of this schedule no longer exists. Open the schedule and untick it.",
+  page_limit:
+    "This project has reached the limit of 500 pages. Delete one to add another.",
+  page_storage_unsafe:
+    "The pages folder cannot be used safely. Check the harness state folder.",
+  schedule_invalid:
+    "The schedule is not valid. Check each field and try again.",
+  schedule_agent_unselected:
+    "Pick the agent in the Agent field instead of typing @@name in the prompt.",
+  schedule_agent_missing:
+    "The agent of this schedule no longer exists. Pick another agent or remove it.",
+  schedule_page_missing:
+    "A page of this schedule no longer exists. Open the schedule and untick it.",
   schedule_not_found: "That schedule no longer exists.",
-  schedule_changed: "This schedule was changed elsewhere. Reload it and try again.",
-  schedule_limit: "You have reached the limit of 50 schedules. Delete one to add another.",
-  schedule_storage_unsafe: "The schedules folder cannot be used safely. Check the harness state folder.",
+  schedule_changed:
+    "This schedule was changed elsewhere. Reload it and try again.",
+  schedule_limit:
+    "You have reached the limit of 50 schedules. Delete one to add another.",
+  schedule_storage_unsafe:
+    "The schedules folder cannot be used safely. Check the harness state folder.",
 };
 async function api(path, options = {}) {
-  const { temporarySession: scope = temporarySession, ...requestOptions } = options;
+  const { temporarySession: scope = temporarySession, ...requestOptions } =
+    options;
   options = requestOptions;
-  const scoped = /^\/v1\/(jobs(?:[/?]|$)|files(?:[/?]|$)|conversations\/|effects(?:[/?]|$)|approvals(?:[/?]|$)|approval-rules(?:[/?]|$)|project-files\/attach|assess(?:[/?]|$))/.test(path);
-  if (scope && scoped) options = { ...options, headers: { ...options.headers, "X-KeepHarness-Temporary": scope } };
+  const scoped =
+    /^\/v1\/(jobs(?:[/?]|$)|files(?:[/?]|$)|conversations\/|effects(?:[/?]|$)|approvals(?:[/?]|$)|approval-rules(?:[/?]|$)|project-files\/attach|assess(?:[/?]|$))/.test(
+      path,
+    );
+  if (scope && scoped)
+    options = {
+      ...options,
+      headers: { ...options.headers, "X-KeepHarness-Temporary": scope },
+    };
   let r;
   try {
     r = await fetch(path, {
@@ -1664,7 +1926,8 @@ async function json(path, options) {
     );
   }
   if (session) {
-    if (temporarySession !== session) throw new DOMException("Temporary chat closed", "AbortError");
+    if (temporarySession !== session)
+      throw new DOMException("Temporary chat closed", "AbortError");
     await hydrateTemporaryPreviews(data, session);
   }
   return data;
@@ -1672,23 +1935,37 @@ async function json(path, options) {
 // Image elements cannot send the session header. Keep authenticated previews in memory.
 async function hydrateTemporaryPreviews(value, session) {
   if (!value || typeof value !== "object") return;
-  if (typeof value.preview_url === "string" && value.preview_url.startsWith("/v1/files/")) {
+  if (
+    typeof value.preview_url === "string" &&
+    value.preview_url.startsWith("/v1/files/")
+  ) {
     const url = value.preview_url;
-    if (!temporaryPreviews.has(url)) temporaryPreviews.set(url, (async () => {
-      const response = await api(url);
-      const blob = await response.blob();
-      if (temporarySession !== session) throw new DOMException("Temporary chat closed", "AbortError");
-      return await new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () => temporarySession === session
-          ? resolve(reader.result) : reject(new DOMException("Temporary chat closed", "AbortError"));
-        reader.onerror = () => reject(Error("Couldn't display the temporary image."));
-        reader.readAsDataURL(blob);
-      });
-    })());
+    if (!temporaryPreviews.has(url))
+      temporaryPreviews.set(
+        url,
+        (async () => {
+          const response = await api(url);
+          const blob = await response.blob();
+          if (temporarySession !== session)
+            throw new DOMException("Temporary chat closed", "AbortError");
+          return await new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () =>
+              temporarySession === session
+                ? resolve(reader.result)
+                : reject(
+                    new DOMException("Temporary chat closed", "AbortError"),
+                  );
+            reader.onerror = () =>
+              reject(Error("Couldn't display the temporary image."));
+            reader.readAsDataURL(blob);
+          });
+        })(),
+      );
     value.preview_url = await temporaryPreviews.get(url);
   }
-  for (const child of Object.values(value)) await hydrateTemporaryPreviews(child, session);
+  for (const child of Object.values(value))
+    await hydrateTemporaryPreviews(child, session);
 }
 
 const post = (path, value) =>
@@ -1701,7 +1978,9 @@ function selected() {
   return models.find((m) => m.id === $("model").value) || models[0];
 }
 function composerModels(catalog) {
-  return catalog.models.filter(m => HarnessUI.selectableModel(m.backend, m.id));
+  return catalog.models.filter((m) =>
+    HarnessUI.selectableModel(m.backend, m.id),
+  );
 }
 function setBusy(value) {
   value = value || streamDisconnected;
@@ -1721,7 +2000,8 @@ function setBusy(value) {
   $("access-mode").disabled = value;
   $("access-trigger").disabled = value;
   $("attach").disabled = value || uploads > 0 || !canUpload() || !selected();
-  $("new").disabled = temporaryStarting || submitting || cancelling || loading || uploads > 0;
+  $("new").disabled =
+    temporaryStarting || submitting || cancelling || loading || uploads > 0;
   $("close-temporary-chat").disabled = $("new").disabled;
   $("new-temporary").disabled = $("new").disabled;
   $("composer-temporary").disabled = $("new").disabled;
@@ -1766,7 +2046,9 @@ async function refreshProjectPermissions(timeout = 30000) {
       $("effort").value = effort;
   } catch (e) {
     if (sequence !== policySequence) return;
-    policyError = "Couldn't load this project's permissions. Select it again to retry: " + e.message;
+    policyError =
+      "Couldn't load this project's permissions. Select it again to retry: " +
+      e.message;
     status(policyError);
     return false;
   } finally {
@@ -1818,7 +2100,10 @@ function updateModelPermissions() {
     " · " +
     videoHelp;
   $("attach").title = full
-    ? MAX_ATTACHMENTS + " of " + MAX_ATTACHMENTS + " files attached. Remove one to add another."
+    ? MAX_ATTACHMENTS +
+      " of " +
+      MAX_ATTACHMENTS +
+      " files attached. Remove one to add another."
     : allowed
       ? "Attach file. " + attachmentHelp
       : "Attachments not allowed for this model";
@@ -1956,16 +2241,21 @@ const quotaHeadings = {
   local: "Local models",
 };
 const quotaNotes = {
-  codex: "Shared with the account's other usage. Rounded percentages don't measure this run's exact cost.",
-  claude: "Shared with the account's other Claude usage. Percentages are what Claude Code last reported.",
-  deepseek: "Prepaid balance from your DeepSeek account, read every few minutes. It is not an estimate of this run's cost.",
+  codex:
+    "Shared with the account's other usage. Rounded percentages don't measure this run's exact cost.",
+  claude:
+    "Shared with the account's other Claude usage. Percentages are what Claude Code last reported.",
+  deepseek:
+    "Prepaid balance from your DeepSeek account, read every few minutes. It is not an estimate of this run's cost.",
 };
 const quotaViewBackend = () => quotaFocus || selected()?.backend || "";
 function quotaDetailText(view) {
   return (
     {
-      local: "This model runs locally. Context usage appears separately in the context indicator.",
-      gemini: "Gemini CLI reports its own subscription usage; check it in your Google account.",
+      local:
+        "This model runs locally. Context usage appears separately in the context indicator.",
+      gemini:
+        "Gemini CLI reports its own subscription usage; check it in your Google account.",
     }[view] || "Select a model to check the provider quota."
   );
 }
@@ -1984,7 +2274,8 @@ function renderQuotaIdentity() {
     : "Selected model";
   $("quota-toggle").hidden = false;
   // L55: the panel names the provider it explains, and its note matches that provider.
-  $("quota-heading-title").textContent = quotaHeadings[view] || "Provider quota";
+  $("quota-heading-title").textContent =
+    quotaHeadings[view] || "Provider quota";
   $("quota-note").textContent = quotaNotes[view] || "";
   $("quota-note").hidden = !quotaNotes[view];
   const states = {
@@ -2124,12 +2415,14 @@ function paintBalance(value) {
     }
     if (value.account_active === false) {
       const warn = document.createElement("p");
-      warn.textContent = "DeepSeek reports this balance as unavailable for requests. Top it up in your DeepSeek account.";
+      warn.textContent =
+        "DeepSeek reports this balance as unavailable for requests. Top it up in your DeepSeek account.";
       notes.push(warn);
     }
   } else {
     const miss = document.createElement("p");
-    miss.textContent = "This model uses your own DeepSeek account credits. The balance could not be read right now, and no amount was estimated.";
+    miss.textContent =
+      "This model uses your own DeepSeek account credits. The balance could not be read right now, and no amount was estimated.";
     notes.push(miss);
   }
   $("quota-current").replaceChildren(...notes);
@@ -2156,7 +2449,8 @@ async function quota() {
   try {
     quotaPrimedAt.set(backend, Date.now());
     const value = await json(quotaUrls[backend]);
-    if (request === quotaRequest && quotaViewBackend() === backend) paint(value);
+    if (request === quotaRequest && quotaViewBackend() === backend)
+      paint(value);
   } catch {
     if (request === quotaRequest && quotaViewBackend() === backend) paint(null);
   }
@@ -2174,7 +2468,10 @@ function quotaSnapshot(kind, q) {
 }
 function conversationState(c = {}) {
   const value = String(c.state || "").toLowerCase();
-  if (c.needs_you || ["needs_you", "awaiting_approval", "approval_required"].includes(value))
+  if (
+    c.needs_you ||
+    ["needs_you", "awaiting_approval", "approval_required"].includes(value)
+  )
     return "needs-you";
   if (["running", "loading", "planning"].includes(value)) return "running";
   if (value === "queued") return "queued";
@@ -2200,7 +2497,18 @@ function conversationUpdated(c = {}) {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 function waitReasonLabel(reason) {
-  return ({ human_approval: "Waiting for your approval", conversation_parent: "Waiting for the previous response", provider_capacity: "Waiting for another task on this provider", held_after_stop: "Held after Stop", conversation: "Waiting for this conversation", work_item: "Waiting for this work item", writable_root: "Waiting for access to project files", queue: "Waiting in the queue" })[reason] || reason;
+  return (
+    {
+      human_approval: "Waiting for your approval",
+      conversation_parent: "Waiting for the previous response",
+      provider_capacity: "Waiting for another task on this provider",
+      held_after_stop: "Held after Stop",
+      conversation: "Waiting for this conversation",
+      work_item: "Waiting for this work item",
+      writable_root: "Waiting for access to project files",
+      queue: "Waiting in the queue",
+    }[reason] || reason
+  );
 }
 function conversationSummary(c = {}) {
   if (c.live_wait_reason || c.wait_reason)
@@ -2210,26 +2518,49 @@ function conversationSummary(c = {}) {
   if (state === "running")
     return c.live_activity || c.activity || "Run in progress";
   if (state === "queued") return "Waiting in the queue";
-  return ({ failed: "Failed", cancelled: "Cancelled", interrupted: "Interrupted" })[c.state] || c.summary || "Completed";
+  return (
+    { failed: "Failed", cancelled: "Cancelled", interrupted: "Interrupted" }[
+      c.state
+    ] ||
+    c.summary ||
+    "Completed"
+  );
 }
 // QA-R1-2: "Worked for" counts the time the run was active; time in the queue is shown apart.
 function runTiming(result = {}) {
   const total = Number(result.total_seconds),
     queued = Number(result.queue_seconds),
-    waited = Number.isFinite(queued) && queued >= 1 && queued < total ? queued : 0,
+    waited =
+      Number.isFinite(queued) && queued >= 1 && queued < total ? queued : 0,
     seconds = (value) => value.toFixed(1) + " s";
   return {
-    worked: Number.isFinite(total) && total - waited > 0 ? seconds(total - waited) : "",
+    worked:
+      Number.isFinite(total) && total - waited > 0
+        ? seconds(total - waited)
+        : "",
     waited: waited ? seconds(waited) : "",
   };
 }
 function executionModeLabel() {
-  return executionMode === "scoped" ? "Isolated conversation" : executionMode === "native" ? "Native conversation" : "Execution mode unavailable";
+  return executionMode === "scoped"
+    ? "Isolated conversation"
+    : executionMode === "native"
+      ? "Native conversation"
+      : "Execution mode unavailable";
 }
 function renderConversationHeader(c = null) {
   const state = c ? conversationState(c) : "draft";
-  const states = { "needs-you": "Awaiting approval", running: "Running", queued: "Queued", done: "Completed", draft: "Draft" };
-  $("conversation-state-pill").textContent = ({ failed: "Failed", cancelled: "Cancelled", interrupted: "Interrupted" })[c?.state] || states[state];
+  const states = {
+    "needs-you": "Awaiting approval",
+    running: "Running",
+    queued: "Queued",
+    done: "Completed",
+    draft: "Draft",
+  };
+  $("conversation-state-pill").textContent =
+    { failed: "Failed", cancelled: "Cancelled", interrupted: "Interrupted" }[
+      c?.state
+    ] || states[state];
   $("conversation-state-pill").dataset.state = state;
   $("header-execution-mode").textContent = executionModeLabel();
   $("header-access").textContent = accessLabel();
@@ -2245,13 +2576,19 @@ const quotaReasonTexts = {
   local_no_quota: "local models have no quota",
   balance_not_read: "balance not read yet",
 };
-const QUOTA_PRIME_REASONS = new Set(["quota_not_read", "quota_stale", "balance_not_read", "usage_unavailable"]);
+const QUOTA_PRIME_REASONS = new Set([
+  "quota_not_read",
+  "quota_stale",
+  "balance_not_read",
+  "usage_unavailable",
+]);
 const QUOTA_PRIME_MS = 300 * 1000;
 // The activity feed is passive: this asks the server to read a missing quota, at most once per
 // 300 s per backend and only for a visible tab, then asks the run console for fresh activity.
 function primeProviderQuota(backend) {
   if (!quotaUrls[backend] || document.visibilityState !== "visible") return;
-  if (Date.now() - (quotaPrimedAt.get(backend) ?? -Infinity) < QUOTA_PRIME_MS) return;
+  if (Date.now() - (quotaPrimedAt.get(backend) ?? -Infinity) < QUOTA_PRIME_MS)
+    return;
   quotaPrimedAt.set(backend, Date.now());
   json(quotaUrls[backend])
     .then(() => document.dispatchEvent(new CustomEvent("harness:quota-primed")))
@@ -2260,24 +2597,48 @@ function primeProviderQuota(backend) {
 function providerQuotaReading(item) {
   const q = item.quota;
   const windows = q ? quotaWindows(q, item.backend) : [];
-  if (windows.length) return { backend: item.backend, state: "ok", remaining: Math.min(...windows.map((window) => window.remaining)) };
+  if (windows.length)
+    return {
+      backend: item.backend,
+      state: "ok",
+      remaining: Math.min(...windows.map((window) => window.remaining)),
+    };
   const amount = Number(q?.balance?.amount);
   if (q?.available && q.kind === "balance" && Number.isFinite(amount))
-    return { backend: item.backend, state: "balance", amount, currency: q.balance.currency, reason: q.reason };
-  return { backend: item.backend, state: "na", reason: q?.reason || "quota_not_read" };
+    return {
+      backend: item.backend,
+      state: "balance",
+      amount,
+      currency: q.balance.currency,
+      reason: q.reason,
+    };
+  return {
+    backend: item.backend,
+    state: "na",
+    reason: q?.reason || "quota_not_read",
+  };
 }
 // One meter per backend: a reading beats none, and the lowest remaining quota wins.
 function preferredReading(previous, next) {
   if (!previous) return next;
-  if (previous.state !== "ok" || next.state !== "ok") return previous.state === "na" ? next : previous;
+  if (previous.state !== "ok" || next.state !== "ok")
+    return previous.state === "na" ? next : previous;
   return next.remaining < previous.remaining ? next : previous;
 }
 function formatBalance(reading, compact) {
   const { amount, currency } = reading;
   try {
-    return new Intl.NumberFormat(undefined, compact
-      ? { style: "currency", currency, notation: "compact", maximumFractionDigits: 0 }
-      : { style: "currency", currency }).format(compact ? Math.floor(amount) : amount);
+    return new Intl.NumberFormat(
+      undefined,
+      compact
+        ? {
+            style: "currency",
+            currency,
+            notation: "compact",
+            maximumFractionDigits: 0,
+          }
+        : { style: "currency", currency },
+    ).format(compact ? Math.floor(amount) : amount);
   } catch {
     return `${compact ? Math.floor(amount) : amount} ${currency || ""}`.trim();
   }
@@ -2318,39 +2679,56 @@ window.updateProviderQuotas = function updateProviderQuotas(items = []) {
   const perProvider = new Map();
   for (const item of items) {
     const reading = providerQuotaReading(item);
-    perProvider.set(item.backend, preferredReading(perProvider.get(item.backend), reading));
+    perProvider.set(
+      item.backend,
+      preferredReading(perProvider.get(item.backend), reading),
+    );
   }
   const readings = [...perProvider.values()].sort((a, b) => {
-    const rank = (reading) => (QUOTA_RAIL_ORDER.includes(reading.backend) ? QUOTA_RAIL_ORDER.indexOf(reading.backend) : QUOTA_RAIL_ORDER.length);
+    const rank = (reading) =>
+      QUOTA_RAIL_ORDER.includes(reading.backend)
+        ? QUOTA_RAIL_ORDER.indexOf(reading.backend)
+        : QUOTA_RAIL_ORDER.length;
     return rank(a) - rank(b);
   });
   railQuotaSummaries.clear();
   const meters = readings.map(providerQuotaMeter);
   for (const reading of readings)
-    if (QUOTA_PRIME_REASONS.has(reading.reason)) primeProviderQuota(reading.backend);
+    if (QUOTA_PRIME_REASONS.has(reading.reason))
+      primeProviderQuota(reading.backend);
   container.replaceChildren(...meters);
   container.hidden = !meters.length;
 };
 // D35: the needs-you count leads the window title, and an unfocused window gets an OS
 // notification when a run needs the user, fails or finishes (the desktop app allows it for its own origins).
 const WINDOW_TITLE = document.title;
-let conversationWindowTitle = WINDOW_TITLE, windowAttentionCount = 0;
+let conversationWindowTitle = WINDOW_TITLE,
+  windowAttentionCount = 0;
 function updateWindowTitle() {
-  document.title = (windowAttentionCount ? `(${windowAttentionCount}) ` : "") + conversationWindowTitle;
+  document.title =
+    (windowAttentionCount ? `(${windowAttentionCount}) ` : "") +
+    conversationWindowTitle;
 }
 const RECENT_JOB_SECONDS = 600;
 const seenJobStates = new Map();
 const seenRequests = new Set();
 let alertsPrimed = false;
 function notifyUser(text) {
-  if (document.hasFocus() || typeof Notification === "undefined" || Notification.permission !== "granted") return;
+  if (
+    document.hasFocus() ||
+    typeof Notification === "undefined" ||
+    Notification.permission !== "granted"
+  )
+    return;
   try {
     new Notification("KeepHarness", { body: text });
   } catch {}
 }
 function jobAlert(job, before) {
   const known = before !== undefined && before !== job.state;
-  const recent = before === undefined && Date.now() / 1000 - (job.created || 0) < RECENT_JOB_SECONDS;
+  const recent =
+    before === undefined &&
+    Date.now() / 1000 - (job.created || 0) < RECENT_JOB_SECONDS;
   if (!known && !recent) return "";
   const prefix = { failed: "Failed: ", completed: "Finished: " }[job.state];
   return prefix ? prefix + (job.title || "a run") : "";
@@ -2377,7 +2755,11 @@ function notifyAttention(data = {}) {
 // The permission prompt comes with the first message, when the user has a run to wait for.
 function askNotificationPermission() {
   if (temporarySession) return;
-  if (typeof Notification === "undefined" || Notification.permission !== "default") return;
+  if (
+    typeof Notification === "undefined" ||
+    Notification.permission !== "default"
+  )
+    return;
   Notification.requestPermission().catch(() => {});
 }
 $("send").addEventListener("click", askNotificationPermission);
@@ -2397,7 +2779,8 @@ window.applyActivitySnapshot = function applyActivitySnapshot(data = {}) {
     if (
       item.conversation_id &&
       (!live.has(item.conversation_id) ||
-        (item.state === "running" && live.get(item.conversation_id).state !== "running"))
+        (item.state === "running" &&
+          live.get(item.conversation_id).state !== "running"))
     )
       live.set(item.conversation_id, item);
   let changed = false;
@@ -2433,7 +2816,7 @@ window.applyActivitySnapshot = function applyActivitySnapshot(data = {}) {
   if (current) renderConversationHeader(current);
 };
 // CDX-R2-2: a meter explains its own provider, whichever model is selected.
-$('provider-quotas').onclick = (event) => {
+$("provider-quotas").onclick = (event) => {
   const meter = event.target.closest(".provider-quota-meter");
   if (!meter) return;
   quotaFocus = meter.dataset.provider;
@@ -2466,7 +2849,9 @@ const history = async (timeout = 30000, background = false) => {
     conversations.forEach(observeConversation);
     saveConversationActivity();
     renderProjects();
-    document.dispatchEvent(new CustomEvent("harness:history", { detail: { background } }));
+    document.dispatchEvent(
+      new CustomEvent("harness:history", { detail: { background } }),
+    );
     if ($("conversation-search-dialog").open) renderConversationSearch();
     if (conversation) {
       const current = conversations.find((item) => item.id === conversation);
@@ -2494,7 +2879,8 @@ function conversationRow(c) {
   open.title = open.textContent;
   open.className = c.id === conversation ? "active" : "";
   open.dataset.conversationId = c.id;
-  open.onclick = () => void navigate({ kind: "conversation", id: c.id, legacy: c.legacy });
+  open.onclick = () =>
+    void navigate({ kind: "conversation", id: c.id, legacy: c.legacy });
   const actions = document.createElement("details");
   actions.className = "conversation-actions";
   actions.hidden = !!c.legacy;
@@ -2564,7 +2950,9 @@ function conversationRow(c) {
   const model = c.execution?.model;
   const icon = document.createElement("span");
   icon.className = "conversation-model-icon";
-  icon.append(providerModelIcon(c.execution?.backend || c.backend, model || c.model));
+  icon.append(
+    providerModelIcon(c.execution?.backend || c.backend, model || c.model),
+  );
   icon.setAttribute("aria-hidden", "true");
   const title = document.createElement("span");
   title.className = "conversation-title";
@@ -2595,7 +2983,8 @@ function conversationRow(c) {
   backend.title = backend.textContent;
   const project = document.createElement("span");
   project.className = "conversation-project";
-  project.textContent = projectDetails[c.project]?.label || c.project || "No project";
+  project.textContent =
+    projectDetails[c.project]?.label || c.project || "No project";
   meta.append(summary, age, backend, project);
   // Runs started by a scheduled task say so, with the task's title.
   if (c.schedule_title) {
@@ -2690,9 +3079,11 @@ function openRenameConversation(c, trigger) {
 const HANDOFF_APP_NAMES = { chatgpt: "ChatGPT", claude: "Claude" };
 // Codes of the desktop bridge (desktop/main.cjs). Not backend codes, so they stay out of userErrors.
 const handoffErrors = {
-  handoff_forbidden: () => "KeepHarness can only open other apps from its own window.",
+  handoff_forbidden: () =>
+    "KeepHarness can only open other apps from its own window.",
   handoff_invalid: () => "KeepHarness couldn't build a link from this handoff.",
-  handoff_app_missing: (app) => app + " isn't installed or isn't set up to open links.",
+  handoff_app_missing: (app) =>
+    app + " isn't installed or isn't set up to open links.",
   handoff_open_failed: (app) => "Couldn't open " + app + ".",
 };
 function continuationFilename(title, target) {
@@ -2700,7 +3091,10 @@ function continuationFilename(title, target) {
     .replace(/[\u007f-\u009f\u202a-\u202e\u2066-\u2069]/g, "")
     .replace(/[\\/:*?"<>|\u0000-\u001f]+/g, "-")
     .replace(/-{2,}/g, "-");
-  const name = Array.from(clean).slice(0, 80).join("").replace(/^[\s.-]+|[\s.-]+$/g, "");
+  const name = Array.from(clean)
+    .slice(0, 80)
+    .join("")
+    .replace(/^[\s.-]+|[\s.-]+$/g, "");
   return (name || "conversation") + "-continue-in-" + target + ".md";
 }
 function saveContinuation(text, filename) {
@@ -2743,13 +3137,24 @@ function openContinuation(c, trigger) {
     summary.textContent = "Preparing the handoff…";
     try {
       const data = await json(
-        "/v1/conversations/" + encodeURIComponent(c.id) + "/continuation?target=" + target + "&include_paths=" + (paths.checked ? 1 : 0),
+        "/v1/conversations/" +
+          encodeURIComponent(c.id) +
+          "/continuation?target=" +
+          target +
+          "&include_paths=" +
+          (paths.checked ? 1 : 0),
         { signal: AbortSignal.any([mine.signal, AbortSignal.timeout(30000)]) },
       );
       if (mine !== controller) return;
       current = field.value = data.text;
       const turns = data.turns_included;
-      summary.textContent = turns + (turns === 1 ? " turn" : " turns") + " included." + (data.truncated ? " Older turns were left out to fit the size limit." : "");
+      summary.textContent =
+        turns +
+        (turns === 1 ? " turn" : " turns") +
+        " included." +
+        (data.truncated
+          ? " Older turns were left out to fit the size limit."
+          : "");
       copy.disabled = save.disabled = false;
     } catch (e) {
       if (mine !== controller) return;
@@ -2768,7 +3173,10 @@ function openContinuation(c, trigger) {
     } catch {}
     if (text !== current || app !== target || !apps.includes(app)) return;
     const name = HANDOFF_APP_NAMES[app];
-    $("continuation-open-question").textContent = "Open " + name + " to continue there? Nothing is sent until you send it yourself.";
+    $("continuation-open-question").textContent =
+      "Open " +
+      name +
+      " to continue there? Nothing is sent until you send it yourself.";
     $("continuation-open-yes").textContent = "Open " + name;
     $("continuation-open-yes").disabled = false;
     offer.hidden = false;
@@ -2792,9 +3200,15 @@ function openContinuation(c, trigger) {
         const result = await window.keepharnessDesktop.openHandoff(app, text);
         message = result?.opened
           ? result.mode === "full"
-            ? "Opened " + name + " with the handoff in a new chat. Review it and send it there."
-            : "Opened " + name + ". The handoff is too long for a link, so paste it from your clipboard (Ctrl+V)."
-          : (handoffErrors[result?.error] || handoffErrors.handoff_open_failed)(name) + onClipboard;
+            ? "Opened " +
+              name +
+              " with the handoff in a new chat. Review it and send it there."
+            : "Opened " +
+              name +
+              ". The handoff is too long for a link, so paste it from your clipboard (Ctrl+V)."
+          : (handoffErrors[result?.error] || handoffErrors.handoff_open_failed)(
+              name,
+            ) + onClipboard;
       } catch {
         message = handoffErrors.handoff_open_failed(name) + onClipboard;
       }
@@ -2834,7 +3248,9 @@ function openContinuation(c, trigger) {
     if (trigger.isConnected) trigger.focus();
     else $("history").querySelector(".conversation-actions summary")?.focus();
   };
-  document.querySelector('input[name="continuation-target"][value="chatgpt"]').checked = true;
+  document.querySelector(
+    'input[name="continuation-target"][value="chatgpt"]',
+  ).checked = true;
   paths.checked = true;
   void load();
   dialog.showModal();
@@ -2862,11 +3278,16 @@ async function archiveConversation(c, archived) {
       body: JSON.stringify({ archived }),
     });
     if (archived && conversation === c.id) newConversation();
-    status(archived ? "Conversation archived. Find it in Settings › Archived chats." : "Conversation restored.");
+    status(
+      archived
+        ? "Conversation archived. Find it in Settings › Archived chats."
+        : "Conversation restored.",
+    );
     await history();
     if (!$("settings-archived").hidden) await loadArchived();
   } catch (e) {
-    const message = (archived ? "Couldn't archive: " : "Couldn't unarchive: ") + e.message;
+    const message =
+      (archived ? "Couldn't archive: " : "Couldn't unarchive: ") + e.message;
     if ($("settings-archived").hidden) status(message);
     else $("archived-error").textContent = message;
   }
@@ -2874,7 +3295,9 @@ async function archiveConversation(c, archived) {
 // Settings › Archived chats: the archived list and this project's use of its storage caps.
 function storageLine(data) {
   const bytes = (n) =>
-    n >= 1024 ** 3 ? (n / 1024 ** 3).toFixed(1) + " GB" : Math.ceil(n / 1024 ** 2) + " MB";
+    n >= 1024 ** 3
+      ? (n / 1024 ** 3).toFixed(1) + " GB"
+      : Math.ceil(n / 1024 ** 2) + " MB";
   return (
     "Storage: " +
     data.runs.used.toLocaleString("en") +
@@ -2897,7 +3320,10 @@ async function loadArchived() {
   try {
     const [archived, storage] = await Promise.all([
       json("/v1/conversations?archived=true"),
-      json("/v1/storage?" + new URLSearchParams({ project_id: $("project").value })),
+      json(
+        "/v1/storage?" +
+          new URLSearchParams({ project_id: $("project").value }),
+      ),
     ]);
     usage.textContent = storageLine(storage);
     usage.classList.toggle("storage-warning", !!storage.warning);
@@ -2915,7 +3341,10 @@ async function loadArchived() {
         restore.textContent = "Unarchive";
         remove.textContent = "Delete permanently";
         restore.setAttribute("aria-label", "Unarchive " + title.textContent);
-        remove.setAttribute("aria-label", "Delete permanently " + title.textContent);
+        remove.setAttribute(
+          "aria-label",
+          "Delete permanently " + title.textContent,
+        );
         restore.onclick = () => void archiveConversation(c, false);
         remove.onclick = () => openDeleteConversation(c, remove);
         row.append(title, restore, remove);
@@ -2924,7 +3353,8 @@ async function loadArchived() {
     );
     $("archived-empty").hidden = archived.conversations.length > 0;
   } catch (e) {
-    $("archived-error").textContent = "Couldn't load archived chats: " + e.message;
+    $("archived-error").textContent =
+      "Couldn't load archived chats: " + e.message;
   }
 }
 function openDeleteConversation(c, trigger) {
@@ -2975,7 +3405,9 @@ function supportedExecutionModes() {
   const modes = selected()?.execution_modes;
   return Array.isArray(modes) &&
     modes.every((mode) => ["native", "scoped"].includes(mode))
-    ? modes.filter((mode) => selected()?.backend === "local" ? mode === "scoped" : mode === "native")
+    ? modes.filter((mode) =>
+        selected()?.backend === "local" ? mode === "scoped" : mode === "native",
+      )
     : [];
 }
 function syncExecutionMode() {
@@ -2988,7 +3420,8 @@ function syncExecutionMode() {
   }
   const isolated = executionMode === "scoped";
   const modeContract = modes.length > 0;
-  const localIsolation = selected()?.backend === "local" && !draftMode.retiredLock;
+  const localIsolation =
+    selected()?.backend === "local" && !draftMode.retiredLock;
   // Local retains its required-isolation display; cloud modes have no switch.
   $("execution-mode-choice").hidden = false;
   $("execution-mode-choice").classList.toggle("no-modes", !modeContract);
@@ -3005,36 +3438,54 @@ function syncExecutionMode() {
     started && executionMode == null
       ? "The historical execution mode is unavailable. Start a new native conversation to continue."
       : started && draftMode.retiredLock
-      ? "Isolated Codex and Claude conversations are no longer supported. Start a new native conversation to continue."
-      : draftMode.retiredLock
-      ? "This saved isolated mode is no longer supported. Start a new conversation to use native mode."
-      : !modeContract
-      ? "Execution capabilities are unavailable. Refresh the model list before sending."
-      : modes.length === 1 && modes.includes(executionMode)
-      ? isolated
-        ? "This model requires isolation."
-        : "This model only offers native mode."
-      : "This model does not offer " +
-        (isolated ? "isolated" : "native") +
-        " mode. Choose a different model" +
-        (started
-          ? " or start a new conversation."
-          : " or start a new conversation.");
+        ? "Isolated Codex and Claude conversations are no longer supported. Start a new native conversation to continue."
+        : draftMode.retiredLock
+          ? "This saved isolated mode is no longer supported. Start a new conversation to use native mode."
+          : !modeContract
+            ? "Execution capabilities are unavailable. Refresh the model list before sending."
+            : modes.length === 1 && modes.includes(executionMode)
+              ? isolated
+                ? "This model requires isolation."
+                : "This model only offers native mode."
+              : "This model does not offer " +
+                (isolated ? "isolated" : "native") +
+                " mode. Choose a different model" +
+                (started
+                  ? " or start a new conversation."
+                  : " or start a new conversation.");
   const indicator = $("execution-mode-indicator");
   indicator.hidden = !started || !localIsolation;
   indicator.dataset.isolated = String(isolated);
-  const label = executionMode == null
-    ? "Execution mode unavailable"
-    : isolated
-      ? "Isolated conversation · isolation on"
-      : "Native conversation · isolation off";
+  const label =
+    executionMode == null
+      ? "Execution mode unavailable"
+      : isolated
+        ? "Isolated conversation · isolation on"
+        : "Native conversation · isolation off";
   indicator.title = label;
   indicator.setAttribute("aria-label", label);
-  $("dropzone").classList.toggle("has-execution-mode", started && localIsolation);
+  $("dropzone").classList.toggle(
+    "has-execution-mode",
+    started && localIsolation,
+  );
   $("header-execution-mode").textContent = executionModeLabel();
 }
-function newConversation(title = "New Conversation", projectId = $("project").value, { resetExecutionMode = false, restoreHomeDraft = false, keepTemporary = false } = {}) {
-  if ((temporaryStarting && !keepTemporary) || submitting || cancelling || loading || uploads) {
+function newConversation(
+  title = "New Conversation",
+  projectId = $("project").value,
+  {
+    resetExecutionMode = false,
+    restoreHomeDraft = false,
+    keepTemporary = false,
+  } = {},
+) {
+  if (
+    (temporaryStarting && !keepTemporary) ||
+    submitting ||
+    cancelling ||
+    loading ||
+    uploads
+  ) {
     status(
       "Wait for the current send to finish before starting another conversation.",
     );
@@ -3046,7 +3497,10 @@ function newConversation(title = "New Conversation", projectId = $("project").va
   const draftProject = $("project").value;
   const changedProject = projectId !== draftProject;
   $("project").value = projectId;
-  const carriedDraft = readDraft("conversation-draft:" + (conversation || "new:" + (changedProject ? draftProject : projectId)));
+  const carriedDraft = readDraft(
+    "conversation-draft:" +
+      (conversation || "new:" + (changedProject ? draftProject : projectId)),
+  );
   const newDraft = readDraft("conversation-draft:new:" + projectId);
   imageRefusedModel = "";
   resourceSelections = [];
@@ -3058,7 +3512,8 @@ function newConversation(title = "New Conversation", projectId = $("project").va
     kept = files.filter((f) => f.project === $("project").value);
   conversationLoad++;
   streamDisconnected = false;
-  if (document.activeElement === $("resume-execution")) $("prompt").focus({ preventScroll: true });
+  if (document.activeElement === $("resume-execution"))
+    $("prompt").focus({ preventScroll: true });
   $("resume-execution").hidden = true;
   restoreSelection();
   clearSubmission();
@@ -3073,7 +3528,8 @@ function newConversation(title = "New Conversation", projectId = $("project").va
   last = 0;
   parent = null;
   conversation = "";
-  if (resetExecutionMode) draftMode = { mode: "native", modeChosen: false, retiredLock: false };
+  if (resetExecutionMode)
+    draftMode = { mode: "native", modeChosen: false, retiredLock: false };
   executionMode = draftMode.mode;
   renderConversationHeader();
   $("access-mode").value = "ask";
@@ -3086,11 +3542,23 @@ function newConversation(title = "New Conversation", projectId = $("project").va
   bindSuggestions();
   modelAvailability();
   $("prompt").value = draft;
-  const preserveRetiredDraft = !resetExecutionMode && carriedDraft && normalizeDraftMode(carriedDraft).retiredLock;
-  const restoredDraft = restoreHomeDraft && newDraft ? newDraft :
-    changedProject && preserveRetiredDraft ? carriedDraft :
-    (newDraft?.draft || newDraft?.files?.length ? newDraft : carriedDraft);
-  if (restoredDraft) restoreView(restoredDraft, { resetExecutionMode, restoreModelSelection: !changedProject });
+  const preserveRetiredDraft =
+    !resetExecutionMode &&
+    carriedDraft &&
+    normalizeDraftMode(carriedDraft).retiredLock;
+  const restoredDraft =
+    restoreHomeDraft && newDraft
+      ? newDraft
+      : changedProject && preserveRetiredDraft
+        ? carriedDraft
+        : newDraft?.draft || newDraft?.files?.length
+          ? newDraft
+          : carriedDraft;
+  if (restoredDraft)
+    restoreView(restoredDraft, {
+      resetExecutionMode,
+      restoreModelSelection: !changedProject,
+    });
   updateComposer();
   saveView();
   $("context-meter").textContent = "New conversation · independent context";
@@ -3099,8 +3567,14 @@ function newConversation(title = "New Conversation", projectId = $("project").va
   // The mobile drawer makes the editor inert until it closes.
   closeSidebar();
   $("prompt").focus({ preventScroll: true });
-  void refreshProjectPermissions().then((ready) => ready && refreshProjectTrust());
-  if (changedProject) { clearResourceItems(); void refreshWorkspaceResources(); void loadAuthorizedProjectRoots(); }
+  void refreshProjectPermissions().then(
+    (ready) => ready && refreshProjectTrust(),
+  );
+  if (changedProject) {
+    clearResourceItems();
+    void refreshWorkspaceResources();
+    void loadAuthorizedProjectRoots();
+  }
 }
 function chooseProject(id) {
   if (busy || loading || uploads) return;
@@ -3465,12 +3939,16 @@ function renderProjects() {
         const items = matches.filter(
           (c) => (projectAliases[c.project] || c.project) === o.value,
         );
-        const urgent = ["needs-you", "running", "queued", "failed"].find((kind) =>
-          items.some((c) => conversationStatusKind(c) === kind),
+        const urgent = ["needs-you", "running", "queued", "failed"].find(
+          (kind) => items.some((c) => conversationStatusKind(c) === kind),
         );
         if (urgent)
           heading.insertBefore(
-            statusDot(urgent, STATUS_DOTS[urgent] + " in this project", "project-indicator"),
+            statusDot(
+              urgent,
+              STATUS_DOTS[urgent] + " in this project",
+              "project-indicator",
+            ),
             actions,
           );
         children.replaceChildren(...items.map(conversationRow));
@@ -3492,7 +3970,11 @@ function renderProjects() {
             );
             return;
           }
-          newConversation("New Conversation in project " + o.textContent, o.value, { resetExecutionMode: true });
+          newConversation(
+            "New Conversation in project " + o.textContent,
+            o.value,
+            { resetExecutionMode: true },
+          );
           expandedProjects.set(o.value, true);
           renderProjects();
           closeSidebar();
@@ -3534,12 +4016,20 @@ function renderProjects() {
   }
   // Codex model: project conversations live under their project; "Chats" lists the rest.
   // Status is a dot on each row; attention first keeps the old group order.
-  const listed = new Set(options.filter((o) => !projectPreferences[o.value]?.hidden).map((o) => o.value));
+  const listed = new Set(
+    options
+      .filter((o) => !projectPreferences[o.value]?.hidden)
+      .map((o) => o.value),
+  );
   const rank = { "needs-you": 0, running: 1, queued: 2, done: 3 };
   const chats = matches
     .filter((c) => !listed.has(projectAliases[c.project] || c.project))
     .map((c, index) => ({ c, index }))
-    .sort((a, b) => rank[conversationState(a.c)] - rank[conversationState(b.c)] || a.index - b.index)
+    .sort(
+      (a, b) =>
+        rank[conversationState(a.c)] - rank[conversationState(b.c)] ||
+        a.index - b.index,
+    )
     .map(({ c }) => c);
   const section = document.createElement("section");
   section.className = "conversation-state-group";
@@ -3558,7 +4048,11 @@ function renderProjects() {
   }
   if (focusedConversation) {
     [...$("sidebar").querySelectorAll("button[data-conversation-id]")]
-      .find(node => node.dataset.conversationId === focusedConversation && node.checkVisibility())
+      .find(
+        (node) =>
+          node.dataset.conversationId === focusedConversation &&
+          node.checkVisibility(),
+      )
       ?.focus({ preventScroll: true });
   }
 }
@@ -3615,13 +4109,16 @@ function renderAnswer(body, value) {
   } catch {}
   if (parsed !== undefined) {
     // Four backticks: a pretty-printed JSON line can never close the fence.
-    body.innerHTML = answerMarkdown.render("````json\n" + JSON.stringify(parsed, null, 2) + "\n````");
+    body.innerHTML = answerMarkdown.render(
+      "````json\n" + JSON.stringify(parsed, null, 2) + "\n````",
+    );
     syncResponseMotion(body);
     return source;
   }
   body.innerHTML = answerMarkdown.render(source);
   // WP7: only chat bubbles (bubble() renders before it is appended); page previews stay plain.
-  if (body.classList.contains("chat-bubble") && visualMarkersOn()) applyProseMarkers(body);
+  if (body.classList.contains("chat-bubble") && visualMarkersOn())
+    applyProseMarkers(body);
   syncResponseMotion(body);
   return source;
 }
@@ -3652,8 +4149,12 @@ function setAnswer(answer, value, notice = "", code = "") {
 // (above the answer, which re-renders from its raw text) rather than in the transient status.
 function showSkippedHookNotice(data) {
   if (!active) return;
-  const text = userErrors[data.reason] || "A catalog hook was skipped and the turn went on without it.";
-  const shown = active.el.querySelectorAll('[data-testid="catalog-hook-notice"]');
+  const text =
+    userErrors[data.reason] ||
+    "A catalog hook was skipped and the turn went on without it.";
+  const shown = active.el.querySelectorAll(
+    '[data-testid="catalog-hook-notice"]',
+  );
   if ([...shown].some((note) => note.textContent === text)) return;
   const note = document.createElement("p");
   note.className = "run-notice";
@@ -3677,7 +4178,8 @@ function answerAction(testid, label, icon) {
 const COPIED_LABEL_MS = 1600;
 // navigator.clipboard exists only on secure origins; a tailnet http page falls back to execCommand.
 async function writeClipboard(text) {
-  if (navigator.clipboard?.writeText) return navigator.clipboard.writeText(text);
+  if (navigator.clipboard?.writeText)
+    return navigator.clipboard.writeText(text);
   const area = document.createElement("textarea");
   area.value = text;
   area.readOnly = true;
@@ -3702,12 +4204,19 @@ async function copyText(text, label) {
   label.textContent = "Copied";
   status("Copied");
   clearTimeout(label.copiedTimer);
-  label.copiedTimer = setTimeout(() => (label.textContent = label.dataset.label), COPIED_LABEL_MS);
+  label.copiedTimer = setTimeout(
+    () => (label.textContent = label.dataset.label),
+    COPIED_LABEL_MS,
+  );
   return true;
 }
 $("messages").addEventListener("click", (event) => {
   const button = event.target.closest?.(".copy-code");
-  if (button) copyText(button.closest(".code-block")?.querySelector("code")?.textContent, button);
+  if (button)
+    copyText(
+      button.closest(".code-block")?.querySelector("code")?.textContent,
+      button,
+    );
 });
 function excerptChip(file) {
   const chip = document.createElement("small");
@@ -3816,7 +4325,8 @@ function routeDivider(route) {
   const previous = lastRoute;
   lastRoute = route.model ? route : previous;
   if (!previous || !route.model) return;
-  if (previous.backend === route.backend && previous.model === route.model) return;
+  if (previous.backend === route.backend && previous.model === route.model)
+    return;
   const crossed = previous.backend !== route.backend,
     divider = document.createElement("p");
   divider.className = "route-divider";
@@ -3825,7 +4335,9 @@ function routeDivider(route) {
     providerModelIcon(route.backend, route.model),
     document.createTextNode(
       crossed
-        ? "Switched to " + modelName(route.model) + " · " +
+        ? "Switched to " +
+            modelName(route.model) +
+            " · " +
             (providerNames[route.backend] || route.backend) +
             " — the conversation so far goes with it"
         : "Model changed to " + modelName(route.model),
@@ -3875,38 +4387,75 @@ function safeToolId(tool) {
 // WP7: one table of step categories; the icon and verb of a run step come from here.
 const TOOL_MARKERS = {
   read: { icon: "file-text", verb: "Reading", tools: "read read_file" },
-  edit: { icon: "pencil", verb: "Editing", tools: "edit write multiedit notebookedit filechange delete move" },
-  run: { icon: "terminal-2", verb: "Running", tools: "bash commandexecution exec_command execute" },
-  search: { icon: "search", verb: "Searching", tools: "glob grep search search_files" },
+  edit: {
+    icon: "pencil",
+    verb: "Editing",
+    tools: "edit write multiedit notebookedit filechange delete move",
+  },
+  run: {
+    icon: "terminal-2",
+    verb: "Running",
+    tools: "bash commandexecution exec_command execute",
+  },
+  search: {
+    icon: "search",
+    verb: "Searching",
+    tools: "glob grep search search_files",
+  },
   list: { icon: "folder", verb: "Listing", tools: "list_directory list_dir" },
-  web: { icon: "world", verb: "Browsing", tools: "websearch webfetch web_search web_fetch fetch" },
+  web: {
+    icon: "world",
+    verb: "Browsing",
+    tools: "websearch webfetch web_search web_fetch fetch",
+  },
   skill: { icon: "cube", verb: "Using skill", tools: "skill" },
   agent: { icon: "robot", verb: "Delegating to", tools: "task agent" },
-  plan: { icon: "list-check", verb: "Updating", tools: "todowrite update_plan" },
+  plan: {
+    icon: "list-check",
+    verb: "Updating",
+    tools: "todowrite update_plan",
+  },
   mcp: { icon: "plug", verb: "Running", tools: "" },
 };
 const PAST_TENSE = {
-  Running: "Ran", Reading: "Read", Editing: "Edited", Listing: "Listed", Searching: "Searched",
-  Browsing: "Browsed", Updating: "Updated", Delegating: "Delegated",
+  Running: "Ran",
+  Reading: "Read",
+  Editing: "Edited",
+  Listing: "Listed",
+  Searching: "Searched",
+  Browsing: "Browsed",
+  Updating: "Updated",
+  Delegating: "Delegated",
 };
 const STEP_VERB = new RegExp("^(" + Object.keys(PAST_TENSE).join("|") + ")");
 const MARKER_NAME = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$/;
 // Skill and agent names are display-only: a name that does not match is never shown.
-const markerName = (value) => (typeof value === "string" && MARKER_NAME.test(value) ? value : "");
+const markerName = (value) =>
+  typeof value === "string" && MARKER_NAME.test(value) ? value : "";
 function toolCategory(data) {
   if (markerName(data.skill)) return "skill";
   if (markerName(data.agent)) return "agent";
-  const name = String(data.tool || "").split("__").pop().toLowerCase();
-  const key = name && Object.keys(TOOL_MARKERS).find((k) => TOOL_MARKERS[k].tools.split(" ").includes(name));
+  const name = String(data.tool || "")
+    .split("__")
+    .pop()
+    .toLowerCase();
+  const key =
+    name &&
+    Object.keys(TOOL_MARKERS).find((k) =>
+      TOOL_MARKERS[k].tools.split(" ").includes(name),
+    );
   if (key) return key;
   return String(data.tool || "").startsWith("mcp__") ? "mcp" : "";
 }
 function targetTitle(data) {
   const key = toolCategory(data),
     entry = TOOL_MARKERS[key],
-    subject = key === "skill" || key === "agent"
-      ? markerName(data[key])
-      : typeof data.target === "string" ? Array.from(data.target.trim()).slice(0, 160).join("") : "";
+    subject =
+      key === "skill" || key === "agent"
+        ? markerName(data[key])
+        : typeof data.target === "string"
+          ? Array.from(data.target.trim()).slice(0, 160).join("")
+          : "";
   return subject && entry?.tools ? entry.verb + " " + subject : "";
 }
 function activityTitle(e) {
@@ -3919,11 +4468,13 @@ function activityTitle(e) {
   );
   if (condition) return condition.title;
   if (type === "hook_scope") {
-    return {
-      disabled: "Hooks disabled for this run",
-      project: "Using project hooks only",
-      global_and_project: "Using global and project hooks",
-    }[data.scope] || "Hook scope reported";
+    return (
+      {
+        disabled: "Hooks disabled for this run",
+        project: "Using project hooks only",
+        global_and_project: "Using global and project hooks",
+      }[data.scope] || "Hook scope reported"
+    );
   }
   if (type === "resource_fallback")
     return data.scope === "execution"
@@ -3931,7 +4482,12 @@ function activityTitle(e) {
       : "Resource fallback is advisory";
   if (["invocation_started", "invocation_completed"].includes(type)) {
     const invocation = data.invocation || data,
-      identity = data.role || invocation.role || invocation.resource_id || invocation.kind || "resource",
+      identity =
+        data.role ||
+        invocation.role ||
+        invocation.resource_id ||
+        invocation.kind ||
+        "resource",
       route = [
         data.backend || invocation.backend,
         data.model || invocation.model,
@@ -4005,7 +4561,9 @@ function renderStepRow(row) {
     row.removeAttribute("aria-label");
     return;
   }
-  const resourceId = workspaceCatalog.get(category + ":" + row.dataset.markerName),
+  const resourceId = workspaceCatalog.get(
+      category + ":" + row.dataset.markerName,
+    ),
     chip = document.createElement(resourceId ? "a" : "span"),
     label = document.createElement("span"),
     icon = HarnessUI.icon(entry.icon);
@@ -4026,8 +4584,10 @@ function renderStepRow(row) {
 // name only; a named one (skill, agent) is more specific and wins over it.
 function setStepRow(row, text, marker = {}) {
   row.dataset.stepText = text;
-  if (marker.category && (marker.name || !row.dataset.markerCategory)) row.dataset.markerCategory = marker.category;
-  if (marker.name && !row.dataset.markerName) row.dataset.markerName = marker.name;
+  if (marker.category && (marker.name || !row.dataset.markerCategory))
+    row.dataset.markerCategory = marker.category;
+  if (marker.name && !row.dataset.markerName)
+    row.dataset.markerName = marker.name;
   renderStepRow(row);
 }
 // WP7 prose chips: only exact catalog names ("/name", or a bare name as a whole inline code)
@@ -4036,7 +4596,9 @@ const PROSE_EDGE = /^[([{"'`]+|[.,;:!?)\]}"'`]+$/g;
 function proseKnownPaths() {
   const known = new Map();
   for (const entries of fileTree.cache.values())
-    for (const entry of entries) if (entry.path) known.set(entry.path, entry.type === "directory" ? "folder" : "file");
+    for (const entry of entries)
+      if (entry.path)
+        known.set(entry.path, entry.type === "directory" ? "folder" : "file");
   return known;
 }
 // A path counts in prose only with a "/" or "." ("tests" or "docs" alone are common words);
@@ -4047,7 +4609,9 @@ function proseMatch(token, bare, paths) {
     const id = workspaceCatalog.get(kind + ":" + name);
     if (id) return { kind, id };
   }
-  return paths.has(token) && (bare || /[/.]/.test(token)) ? { kind: paths.get(token) } : null;
+  return paths.has(token) && (bare || /[/.]/.test(token))
+    ? { kind: paths.get(token) }
+    : null;
 }
 function proseChip(match, ...content) {
   const chip = document.createElement(match.id ? "a" : "span");
@@ -4061,7 +4625,8 @@ function proseChip(match, ...content) {
   return chip;
 }
 function chipTextNode(node, paths) {
-  const text = node.nodeValue, parts = [];
+  const text = node.nodeValue,
+    parts = [];
   let last = 0;
   for (const word of text.matchAll(/\S+/g)) {
     const token = word[0].replace(PROSE_EDGE, ""),
@@ -4078,7 +4643,9 @@ function applyProseMarkers(el) {
   if (!workspaceCatalog.size && !paths.size) return;
   const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT, {
     acceptNode: (node) =>
-      node.parentElement.closest("pre, code, a, .prose-chip") ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT,
+      node.parentElement.closest("pre, code, a, .prose-chip")
+        ? NodeFilter.FILTER_REJECT
+        : NodeFilter.FILTER_ACCEPT,
   });
   const nodes = [];
   while (walker.nextNode()) nodes.push(walker.currentNode);
@@ -4090,7 +4657,9 @@ function applyProseMarkers(el) {
   }
 }
 function removeProseMarkers(el) {
-  el.querySelectorAll(".prose-chip").forEach((chip) => chip.replaceWith(...chip.childNodes));
+  el.querySelectorAll(".prose-chip").forEach((chip) =>
+    chip.replaceWith(...chip.childNodes),
+  );
   el.normalize();
 }
 function refreshVisualMarkers() {
@@ -4105,13 +4674,15 @@ function refreshVisualMarkers() {
 // Opening the panel reloads the resource rows, so a focus request outlives that reload.
 let pendingResourceFocus = "";
 function focusResourceRow(id) {
-  const row = [...document.querySelectorAll("#workspace-resources [data-resource-id]")].find(
-    (item) => item.dataset.resourceId === id,
-  );
+  const row = [
+    ...document.querySelectorAll("#workspace-resources [data-resource-id]"),
+  ].find((item) => item.dataset.resourceId === id);
   row?.focus();
 }
 document.addEventListener("click", (event) => {
-  const link = event.target.closest?.("a:is(.step-chip, .prose-chip)[data-resource-id]");
+  const link = event.target.closest?.(
+    "a:is(.step-chip, .prose-chip)[data-resource-id]",
+  );
   if (!link) return;
   event.preventDefault();
   const id = link.dataset.resourceId;
@@ -4123,7 +4694,13 @@ document.addEventListener("click", (event) => {
 });
 function stepMarker(data) {
   const category = toolCategory(data);
-  return { category, name: category === "skill" || category === "agent" ? markerName(data[category]) : "" };
+  return {
+    category,
+    name:
+      category === "skill" || category === "agent"
+        ? markerName(data[category])
+        : "",
+  };
 }
 function appendActivityTitle(list, e) {
   list.eventIds ??= new Set();
@@ -4154,7 +4731,11 @@ function appendActivityTitle(list, e) {
   if (title === "Thinking" && list.lastElementChild?.dataset.stepText === title)
     return;
   const row = document.createElement("li");
-  setStepRow(row, title, e.type === "tool_start" || e.type === "tool_end" ? stepMarker(data) : {});
+  setStepRow(
+    row,
+    title,
+    e.type === "tool_start" || e.type === "tool_end" ? stepMarker(data) : {},
+  );
   row.dataset.state = toolFailed ? "failed" : e.type;
   if (eventId) row.dataset.eventId = eventId;
   list.append(row);
@@ -4205,7 +4786,11 @@ function assistant(id = "", model = $("model").value, replayTools = false) {
   meta.className = "run-meta";
   a.el.append(meta);
   const copy = answerAction("copy-answer", "Copy", "copy");
-  copy.onclick = () => copyText(a.body.rawAnswer || a.body.textContent, copy.querySelector(".action-label"));
+  copy.onclick = () =>
+    copyText(
+      a.body.rawAnswer || a.body.textContent,
+      copy.querySelector(".action-label"),
+    );
   a.el.append(copy, askAgainButton(a.el));
   window.runConsole?.attachAnswer(a.el, id);
   return { ...a, activity, activitySummary, milestones, meta, chip };
@@ -4215,10 +4800,12 @@ function askAgainButton(answer) {
   const button = answerAction("ask-again", "Ask again", "refresh");
   button.onclick = () => {
     let asked = answer.previousElementSibling;
-    while (asked && !asked.matches("article.message.user")) asked = asked.previousElementSibling;
+    while (asked && !asked.matches("article.message.user"))
+      asked = asked.previousElementSibling;
     const question = asked?.textContent;
     if (!question || busy || submitting) return;
-    if ($("prompt").value.trim()) return status("Send or clear the draft first, then ask again.");
+    if ($("prompt").value.trim())
+      return status("Send or clear the draft first, then ask again.");
     $("prompt").value = question.trim();
     updateComposer();
     send();
@@ -4329,7 +4916,10 @@ function scroll() {
   if (followingStream) {
     ownScroll = true;
     requestAnimationFrame(() => (ownScroll = false)); // scroll events fire before the next frame callbacks
-    $("messages").scrollTo({ top: $("messages").scrollHeight, behavior: "instant" });
+    $("messages").scrollTo({
+      top: $("messages").scrollHeight,
+      behavior: "instant",
+    });
   }
   updateLatest();
 }
@@ -4338,28 +4928,57 @@ function renderPlanOutcome(card, runState = card.dataset.runState) {
   if (!card) return;
   if (runState) card.dataset.runState = runState;
   const choice = card.dataset.choice;
-  const terminal = { completed: "Completed", failed: "Failed", cancelled: "Cancelled", interrupted: "Interrupted" }[runState];
+  const terminal = {
+    completed: "Completed",
+    failed: "Failed",
+    cancelled: "Cancelled",
+    interrupted: "Interrupted",
+  }[runState];
   let label, note;
-  if (choice === "deny") { label = "Discarded"; note = "Plan discarded."; }
-  else if (choice === "approve" && !card.id && !terminal) {
-    label = "Running"; note = "The workflow is running these steps.";
+  if (choice === "deny") {
+    label = "Discarded";
+    note = "Plan discarded.";
+  } else if (choice === "approve" && !card.id && !terminal) {
+    label = "Running";
+    note = "The workflow is running these steps.";
   } else if (choice === "approve") {
     label = "Approved · " + (terminal || "recorded");
-    note = terminal ? "The approved run is " + terminal.toLowerCase() + "." : "This plan was approved earlier.";
-  } else { label = "Not active"; note = "This plan can no longer be approved."; }
-  card.querySelector(".state-pill").replaceChildren(HarnessUI.icon(choice === "approve" ? "check" : "shield"), document.createTextNode(label));
+    note = terminal
+      ? "The approved run is " + terminal.toLowerCase() + "."
+      : "This plan was approved earlier.";
+  } else {
+    label = "Not active";
+    note = "This plan can no longer be approved.";
+  }
+  card
+    .querySelector(".state-pill")
+    .replaceChildren(
+      HarnessUI.icon(choice === "approve" ? "check" : "shield"),
+      document.createTextNode(label),
+    );
   card.querySelector('[role="status"]').textContent = note;
 }
 const workflowResumeKeys = new Map();
 function showWorkflowRecovery(run) {
   const target = active?.el;
-  if (!target || !["failed", "cancelled", "interrupted"].includes(run.state) || target.querySelector(".workflow-recovery")) return;
+  if (
+    !target ||
+    !["failed", "cancelled", "interrupted"].includes(run.state) ||
+    target.querySelector(".workflow-recovery")
+  )
+    return;
   if (!run.workflow_checkpoint || draftMode.retiredLock) return;
-  const section = document.createElement("section"), note = document.createElement("p"), resume = document.createElement("button");
+  const section = document.createElement("section"),
+    note = document.createElement("p"),
+    resume = document.createElement("button");
   section.className = "workflow-recovery";
-  note.textContent = run.workflow_completed_steps === 0
-    ? "No completed steps can be reused. Retry starts at the first step of the saved plan."
-    : (Number.isInteger(run.workflow_completed_steps) ? run.workflow_completed_steps + " completed step(s) can be reused. " : "Resume from the last valid checkpoint. ") + "Completed steps are reused when their inputs and workflow are unchanged; remaining steps run again.";
+  note.textContent =
+    run.workflow_completed_steps === 0
+      ? "No completed steps can be reused. Retry starts at the first step of the saved plan."
+      : (Number.isInteger(run.workflow_completed_steps)
+          ? run.workflow_completed_steps + " completed step(s) can be reused. "
+          : "Resume from the last valid checkpoint. ") +
+        "Completed steps are reused when their inputs and workflow are unchanged; remaining steps run again.";
   note.setAttribute("role", "status");
   resume.type = "button";
   resume.className = "btn";
@@ -4370,27 +4989,47 @@ function showWorkflowRecovery(run) {
     try {
       const storageKey = "workflow-resume:" + run.id;
       let key = workflowResumeKeys.get(run.id);
-      try { key ||= sessionStorage.getItem(storageKey); } catch {}
-      key ||= crypto.randomUUID?.() || Array.from(crypto.getRandomValues(new Uint8Array(16)), n => n.toString(16).padStart(2, "0")).join("");
+      try {
+        key ||= sessionStorage.getItem(storageKey);
+      } catch {}
+      key ||=
+        crypto.randomUUID?.() ||
+        Array.from(crypto.getRandomValues(new Uint8Array(16)), (n) =>
+          n.toString(16).padStart(2, "0"),
+        ).join("");
       workflowResumeKeys.set(run.id, key);
-      try { if (!temporarySession) sessionStorage.setItem(storageKey, key); } catch {}
+      try {
+        if (!temporarySession) sessionStorage.setItem(storageKey, key);
+      } catch {}
       if (!resumedConversation) {
-        const child = await json("/v1/jobs/" + encodeURIComponent(run.id) + "/resume", {
-          method: "POST", headers: { "Content-Type": "application/json", "Idempotency-Key": key }, body: "{}",
-        });
+        const child = await json(
+          "/v1/jobs/" + encodeURIComponent(run.id) + "/resume",
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "Idempotency-Key": key,
+            },
+            body: "{}",
+          },
+        );
         resumedConversation = child.conversation_id || child.job_id;
         resume.textContent = "Open resumed run";
       }
       await load(resumedConversation);
       if (conversation !== resumedConversation) {
-        note.textContent = "The workflow was resumed. Couldn't open its conversation; use Open resumed run to try again.";
+        note.textContent =
+          "The workflow was resumed. Couldn't open its conversation; use Open resumed run to try again.";
         resume.disabled = false;
       }
       void history();
     } catch (error) {
-      note.textContent = error.code === "workflow_effect_outcome_unknown"
-        ? "Resolve the uncertain publication outcome before resuming this workflow."
-        : (resumedConversation ? "The workflow was resumed. Couldn't open its conversation: " : "Couldn't resume the workflow: ") + error.message;
+      note.textContent =
+        error.code === "workflow_effect_outcome_unknown"
+          ? "Resolve the uncertain publication outcome before resuming this workflow."
+          : (resumedConversation
+              ? "The workflow was resumed. Couldn't open its conversation: "
+              : "Couldn't resume the workflow: ") + error.message;
       resume.disabled = false;
     }
   };
@@ -4400,18 +5039,38 @@ function showWorkflowRecovery(run) {
 // D-031: Retry only on the latest failed or interrupted turn. The server owns the exclusions
 // (cancelled, workflow, schedule, superseded); the UI hides what it can already tell.
 function showTurnRetry(run) {
-  const target = active?.el, req = run.request || {};
-  if (!target || !["failed", "interrupted"].includes(run.state) || target.querySelector(".turn-retry-actions")) return;
-  if (draftMode.retiredLock || run.workflow_checkpoint || req.schedule_id || req.backend === "maestro" || req.invocations?.some?.((item) => item.kind === "workflow")) return;
-  const section = document.createElement("p"), note = document.createElement("span"), button = document.createElement("button");
+  const target = active?.el,
+    req = run.request || {};
+  if (
+    !target ||
+    !["failed", "interrupted"].includes(run.state) ||
+    target.querySelector(".turn-retry-actions")
+  )
+    return;
+  if (
+    draftMode.retiredLock ||
+    run.workflow_checkpoint ||
+    req.schedule_id ||
+    req.backend === "maestro" ||
+    req.invocations?.some?.((item) => item.kind === "workflow")
+  )
+    return;
+  const section = document.createElement("p"),
+    note = document.createElement("span"),
+    button = document.createElement("button");
   section.className = "turn-retry-actions";
   note.setAttribute("role", "status");
   button.type = "button";
   button.className = "btn";
-  const unreadable = (run.attachments || []).some((file) => file.preview_url) &&
-    models.find((m) => m.id === (req.backend === "qwen" ? "qwen-local" : req.model))?.capabilities?.images === false;
+  const unreadable =
+    (run.attachments || []).some((file) => file.preview_url) &&
+    models.find(
+      (m) => m.id === (req.backend === "qwen" ? "qwen-local" : req.model),
+    )?.capabilities?.images === false;
   if (unreadable) {
-    note.textContent = modelName(req.model) + " can't read the image of this turn, so Retry would drop it again.";
+    note.textContent =
+      modelName(req.model) +
+      " can't read the image of this turn, so Retry would drop it again.";
     button.dataset.testid = "turn-choose-model";
     button.textContent = "Choose another model";
     button.onclick = () => $("model-trigger").click();
@@ -4438,7 +5097,9 @@ function showTurnRetry(run) {
       }
       if (conversation !== turnConversation) return;
       await load(turnConversation);
-      const fresh = $("messages").querySelector(".turn-retry-actions [role=status]");
+      const fresh = $("messages").querySelector(
+        ".turn-retry-actions [role=status]",
+      );
       if (failure && fresh) {
         fresh.textContent = failure;
         fresh.tabIndex = -1;
@@ -4496,14 +5157,21 @@ function event(e) {
   last = e.id;
   window.runConsole?.observe(e);
   if (e.type === "session_turn_started") return;
-  if (e.type === "invocation_started" && e.data?.invocation?.mode === "conversational")
-    setActivePersona({
-      name: e.data.role || e.data.invocation.resource_id,
-      resource_id: e.data.invocation.resource_id,
-      route: activePersona?.resource_id === e.data.invocation.resource_id
-        ? activePersona.route
-        : lastSentRoute,
-    }, true);
+  if (
+    e.type === "invocation_started" &&
+    e.data?.invocation?.mode === "conversational"
+  )
+    setActivePersona(
+      {
+        name: e.data.role || e.data.invocation.resource_id,
+        resource_id: e.data.invocation.resource_id,
+        route:
+          activePersona?.resource_id === e.data.invocation.resource_id
+            ? activePersona.route
+            : lastSentRoute,
+      },
+      true,
+    );
   if (e.type === "gate_required") {
     showGate(e.data);
     return;
@@ -4522,7 +5190,8 @@ function event(e) {
   }
   if (e.type === "approval_resolved") {
     const box = document.getElementById("approval-" + e.data.approval_id);
-    if (box?.contains(document.activeElement)) $("prompt").focus({ preventScroll: true });
+    if (box?.contains(document.activeElement))
+      $("prompt").focus({ preventScroll: true });
     box?.remove();
     status("Approval decision recorded");
     return;
@@ -4543,7 +5212,11 @@ function event(e) {
   recordActivity(e);
   updateMotion(e.type);
   if (active) active.chip.textContent = $("activity-state").textContent;
-  if (active) showHeldTurn(active, e.type === "queue_wait" && e.data?.reason === "held_after_stop");
+  if (active)
+    showHeldTurn(
+      active,
+      e.type === "queue_wait" && e.data?.reason === "held_after_stop",
+    );
   if (e.type === "usage_metrics") {
     paintLocalUsage(e.data);
     return;
@@ -4585,7 +5258,11 @@ function event(e) {
     showSkippedHookNotice(e.data);
     return;
   } else {
-    status(e.type === "queue_wait" ? waitReasonLabel(e.data?.reason || "queue") : labels[e.type] || e.type);
+    status(
+      e.type === "queue_wait"
+        ? waitReasonLabel(e.data?.reason || "queue")
+        : labels[e.type] || e.type,
+    );
   }
   pendingGateStatus();
   // Deltas scroll after their batched render; reading layout here per delta
@@ -4618,48 +5295,61 @@ function executionCondition(code, backend, detail) {
     panel = providerNames[backend] || name,
     reason = providerMessage(detail);
   // DeepSeek runs on a pasted API key and a prepaid balance: no sign-in, nothing renews.
-  const deepseek = backend === "deepseek" && {
-    authentication: {
-      title: "Replace the DeepSeek API key",
-      message:
-        "DeepSeek rejected the API key. In the admin panel, paste a valid DeepSeek API key and send your message again.",
-    },
-    quota: {
-      title: "Top up your DeepSeek balance",
-      message:
-        "Your DeepSeek balance is used up. Top it up in your DeepSeek account, or select a different provider to continue this conversation.",
-    },
-  }[kind];
+  const deepseek =
+    backend === "deepseek" &&
+    {
+      authentication: {
+        title: "Replace the DeepSeek API key",
+        message:
+          "DeepSeek rejected the API key. In the admin panel, paste a valid DeepSeek API key and send your message again.",
+      },
+      quota: {
+        title: "Top up your DeepSeek balance",
+        message:
+          "Your DeepSeek balance is used up. Top it up in your DeepSeek account, or select a different provider to continue this conversation.",
+      },
+    }[kind];
   // D47: the admin has no Gemini card, so there is nothing to open or renew.
-  const gemini = backend === "gemini" && ["unavailable", "authentication"].includes(kind) && {
-    title: "Gemini unavailable",
-    message: "Gemini is not available in this KeepHarness release. Select another provider to continue this conversation.",
-  };
-  const copy = deepseek || gemini || {
-    unavailable: {title: name + " unavailable", message: "Open the admin panel to check " + name + ", or select another provider."},
-    authentication: {
-      title: "Renew " + name + " access",
+  const gemini = backend === "gemini" &&
+    ["unavailable", "authentication"].includes(kind) && {
+      title: "Gemini unavailable",
       message:
-        "Your " +
-        name +
-        " access needs to be renewed. In the admin panel, find " +
-        panel +
-        " and click “Renew access”. Complete the sign-in in the browser and send your message again.",
-    },
-    quota: {
-      title: "Wait for quota renewal",
-      message:
-        "Your " +
-        name +
-        " quota is temporarily exhausted. Wait for it to renew or select a different provider to continue this conversation.",
-    },
-    rate: {
-      title: "Wait a moment",
-      message:
-        name +
-        " is limiting requests. Wait a moment, or select a different provider to continue this conversation.",
-    },
-  }[kind];
+        "Gemini is not available in this KeepHarness release. Select another provider to continue this conversation.",
+    };
+  const copy =
+    deepseek ||
+    gemini ||
+    {
+      unavailable: {
+        title: name + " unavailable",
+        message:
+          "Open the admin panel to check " +
+          name +
+          ", or select another provider.",
+      },
+      authentication: {
+        title: "Renew " + name + " access",
+        message:
+          "Your " +
+          name +
+          " access needs to be renewed. In the admin panel, find " +
+          panel +
+          " and click “Renew access”. Complete the sign-in in the browser and send your message again.",
+      },
+      quota: {
+        title: "Wait for quota renewal",
+        message:
+          "Your " +
+          name +
+          " quota is temporarily exhausted. Wait for it to renew or select a different provider to continue this conversation.",
+      },
+      rate: {
+        title: "Wait a moment",
+        message:
+          name +
+          " is limiting requests. Wait a moment, or select a different provider to continue this conversation.",
+      },
+    }[kind];
   if (reason) copy.message += " " + name + " says: " + reason;
   return copy;
 }
@@ -4710,7 +5400,11 @@ async function result(
     r.result?.backend || r.request?.backend,
     r.result?.error_detail,
   );
-  if (condition) composerCondition = { ...condition, backend: r.result?.backend || r.request?.backend || selected()?.backend };
+  if (condition)
+    composerCondition = {
+      ...condition,
+      backend: r.result?.backend || r.request?.backend || selected()?.backend,
+    };
   updateComposer();
   updateMotion(r.state);
   $("activity-state").textContent = condition
@@ -4727,7 +5421,9 @@ async function result(
         (r.state === "cancelled"
           ? "Last run cancelled"
           : "Last run did not finish") + " · token usage not reported";
-    else if (r.state === "completed") $("context-meter").textContent = "Last run completed · token usage not reported";
+    else if (r.state === "completed")
+      $("context-meter").textContent =
+        "Last run completed · token usage not reported";
     if (data.answer !== undefined) setAnswer(active, data.answer);
     // On reload, nothing has streamed into this fresh bubble yet: fall back
     // to the server's persisted partial_answer (WP-F contract) so a failed,
@@ -4752,20 +5448,20 @@ async function result(
       !files.length
     ) {
       $("prompt").value = r.request.prompt;
-      resourceSelections = (r.request.resource_selections || []).map(ref => ({ ...ref }));
+      resourceSelections = (r.request.resource_selections || []).map((ref) => ({
+        ...ref,
+      }));
       syncResourceSelections();
       renderResourceChips();
       updateComposer();
       saveView();
     }
     const modelId = data.model || $("model").value,
-      model = modelId
-        ? modelIcon(modelId) +
-          " " +
-          modelName(modelId)
-        : "",
+      model = modelId ? modelIcon(modelId) + " " + modelName(modelId) : "",
       { worked: duration, waited } = runTiming(data);
-    active.meta.textContent = [model, duration, waited && "waited " + waited].filter(Boolean).join(" · ");
+    active.meta.textContent = [model, duration, waited && "waited " + waited]
+      .filter(Boolean)
+      .join(" · ");
     if (data.deployment)
       active.meta.textContent +=
         (active.meta.textContent ? " · " : "") +
@@ -4854,7 +5550,8 @@ async function watchQueuedTurn() {
 }
 async function watch(retries = 0) {
   streamDisconnected = false;
-  if (document.activeElement === $("resume-execution")) $("prompt").focus({ preventScroll: true });
+  if (document.activeElement === $("resume-execution"))
+    $("prompt").focus({ preventScroll: true });
   $("resume-execution").hidden = true;
   if (controller) controller.abort();
   controller = new AbortController();
@@ -4966,9 +5663,20 @@ async function load(id, legacy = false, restoredView = null, scrollTop) {
         "New Conversation",
     );
     executionMode = data.execution_mode ?? null;
-    draftMode = normalizeDraftMode({ execution_mode: executionMode, composer_selection: { model: data.turns[0]?.request?.model, backend: data.turns[0]?.request?.backend } });
+    draftMode = normalizeDraftMode({
+      execution_mode: executionMode,
+      composer_selection: {
+        model: data.turns[0]?.request?.model,
+        backend: data.turns[0]?.request?.backend,
+      },
+    });
     // A later cloud turn retires a scoped history even when it started in Local.
-    if (executionMode === "scoped" && data.turns.some(turn => ["codex", "claude"].includes(turn.request?.backend)))
+    if (
+      executionMode === "scoped" &&
+      data.turns.some((turn) =>
+        ["codex", "claude"].includes(turn.request?.backend),
+      )
+    )
       draftMode.retiredLock = true;
     conversation = id;
     renderConversationHeader(conversations.find((item) => item.id === id));
@@ -4996,7 +5704,11 @@ async function load(id, legacy = false, restoredView = null, scrollTop) {
               (typeof token === "string" && token.replace(/^[@/]+/, "")) ||
               persona[0].resource_id,
             resource_id: persona[0].resource_id,
-            route: { backend: r.request?.backend, model: r.request?.model, effort: r.request?.effort },
+            route: {
+              backend: r.request?.backend,
+              model: r.request?.model,
+              effort: r.request?.effort,
+            },
           });
         }
       }
@@ -5052,7 +5764,11 @@ async function load(id, legacy = false, restoredView = null, scrollTop) {
             " " +
             (labels[r.state] || r.state);
         const { worked: duration, waited } = runTiming(r.result);
-        active.meta.textContent = [r.result?.model || model || "", duration, waited && "waited " + waited]
+        active.meta.textContent = [
+          r.result?.model || model || "",
+          duration,
+          waited && "waited " + waited,
+        ]
           .filter(Boolean)
           .join(" · ");
         setActivitySummary(
@@ -5080,14 +5796,18 @@ async function load(id, legacy = false, restoredView = null, scrollTop) {
     void loadAuthorizedProjectRoots();
     await refreshProjectPermissions();
     if (request !== conversationLoad) return;
-    const restoreNavigationFocus = !!navigationFocus.dataset.conversationId &&
-      document.activeElement.dataset.conversationId === navigationFocus.dataset.conversationId;
+    const restoreNavigationFocus =
+      !!navigationFocus.dataset.conversationId &&
+      document.activeElement.dataset.conversationId ===
+        navigationFocus.dataset.conversationId;
     expandedProjects.set($("project").value, true);
     renderProjects();
     // One scrolling sidebar: reveal the most specific row (the project copy when expanded).
-    const currentRow = ".conversation-row > button[aria-current=\"true\"]";
-    ($("projects").querySelector(currentRow) || $("history").querySelector(currentRow))
-      ?.scrollIntoView({ block: "nearest" });
+    const currentRow = '.conversation-row > button[aria-current="true"]';
+    (
+      $("projects").querySelector(currentRow) ||
+      $("history").querySelector(currentRow)
+    )?.scrollIntoView({ block: "nearest" });
     last = 0;
     closeSidebar();
     loading = false;
@@ -5095,8 +5815,12 @@ async function load(id, legacy = false, restoredView = null, scrollTop) {
     else updateComposer();
     void refreshProjectTrust();
     if (restoreNavigationFocus) {
-      const target = innerWidth <= 620 ? $("messages") :
-        $("sidebar").querySelector('.conversation-row > button[aria-current="true"]');
+      const target =
+        innerWidth <= 620
+          ? $("messages")
+          : $("sidebar").querySelector(
+              '.conversation-row > button[aria-current="true"]',
+            );
       target?.focus({ preventScroll: true });
     }
     // Back/forward: put the saved position back now; watch() below can run for the whole stream.
@@ -5105,8 +5829,7 @@ async function load(id, legacy = false, restoredView = null, scrollTop) {
     const latest = data.turns.find((turn) => turn.id === job);
     if (
       ["completed", "failed", "cancelled", "interrupted"].includes(latest.state)
-    )
-    {
+    ) {
       await result(job, controller, latest);
       // "The end" again once the final answer has rendered: it was not in the list above.
       if (scrollTop < 0 && conversation === id) restoreScroll(scrollTop);
@@ -5144,7 +5867,9 @@ const RECENT_UPLOADS_KEY = "keepharness-recent-uploads";
 function recentUploads() {
   if (temporarySession) return [];
   try {
-    const saved = JSON.parse(sessionStorage.getItem(RECENT_UPLOADS_KEY) || "[]");
+    const saved = JSON.parse(
+      sessionStorage.getItem(RECENT_UPLOADS_KEY) || "[]",
+    );
     return Array.isArray(saved) ? saved : [];
   } catch {
     return [];
@@ -5155,7 +5880,12 @@ function rememberUpload(entry) {
   try {
     sessionStorage.setItem(
       RECENT_UPLOADS_KEY,
-      JSON.stringify([entry, ...recentUploads().filter((item) => item.id !== entry.id)].slice(0, 8)),
+      JSON.stringify(
+        [
+          entry,
+          ...recentUploads().filter((item) => item.id !== entry.id),
+        ].slice(0, 8),
+      ),
     );
   } catch {}
 }
@@ -5260,7 +5990,8 @@ async function upload(list) {
         saveView();
         status("File received.");
       } catch (e) {
-        if (imageRefusalCodes.has(e.code)) imageRefusedModel = selected()?.id || "";
+        if (imageRefusalCodes.has(e.code))
+          imageRefusedModel = selected()?.id || "";
         attachmentNotice(f.name, e.code);
         status("Couldn't upload: " + (attachmentError(e.code) || e.message));
       }
@@ -5305,8 +6036,13 @@ async function send() {
     $("prompt").disabled
   )
     return;
-  if (temporarySession && !["codex", "claude", "deepseek", "local"].includes(selected()?.backend)) {
-    status("This provider does not support temporary chats. Choose Claude, Codex, DeepSeek or a local model.");
+  if (
+    temporarySession &&
+    !["codex", "claude", "deepseek", "local"].includes(selected()?.backend)
+  ) {
+    status(
+      "This provider does not support temporary chats. Choose Claude, Codex, DeepSeek or a local model.",
+    );
     return;
   }
   if (syncImageWarning()) {
@@ -5323,7 +6059,11 @@ async function send() {
       (match) => !resourceSelections.some((ref) => ref.token === match[1]),
     );
   if (unknownAgent) {
-    status("Choose " + unknownAgent[1] + " from the @ list, or create it under Your agents.");
+    status(
+      "Choose " +
+        unknownAgent[1] +
+        " from the @ list, or create it under Your agents.",
+    );
     return;
   }
   if (/^\s*\/\/[A-Za-z_][\w:-]*(?=\s|$)/.test(unfenced)) {
@@ -5343,13 +6083,16 @@ async function send() {
     return;
   }
   let m = selected();
-  if (draftMode.retiredLock || !supportedExecutionModes().includes(executionMode)) {
+  if (
+    draftMode.retiredLock ||
+    !supportedExecutionModes().includes(executionMode)
+  ) {
     status(
       draftMode.retiredLock
         ? "This saved isolated mode is no longer supported. Start a new conversation to use native mode."
         : parent
-        ? "This model doesn't offer this conversation's mode. Choose a different model or start a new conversation."
-        : "This model doesn't offer the selected mode. Choose a different model or change the mode.",
+          ? "This model doesn't offer this conversation's mode. Choose a different model or start a new conversation."
+          : "This model doesn't offer the selected mode. Choose a different model or change the mode.",
     );
     return;
   }
@@ -5422,7 +6165,9 @@ async function send() {
       body: JSON.stringify(data),
     });
     if (r.execution_mode) executionMode = r.execution_mode;
-    const executor = models.find(model => model.id === r.model && model.backend === r.backend);
+    const executor = models.find(
+      (model) => model.id === r.model && model.backend === r.backend,
+    );
     if (executor) {
       m = executor;
       $("model").value = executor.id;
@@ -5461,7 +6206,8 @@ async function send() {
     $("cancel").disabled = false;
     parent = job;
     if (!conversation) {
-      if (!temporarySession) retireDraft("conversation-draft:new:" + $("project").value);
+      if (!temporarySession)
+        retireDraft("conversation-draft:new:" + $("project").value);
       conversation = job;
       setConversationTitle(prompt);
     }
@@ -5485,7 +6231,13 @@ async function send() {
     if (!sentJob) {
       submitting = false;
       setBusy(following ? busy : false);
-      if ([document.body, $("send"), $("prompt")].includes(document.activeElement) && [$("send"), $("prompt")].includes(submissionFocus)) $("prompt").focus({ preventScroll: true });
+      if (
+        [document.body, $("send"), $("prompt")].includes(
+          document.activeElement,
+        ) &&
+        [$("send"), $("prompt")].includes(submissionFocus)
+      )
+        $("prompt").focus({ preventScroll: true });
     } else if (job === sentJob && !submitting && !following) setBusy(false);
   }
 }
@@ -5521,37 +6273,65 @@ function renderProjectFileTree() {
 }
 function projectTreeFocus(container) {
   const active = document.activeElement;
-  return container.contains(active) ? {
-    path: active.closest('[role="treeitem"]')?.dataset.path,
-    toggle: active.classList.contains("file-chevron"),
-  } : null;
+  return container.contains(active)
+    ? {
+        path: active.closest('[role="treeitem"]')?.dataset.path,
+        toggle: active.classList.contains("file-chevron"),
+      }
+    : null;
 }
 function restoreProjectTreeFocus(container, tree, focus) {
   const rows = [...container.querySelectorAll('[role="treeitem"]')];
   const path = focus?.path || tree.focusedPath;
-  const row = rows.find(item => item.dataset.path === path) || rows.findLast(item => path?.startsWith(item.dataset.path + "/")) || rows[0];
+  const row =
+    rows.find((item) => item.dataset.path === path) ||
+    rows.findLast((item) => path?.startsWith(item.dataset.path + "/")) ||
+    rows[0];
   if (!row) return;
   row.tabIndex = 0;
   tree.focusedPath = row.dataset.path;
-  if (focus) (focus.toggle ? row.querySelector(".file-chevron") || row : row).focus({preventScroll:true});
+  if (focus)
+    (focus.toggle ? row.querySelector(".file-chevron") || row : row).focus({
+      preventScroll: true,
+    });
 }
 function navigateProjectTree(event, item, entry, tree) {
-  if (!["ArrowUp", "ArrowDown", "Home", "End", "ArrowRight", "ArrowLeft"].includes(event.key)) return false;
+  if (
+    ![
+      "ArrowUp",
+      "ArrowDown",
+      "Home",
+      "End",
+      "ArrowRight",
+      "ArrowLeft",
+    ].includes(event.key)
+  )
+    return false;
   event.preventDefault();
   event.stopPropagation();
-  const container = tree.foldersOnly ? $("project-directory-list") : $("files-tree");
+  const container = tree.foldersOnly
+    ? $("project-directory-list")
+    : $("files-tree");
   const rows = [...container.querySelectorAll('[role="treeitem"]')];
   const index = rows.indexOf(item);
   let next;
   if (event.key === "Home") next = rows[0];
   else if (event.key === "End") next = rows.at(-1);
   else if (event.key === "ArrowUp") next = rows[Math.max(0, index - 1)];
-  else if (event.key === "ArrowDown") next = rows[Math.min(rows.length - 1, index + 1)];
+  else if (event.key === "ArrowDown")
+    next = rows[Math.min(rows.length - 1, index + 1)];
   else if (event.key === "ArrowRight" && entry.type === "directory") {
-    if (tree.expanded.has(entry.path)) next = item.querySelector('[role="treeitem"]');
-    else void (tree.foldersOnly ? toggleProjectFolder(entry) : toggleProjectDirectory(entry));
+    if (tree.expanded.has(entry.path))
+      next = item.querySelector('[role="treeitem"]');
+    else
+      void (tree.foldersOnly
+        ? toggleProjectFolder(entry)
+        : toggleProjectDirectory(entry));
   } else if (event.key === "ArrowLeft") {
-    if (tree.expanded.has(entry.path)) void (tree.foldersOnly ? toggleProjectFolder(entry) : toggleProjectDirectory(entry));
+    if (tree.expanded.has(entry.path))
+      void (tree.foldersOnly
+        ? toggleProjectFolder(entry)
+        : toggleProjectDirectory(entry));
     else next = item.parentElement.closest('[role="treeitem"]');
   }
   next?.focus();
@@ -5566,10 +6346,13 @@ function renderProjectFileEntries(list, entries, tree = fileTree) {
     item.setAttribute("aria-selected", String(tree.selected.has(entry.path)));
     item.tabIndex = -1;
     item.dataset.path = entry.path;
-    item.addEventListener("focusin", event => {
+    item.addEventListener("focusin", (event) => {
       if (event.target.closest('[role="treeitem"]') !== item) return;
-      const container = tree.foldersOnly ? $("project-directory-list") : $("files-tree");
-      for (const row of container.querySelectorAll('[role="treeitem"]')) row.tabIndex = row === item ? 0 : -1;
+      const container = tree.foldersOnly
+        ? $("project-directory-list")
+        : $("files-tree");
+      for (const row of container.querySelectorAll('[role="treeitem"]'))
+        row.tabIndex = row === item ? 0 : -1;
       tree.focusedPath = entry.path;
     });
     const row = document.createElement("div");
@@ -5895,7 +6678,8 @@ async function loadProjectFileRoots(force = false) {
     $("files-loading").hidden = true;
     $("files-error").hidden = false;
     $("files-error").className = "";
-    $("files-error").textContent = "Couldn't load the authorized folders: " + error.message;
+    $("files-error").textContent =
+      "Couldn't load the authorized folders: " + error.message;
     $("files-retry").hidden = false;
   }
 }
@@ -5981,7 +6765,11 @@ async function attachSelectedProjectFiles(
   }
   const maxFiles = Math.max(0, MAX_ATTACHMENTS - files.length),
     paths = [...new Set(selection.paths || [])];
-  if (!(selection.root_id || selection.project_root_id) || !paths.length || !maxFiles) {
+  if (
+    !(selection.root_id || selection.project_root_id) ||
+    !paths.length ||
+    !maxFiles
+  ) {
     status(
       maxFiles
         ? "Select files to attach."
@@ -6135,12 +6923,20 @@ $("cancel").onclick = async () => {
 };
 // Temporary chats keep their token and drafts only in this document's memory.
 function deleteTemporarySession(id) {
-  return fetch("/v1/temporary/" + encodeURIComponent(id), { method: "DELETE", keepalive: true }).catch(() => {});
+  return fetch("/v1/temporary/" + encodeURIComponent(id), {
+    method: "DELETE",
+    keepalive: true,
+  }).catch(() => {});
 }
 function leaveTemporaryChat() {
   if (!temporarySession) return true;
   if (submitting || cancelling || loading || uploads) return false;
-  if (!window.confirm("Close temporary chat? Messages and attachments will be discarded. Nothing is saved in KeepHarness.")) return false;
+  if (
+    !window.confirm(
+      "Close temporary chat? Messages and attachments will be discarded. Nothing is saved in KeepHarness.",
+    )
+  )
+    return false;
   discardTemporaryChat();
   return true;
 }
@@ -6158,7 +6954,9 @@ function discardTemporaryChat() {
   invalidResourceTokens.clear();
   closeResourceMenu();
   setActivePersona(null);
-  document.querySelectorAll(".image-modal").forEach(dialog => dialog.remove());
+  document
+    .querySelectorAll(".image-modal")
+    .forEach((dialog) => dialog.remove());
   status("");
   queuedTurns = [];
   job = "";
@@ -6180,18 +6978,23 @@ function discardTemporaryChat() {
 async function renewTemporaryChat() {
   const id = temporarySession;
   if (!id) return;
-  try { await json("/v1/temporary/" + encodeURIComponent(id)); }
-  catch (error) {
-    if (temporarySession === id) status("Temporary chat connection: " + error.message);
+  try {
+    await json("/v1/temporary/" + encodeURIComponent(id));
+  } catch (error) {
+    if (temporarySession === id)
+      status("Temporary chat connection: " + error.message);
   }
 }
 async function startTemporaryChat() {
-  if (temporaryStarting || submitting || cancelling || loading || uploads) return;
+  if (temporaryStarting || submitting || cancelling || loading || uploads)
+    return;
   const replacing = !!temporarySession;
   if (!leaveTemporaryChat()) return;
   if (!replacing) {
     saveView();
-    temporaryPreviousDraft = readDraft("conversation-draft:" + (conversation || "new:" + $("project").value));
+    temporaryPreviousDraft = readDraft(
+      "conversation-draft:" + (conversation || "new:" + $("project").value),
+    );
   }
   temporaryStarting = true;
   setBusy(busy);
@@ -6202,7 +7005,10 @@ async function startTemporaryChat() {
     temporaryHeartbeat = setInterval(renewTemporaryChat, 15000);
     $("prompt").value = "";
     files = [];
-    newConversation("Temporary chat", $("project").value, { resetExecutionMode: true, keepTemporary: true });
+    newConversation("Temporary chat", $("project").value, {
+      resetExecutionMode: true,
+      keepTemporary: true,
+    });
     document.body.classList.add("temporary-chat");
     $("temporary-chat-notice").hidden = false;
     const route = new URL(location.href);
@@ -6215,8 +7021,10 @@ async function startTemporaryChat() {
     if (replacing) await returnFromTemporaryChat();
     temporaryPreviousDraft = null;
     status("Couldn't start temporary chat: " + error.message);
+  } finally {
+    temporaryStarting = false;
+    setBusy(busy);
   }
-  finally { temporaryStarting = false; setBusy(busy); }
 }
 $("new-temporary").onclick = startTemporaryChat;
 $("composer-temporary").onclick = startTemporaryChat;
@@ -6224,12 +7032,21 @@ $("composer-temporary").onclick = startTemporaryChat;
 async function returnFromTemporaryChat() {
   const origin = temporaryPreviousDraft;
   temporaryPreviousDraft = null;
-  if (origin?.conversation && await navigate({ kind: "conversation", id: origin.conversation }, { record: false }) !== false) return;
+  if (
+    origin?.conversation &&
+    (await navigate(
+      { kind: "conversation", id: origin.conversation },
+      { record: false },
+    )) !== false
+  )
+    return;
   // A failed load already consumed the discard mark and left its error: re-arm the mark so the
   // leftover temporary view is not saved over the Home draft, and keep the error visible.
   const message = $("status").textContent;
   viewDiscarded = true;
-  newConversation("New Conversation", $("project").value, { restoreHomeDraft: true });
+  newConversation("New Conversation", $("project").value, {
+    restoreHomeDraft: true,
+  });
   status(message);
 }
 $("close-temporary-chat").onclick = async () => {
@@ -6237,10 +7054,20 @@ $("close-temporary-chat").onclick = async () => {
   await returnFromTemporaryChat();
   $("prompt").focus();
 };
-addEventListener("pagehide", () => { if (temporarySession) discardTemporaryChat(); });
-document.addEventListener("visibilitychange", () => { if (!document.hidden) void renewTemporaryChat(); });
-document.addEventListener("keydown", event => {
-  if ((event.ctrlKey || event.metaKey) && event.shiftKey && !event.altKey && event.key.toLowerCase() === "n" && !foreignModalOpen()) {
+addEventListener("pagehide", () => {
+  if (temporarySession) discardTemporaryChat();
+});
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden) void renewTemporaryChat();
+});
+document.addEventListener("keydown", (event) => {
+  if (
+    (event.ctrlKey || event.metaKey) &&
+    event.shiftKey &&
+    !event.altKey &&
+    event.key.toLowerCase() === "n" &&
+    !foreignModalOpen()
+  ) {
     event.preventDefault();
     void startTemporaryChat();
   }
@@ -6263,10 +7090,21 @@ function startNewConversation(resetExecutionMode = false) {
   closeSidebar();
 }
 $("project").onchange = () => {
-  if (temporarySession && !leaveTemporaryChat()) { $("project").value = composerProjectId; return; }
-  const destination = $("project").value, draft = $("prompt").value,
-    stale = [...invalidResourceTokens, ...resourceSelections.map(ref => ref.token)];
-  if ([...$("project").options].some(option => option.value === composerProjectId))
+  if (temporarySession && !leaveTemporaryChat()) {
+    $("project").value = composerProjectId;
+    return;
+  }
+  const destination = $("project").value,
+    draft = $("prompt").value,
+    stale = [
+      ...invalidResourceTokens,
+      ...resourceSelections.map((ref) => ref.token),
+    ];
+  if (
+    [...$("project").options].some(
+      (option) => option.value === composerProjectId,
+    )
+  )
     $("project").value = composerProjectId;
   chooseProject(destination);
   $("prompt").value = draft;
@@ -6362,38 +7200,73 @@ function syncWorkspaceModal() {
   if (!interfaceReady || document.querySelector("#tour-root")) return;
   for (const [node, inert] of workspaceCoveredContent) node.inert = inert;
   workspaceCoveredContent.clear();
-  const sidebar = $("sidebar"), panel = $("activity-panel"), console = $("run-console");
-  const active = console && !console.hidden && (innerWidth <= 700 || innerHeight <= 500) ? console
-    : innerWidth <= 620 && sidebar.classList.contains("open") ? sidebar
-    : innerWidth < 1000 && !panel.hidden ? panel : null;
+  const sidebar = $("sidebar"),
+    panel = $("activity-panel"),
+    console = $("run-console");
+  const active =
+    console && !console.hidden && (innerWidth <= 700 || innerHeight <= 500)
+      ? console
+      : innerWidth <= 620 && sidebar.classList.contains("open")
+        ? sidebar
+        : innerWidth < 1000 && !panel.hidden
+          ? panel
+          : null;
   for (const node of [sidebar, panel, console].filter(Boolean)) {
-    node.removeAttribute("aria-modal"); node.removeAttribute("aria-owns");
+    node.removeAttribute("aria-modal");
+    node.removeAttribute("aria-owns");
   }
   if (!active) return;
   active.setAttribute("aria-modal", "true");
   const main = document.querySelector("main");
-  const covered = active === console
-    ? [...main.children].filter(node => node !== console && node.id !== "run-status-strip").concat(sidebar, panel)
-    : [main, active === sidebar ? panel : sidebar];
-  active.setAttribute("aria-owns", active === console ? "run-status-strip app-topbar" : "app-topbar");
+  const covered =
+    active === console
+      ? [...main.children]
+          .filter((node) => node !== console && node.id !== "run-status-strip")
+          .concat(sidebar, panel)
+      : [main, active === sidebar ? panel : sidebar];
+  active.setAttribute(
+    "aria-owns",
+    active === console ? "run-status-strip app-topbar" : "app-topbar",
+  );
   const skip = document.querySelector(".skip-link");
   if (skip) covered.push(skip);
   for (const node of covered) {
     workspaceCoveredContent.set(node, node.inert);
     node.inert = true;
   }
-  if (document.activeElement.closest("[inert]") || document.activeElement === document.body) {
-    [...active.querySelectorAll("button,summary,input,select,textarea,a[href],[tabindex]")]
-      .find(node => !node.disabled && node.tabIndex >= 0 && node.checkVisibility())?.focus({ preventScroll: true });
+  if (
+    document.activeElement.closest("[inert]") ||
+    document.activeElement === document.body
+  ) {
+    [
+      ...active.querySelectorAll(
+        "button,summary,input,select,textarea,a[href],[tabindex]",
+      ),
+    ]
+      .find(
+        (node) =>
+          !node.disabled && node.tabIndex >= 0 && node.checkVisibility(),
+      )
+      ?.focus({ preventScroll: true });
   }
 }
 function syncSidebarFocus() {
-  const sidebar = $("sidebar"), overlay = innerWidth <= 620 && sidebar.classList.contains("open");
+  const sidebar = $("sidebar"),
+    overlay = innerWidth <= 620 && sidebar.classList.contains("open");
   if (overlay) {
-    sidebar.setAttribute("role", "dialog"); sidebar.setAttribute("aria-modal", "true"); sidebar.setAttribute("aria-label", "Conversations");
+    sidebar.setAttribute("role", "dialog");
+    sidebar.setAttribute("aria-modal", "true");
+    sidebar.setAttribute("aria-label", "Conversations");
     // Focus the dialog itself: its first button is an action (New Conversation) that typing could trigger.
-    if (!sidebar.contains(document.activeElement)) { sidebar.tabIndex = -1; sidebar.focus({ preventScroll: true }); }
-  } else { sidebar.removeAttribute("role"); sidebar.removeAttribute("aria-modal"); sidebar.removeAttribute("aria-label"); }
+    if (!sidebar.contains(document.activeElement)) {
+      sidebar.tabIndex = -1;
+      sidebar.focus({ preventScroll: true });
+    }
+  } else {
+    sidebar.removeAttribute("role");
+    sidebar.removeAttribute("aria-modal");
+    sidebar.removeAttribute("aria-label");
+  }
   syncWorkspaceModal();
 }
 function closeSidebar() {
@@ -6416,7 +7289,9 @@ $("about-dialog").addEventListener("close", () => {
 // D43: the theme switch lives in Settings › Appearance; the label names what a press does.
 function syncThemeToggle() {
   $("theme-toggle").textContent =
-    "Switch to " + (document.documentElement.dataset.theme === "dark" ? "light" : "dark") + " theme";
+    "Switch to " +
+    (document.documentElement.dataset.theme === "dark" ? "light" : "dark") +
+    " theme";
 }
 $("theme-toggle").onclick = () => {
   const dark = document.documentElement.dataset.theme === "dark";
@@ -6425,7 +7300,8 @@ $("theme-toggle").onclick = () => {
 };
 syncThemeToggle();
 new MutationObserver(syncThemeToggle).observe(document.documentElement, {
-  attributes: true, attributeFilter: ["data-theme"],
+  attributes: true,
+  attributeFilter: ["data-theme"],
 });
 $("take-tour").addEventListener("click", () => $("settings-dialog").close());
 // Codex-style "Choose project" under the composer: reuses the project select and its onchange.
@@ -6441,9 +7317,13 @@ function browseProjectFiles() {
     $("workspace-system-files-head");
   target?.focus({ preventScroll: true });
 }
-$("files-chip").onclick = () => openChipMenu($("files-menu"), $("files-chip"), renderFilesMenu);
+$("files-chip").onclick = () =>
+  openChipMenu($("files-menu"), $("files-chip"), renderFilesMenu);
 $("files-menu").addEventListener("toggle", (event) =>
-  $("files-chip").setAttribute("aria-expanded", String(event.newState === "open")),
+  $("files-chip").setAttribute(
+    "aria-expanded",
+    String(event.newState === "open"),
+  ),
 );
 // OP-R1-14: the chip opens the agent list at the caret; the draft is not touched until one is chosen.
 $("agents-chip").onclick = () => {
@@ -6458,7 +7338,11 @@ $("files-new-chat").onclick = async () => {
   const selection = { root_id: fileTree.rootId, paths: [...fileTree.selected] },
     previous = conversation;
   if (!selection.paths.length) return;
-  if (newConversation(undefined, undefined, { resetExecutionMode: true }) === false) return;
+  if (
+    newConversation(undefined, undefined, { resetExecutionMode: true }) ===
+    false
+  )
+    return;
   if (previous && conversation === previous) return;
   await attachSelectedProjectFiles(selection);
   $("prompt").focus({ preventScroll: true });
@@ -6485,10 +7369,15 @@ $("project-button").onclick = () => {
       const item = document.createElement("button");
       item.type = "button";
       item.setAttribute("role", "option");
-      item.setAttribute("aria-selected", String(option.value === $("project").value));
+      item.setAttribute(
+        "aria-selected",
+        String(option.value === $("project").value),
+      );
       item.append(
         HarnessUI.icon("folder"),
-        document.createTextNode(option.value === "sem-projeto" ? "No project" : option.textContent),
+        document.createTextNode(
+          option.value === "sem-projeto" ? "No project" : option.textContent,
+        ),
       );
       item.onclick = () => {
         menu.hidePopover();
@@ -6504,8 +7393,11 @@ $("project-button").onclick = () => {
   );
   menu.showPopover();
   const r = $("project-button").getBoundingClientRect();
-  menu.style.left = Math.max(12, Math.min(r.left, innerWidth - menu.offsetWidth - 12)) + "px";
-  menu.style.top = Math.max(12, Math.min(innerHeight - menu.offsetHeight - 12, r.bottom + 6)) + "px";
+  menu.style.left =
+    Math.max(12, Math.min(r.left, innerWidth - menu.offsetWidth - 12)) + "px";
+  menu.style.top =
+    Math.max(12, Math.min(innerHeight - menu.offsetHeight - 12, r.bottom + 6)) +
+    "px";
   menu.querySelector('[aria-selected="true"]')?.focus();
 };
 // Connectors and plugins (Codex "Plugins" chip): what is installed, allowed and
@@ -6526,9 +7418,13 @@ function clearProjectTrust() {
 }
 
 function currentProjectTrust(context) {
-  return context && context.request === projectTrustRequest &&
-    context.conversation === conversation && context.project_id === $("project").value &&
-    context.provider === resourceEngine().backend;
+  return (
+    context &&
+    context.request === projectTrustRequest &&
+    context.conversation === conversation &&
+    context.project_id === $("project").value &&
+    context.provider === resourceEngine().backend
+  );
 }
 
 function renderProjectTrust() {
@@ -6544,7 +7440,10 @@ function renderProjectTrust() {
   if (trust?.inherited_from) {
     const inherited = document.createElement("p");
     inherited.className = "project-trust-inherited";
-    inherited.textContent = "Codex still loads trusted configuration from " + trust.inherited_from + ". Revoking this project's trust does not revoke its parent.";
+    inherited.textContent =
+      "Codex still loads trusted configuration from " +
+      trust.inherited_from +
+      ". Revoking this project's trust does not revoke its parent.";
     panel.append(inherited);
   }
   if (trust?.required) {
@@ -6565,13 +7464,16 @@ function renderProjectTrust() {
     panel.append(copy, accept);
   }
   if (trust?.trusted) {
-    const copy = document.createElement("p"), revoke = document.createElement("button");
-    copy.textContent = "Trusted by Codex or Claude Code. Revoking trust applies to both CLIs.";
+    const copy = document.createElement("p"),
+      revoke = document.createElement("button");
+    copy.textContent =
+      "Trusted by Codex or Claude Code. Revoking trust applies to both CLIs.";
     revoke.type = "button";
     revoke.className = "project-trust-action";
     revoke.textContent = "Revoke trust for " + context.label;
     revoke.disabled = projectTrustWriting;
-    revoke.onclick = () => writeProjectTrust(context, "trust", { trusted: false });
+    revoke.onclick = () =>
+      writeProjectTrust(context, "trust", { trusted: false });
     panel.append(copy, revoke);
   }
   for (const item of approvals) {
@@ -6584,13 +7486,23 @@ function renderProjectTrust() {
     row.dataset.testid = "project-mcp-approval";
     row.dataset.server = item.server;
     name.textContent = item.server;
-    detail.textContent = "Project MCP server · " + (item.enabled === false ? "Disabled by owner" : item.approved ? "Approved" : "Not approved");
+    detail.textContent =
+      "Project MCP server · " +
+      (item.enabled === false
+        ? "Disabled by owner"
+        : item.approved
+          ? "Approved"
+          : "Not approved");
     copy.append(name, detail);
     toggle.type = "button";
     toggle.className = "project-trust-action";
     toggle.textContent = (item.approved ? "Revoke " : "Approve ") + item.server;
     toggle.disabled = projectTrustWriting;
-    toggle.onclick = () => writeProjectTrust(context, "mcp-approvals", { server: item.server, approved: !item.approved });
+    toggle.onclick = () =>
+      writeProjectTrust(context, "mcp-approvals", {
+        server: item.server,
+        approved: !item.approved,
+      });
     row.append(copy);
     if (item.enabled !== false) row.append(toggle);
     panel.append(row);
@@ -6622,32 +7534,42 @@ async function writeProjectTrust(context, action, extra) {
     if (current) {
       projectTrustData = data;
       if (action === "mcp-approvals") {
-        const actual = data.mcp_approvals?.find((item) => item.server === server)?.approved;
+        const actual = data.mcp_approvals?.find(
+          (item) => item.server === server,
+        )?.approved;
         if (actual !== extra.approved)
           projectTrustError = data.trust?.required
-            ? "Approval saved for " + server + ". Trust this project before it can run."
-            : server + " remains not approved because another CLI settings layer denies it.";
+            ? "Approval saved for " +
+              server +
+              ". Trust this project before it can run."
+            : server +
+              " remains not approved because another CLI settings layer denies it.";
       }
     }
   } catch (error) {
     current = currentProjectTrust(context);
     if (current && error.status === 409) {
-      const refresh = refreshProjectTrust(), request = projectTrustRequest;
+      const refresh = refreshProjectTrust(),
+        request = projectTrustRequest;
       await refresh;
-      current = request === projectTrustRequest && currentProjectTrust(projectTrustContext);
+      current =
+        request === projectTrustRequest &&
+        currentProjectTrust(projectTrustContext);
     }
     if (current)
-      projectTrustError = error.status === 409 && error.code === "provider_state_conflict"
-        ? "The CLI state changed elsewhere. Review it and try again."
-        : error.message;
+      projectTrustError =
+        error.status === 409 && error.code === "provider_state_conflict"
+          ? "The CLI state changed elsewhere. Review it and try again."
+          : error.message;
   } finally {
     projectTrustWriting = false;
     renderProjectTrust();
     if (current && currentProjectTrust(projectTrustContext)) {
       if (server)
-        $("project-trust-prompt").querySelector('[data-server="' + CSS.escape(server) + '"] button')?.focus();
-      else
-        $("project-trust-prompt").querySelector("button")?.focus();
+        $("project-trust-prompt")
+          .querySelector('[data-server="' + CSS.escape(server) + '"] button')
+          ?.focus();
+      else $("project-trust-prompt").querySelector("button")?.focus();
     }
   }
 }
@@ -6661,14 +7583,27 @@ async function refreshProjectTrust() {
     project_id: $("project").value,
     label: $("project").selectedOptions[0]?.textContent || $("project").value,
   };
-  if (context.project_id === "sem-projeto" || !["codex", "claude"].includes(context.provider)) return;
+  if (
+    context.project_id === "sem-projeto" ||
+    !["codex", "claude"].includes(context.provider)
+  )
+    return;
   try {
-    const query = new URLSearchParams({ provider: context.provider, project_id: context.project_id });
+    const query = new URLSearchParams({
+      provider: context.provider,
+      project_id: context.project_id,
+    });
     const data = await json("/v1/provider-state?" + query);
     if (!currentProjectTrust(context)) return;
-    if (data.snapshot?.provider !== context.provider || !data.snapshot?.project_root)
+    if (
+      data.snapshot?.provider !== context.provider ||
+      !data.snapshot?.project_root
+    )
       throw Error("The project context is unavailable. Refresh and try again.");
-    projectTrustContext = { ...context, expected_project_root: data.snapshot.project_root };
+    projectTrustContext = {
+      ...context,
+      expected_project_root: data.snapshot.project_root,
+    };
     projectTrustData = data;
   } catch (error) {
     if (!currentProjectTrust(context)) return;
@@ -6712,7 +7647,10 @@ function setElsewhere(key, list) {
   const chip = $("plugins-chip");
   if (elsewhereView.list.length) {
     chip.dataset.elsewhere = "true";
-    chip.setAttribute("aria-label", "Plugins, tools available on other providers");
+    chip.setAttribute(
+      "aria-label",
+      "Plugins, tools available on other providers",
+    );
   } else {
     delete chip.dataset.elsewhere;
     chip.removeAttribute("aria-label");
@@ -6786,11 +7724,16 @@ function carryoverToolLines(from, next) {
   const to = providerNames[next.backend] || next.backend,
     was = providerNames[from] || from;
   return elsewhereView.list
-    .filter((entry) => entry.providers.some((p) => p.backend === from && p.allowed))
+    .filter((entry) =>
+      entry.providers.some((p) => p.backend === from && p.allowed),
+    )
     .map((entry) =>
       entry.here === "absent"
         ? entry.label + " is connected on " + was + " but not on " + to
-        : entry.label + " is installed on " + to + " but not enabled - enable it in Settings › System › Providers",
+        : entry.label +
+          " is installed on " +
+          to +
+          " but not enabled - enable it in Settings › System › Providers",
     );
 }
 function integrationRow(item, sharedReason = "") {
@@ -6806,7 +7749,9 @@ function integrationRow(item, sharedReason = "") {
   open.onclick = () => showIntegrationDetail(item);
   name.textContent = item.name;
   meta.textContent = [
-    item.kind === "mcp" ? "Connector" + (item.transport ? " · " + item.transport : "") : "Plugin",
+    item.kind === "mcp"
+      ? "Connector" + (item.transport ? " · " + item.transport : "")
+      : "Plugin",
     item.used?.count
       ? "used " + item.used.count + "× · " + usageAge(item.used.last_used)
       : item.effective
@@ -6833,18 +7778,28 @@ function showIntegrationDetail(item) {
     facts = document.createElement("dl");
   back.type = "button";
   back.className = "plugins-back";
-  back.append(HarnessUI.icon("chevron-left"), document.createTextNode("Connectors and plugins"));
+  back.append(
+    HarnessUI.icon("chevron-left"),
+    document.createTextNode("Connectors and plugins"),
+  );
   back.onclick = () => {
     body.replaceChildren(...(pluginsView?.parts || []));
-    body.querySelector('[data-integration-id="' + CSS.escape(item.id) + '"]')?.focus();
+    body
+      .querySelector('[data-integration-id="' + CSS.escape(item.id) + '"]')
+      ?.focus();
   };
   head.className = "plugins-detail-head";
   title.textContent = item.name;
   kind.textContent =
     item.kind === "mcp"
-      ? "Connector (MCP server)" + (item.transport ? " · " + item.transport : "")
+      ? "Connector (MCP server)" +
+        (item.transport ? " · " + item.transport : "")
       : "Plugin";
-  head.append(HarnessUI.icon(item.kind === "mcp" ? "plug" : "stack-2"), title, kind);
+  head.append(
+    HarnessUI.icon(item.kind === "mcp" ? "plug" : "stack-2"),
+    title,
+    kind,
+  );
   const fact = (term, value) => {
     if (!value) return;
     const dt = document.createElement("dt"),
@@ -6853,9 +7808,17 @@ function showIntegrationDetail(item) {
     dd.textContent = value;
     facts.append(dt, dd);
   };
-  fact("In this conversation", item.effective ? "Available" : item.reason || "Not available");
+  fact(
+    "In this conversation",
+    item.effective ? "Available" : item.reason || "Not available",
+  );
   fact("Allowed for this provider", item.allowed ? "Yes" : "No");
-  fact("Installed", item.status === "installed" || item.status === "configured" ? "Yes · " + item.status : item.status);
+  fact(
+    "Installed",
+    item.status === "installed" || item.status === "configured"
+      ? "Yes · " + item.status
+      : item.status,
+  );
   fact(
     "Used in this project",
     item.used?.count
@@ -6863,14 +7826,22 @@ function showIntegrationDetail(item) {
       : "Not in the last " + (data.window_days || 30) + " days",
   );
   fact("Tools used", (item.used?.tools || []).join(", "));
-  fact("Approvals", item.effective ? data.effective_note || "Follows the conversation's access mode." : "");
+  fact(
+    "Approvals",
+    item.effective
+      ? data.effective_note || "Follows the conversation's access mode."
+      : "",
+  );
   facts.className = "plugins-facts";
   const parts = [back, head, facts];
   if (!$("settings-system-nav").hidden) {
     const manage = document.createElement("button");
     manage.type = "button";
     manage.className = "plugins-manage";
-    manage.append(HarnessUI.icon("settings"), document.createTextNode("Discover and manage plugins"));
+    manage.append(
+      HarnessUI.icon("settings"),
+      document.createTextNode("Discover and manage plugins"),
+    );
     manage.onclick = () => {
       $("plugins-menu").hidePopover();
       openSettings("plugins");
@@ -6886,7 +7857,8 @@ async function renderPluginsMenu() {
     heading = document.createElement("p");
   heading.className = "access-menu-heading";
   heading.textContent =
-    "Connectors and plugins · " + (providerNames[m.backend] || m.backend || "no model");
+    "Connectors and plugins · " +
+    (providerNames[m.backend] || m.backend || "no model");
   const body = document.createElement("div");
   body.className = "plugins-body";
   body.textContent = "Checking…";
@@ -6914,21 +7886,41 @@ async function renderPluginsMenu() {
       const wrap = document.createElement("section"),
         h = document.createElement("h3"),
         ul = document.createElement("ul"),
-        reasons = new Set(list.filter((item) => !item.effective).map((item) => item.reason)),
+        reasons = new Set(
+          list.filter((item) => !item.effective).map((item) => item.reason),
+        ),
         shared = list.length > 1 && reasons.size === 1 ? [...reasons][0] : "";
       h.textContent = title;
       ul.replaceChildren(...list.map((item) => integrationRow(item, shared)));
       wrap.append(h);
       if (shared)
-        wrap.append(Object.assign(document.createElement("p"), { className: "plugins-note", textContent: shared }));
-      wrap.append(list.length ? ul : Object.assign(document.createElement("p"), { className: "plugins-empty", textContent: empty }));
+        wrap.append(
+          Object.assign(document.createElement("p"), {
+            className: "plugins-note",
+            textContent: shared,
+          }),
+        );
+      wrap.append(
+        list.length
+          ? ul
+          : Object.assign(document.createElement("p"), {
+              className: "plugins-empty",
+              textContent: empty,
+            }),
+      );
       return wrap;
     };
     parts.push(
-      section("Available in this conversation", effective, "None for this project and model."),
+      section(
+        "Available in this conversation",
+        effective,
+        "None for this project and model.",
+      ),
     );
-    if (others.length) parts.push(section("Installed, not available here", others, ""));
-    if (elsewhere.length) parts.push(elsewhereSection(elsewhere, m.backend, menu));
+    if (others.length)
+      parts.push(section("Installed, not available here", others, ""));
+    if (elsewhere.length)
+      parts.push(elsewhereSection(elsewhere, m.backend, menu));
     const tools = Array.isArray(data.other_tools) ? data.other_tools : [];
     if (tools.length) {
       const details = document.createElement("details"),
@@ -6936,11 +7928,18 @@ async function renderPluginsMenu() {
         list = document.createElement("ul");
       details.className = "plugins-tools";
       summary.textContent =
-        "Other tools used in this project (" + (data.window_days || 30) + " days)";
+        "Other tools used in this project (" +
+        (data.window_days || 30) +
+        " days)";
       list.replaceChildren(
         ...tools.map((tool) =>
           Object.assign(document.createElement("li"), {
-            textContent: tool.name + " · " + tool.count + "× · " + usageAge(tool.last_used),
+            textContent:
+              tool.name +
+              " · " +
+              tool.count +
+              "× · " +
+              usageAge(tool.last_used),
           }),
         ),
       );
@@ -6948,12 +7947,20 @@ async function renderPluginsMenu() {
       parts.push(details);
     }
     for (const warning of Array.isArray(data.warnings) ? data.warnings : [])
-      parts.push(Object.assign(document.createElement("p"), { className: "plugins-note", textContent: warning }));
+      parts.push(
+        Object.assign(document.createElement("p"), {
+          className: "plugins-note",
+          textContent: warning,
+        }),
+      );
     if (!$("settings-system-nav").hidden) {
       const manage = document.createElement("button");
       manage.type = "button";
       manage.className = "plugins-manage";
-      manage.append(HarnessUI.icon("settings"), document.createTextNode("Discover and manage plugins"));
+      manage.append(
+        HarnessUI.icon("settings"),
+        document.createTextNode("Discover and manage plugins"),
+      );
       manage.onclick = () => {
         menu.hidePopover();
         openSettings("plugins");
@@ -6963,7 +7970,8 @@ async function renderPluginsMenu() {
     body.replaceChildren(...parts);
     pluginsView = { data, parts };
   } catch (error) {
-    body.textContent = "Couldn't check connectors and plugins. " + error.message;
+    body.textContent =
+      "Couldn't check connectors and plugins. " + error.message;
   }
 }
 function openChipMenu(menu, chip, render) {
@@ -6973,17 +7981,20 @@ function openChipMenu(menu, chip, render) {
   const place = () => {
     const r = chip.getBoundingClientRect(),
       above = r.top > innerHeight - r.bottom;
-    menu.style.left = Math.max(12, Math.min(r.left, innerWidth - menu.offsetWidth - 12)) + "px";
+    menu.style.left =
+      Math.max(12, Math.min(r.left, innerWidth - menu.offsetWidth - 12)) + "px";
     menu.style.top = above ? "auto" : r.bottom + 6 + "px";
     menu.style.bottom = above ? innerHeight - r.top + 6 + "px" : "auto";
-    menu.style.maxHeight = Math.max(160, (above ? r.top : innerHeight - r.bottom) - 18) + "px";
+    menu.style.maxHeight =
+      Math.max(160, (above ? r.top : innerHeight - r.bottom) - 18) + "px";
   };
   place();
   menu.tabIndex = -1;
   menu.focus({ preventScroll: true });
   void render().then(place);
 }
-$("plugins-chip").onclick = () => openChipMenu($("plugins-menu"), $("plugins-chip"), renderPluginsMenu);
+$("plugins-chip").onclick = () =>
+  openChipMenu($("plugins-menu"), $("plugins-chip"), renderPluginsMenu);
 // The Files chip (D40): what the next message can start from, without leaving the chat.
 function menuButton(label, onclick, { testid, icon, hint } = {}) {
   const button = document.createElement("button");
@@ -7009,12 +8020,25 @@ function menuSection(title, items, empty) {
   const section = document.createElement("section"),
     heading = document.createElement("h3");
   heading.textContent = title;
-  section.append(heading, ...(items.length ? items : [Object.assign(document.createElement("p"), { className: "plugins-empty", textContent: empty })]));
+  section.append(
+    heading,
+    ...(items.length
+      ? items
+      : [
+          Object.assign(document.createElement("p"), {
+            className: "plugins-empty",
+            textContent: empty,
+          }),
+        ]),
+  );
   return section;
 }
 function attachRecentUpload(entry) {
   if (files.some((item) => item.id === entry.id)) return;
-  if (files.length >= MAX_ATTACHMENTS) return void status("Limit of 20 attachments reached. Remove one before adding another.");
+  if (files.length >= MAX_ATTACHMENTS)
+    return void status(
+      "Limit of 20 attachments reached. Remove one before adding another.",
+    );
   files.push(entry);
   renderFiles();
   saveView();
@@ -7023,7 +8047,12 @@ function attachRecentUpload(entry) {
 }
 async function attachSpacePage(pageId, project) {
   try {
-    const page = await json("/v1/pages/" + encodeURIComponent(pageId) + "?" + new URLSearchParams({ project_id: project }));
+    const page = await json(
+      "/v1/pages/" +
+        encodeURIComponent(pageId) +
+        "?" +
+        new URLSearchParams({ project_id: project }),
+    );
     await upload([pageFile(page.title, page.body)]);
   } catch (error) {
     status("Couldn't attach the page: " + error.message);
@@ -7035,46 +8064,99 @@ async function renderFilesMenu() {
     heading = document.createElement("p"),
     body = document.createElement("div"),
     attachable = canUpload() && !busy && !loading && !uploads,
-    uploadButton = menuButton("Upload…", () => $("file").click(), { testid: "files-menu-upload", icon: HarnessUI.icon("paperclip") });
+    uploadButton = menuButton("Upload…", () => $("file").click(), {
+      testid: "files-menu-upload",
+      icon: HarnessUI.icon("paperclip"),
+    });
   heading.className = "access-menu-heading";
   heading.textContent = "Attach to this message";
   body.className = "plugins-body files-body";
   uploadButton.disabled = !attachable;
-  if (!attachable) uploadButton.title = "Attachments are not available for this model or project right now.";
+  if (!attachable)
+    uploadButton.title =
+      "Attachments are not available for this model or project right now.";
   const recent = recentUploads()
-    .filter((entry) => entry.project === project && !files.some((item) => item.id === entry.id))
-    .map((entry) => menuButton(entry.name, () => attachRecentUpload(entry), { testid: "files-menu-recent", icon: projectFileIcon(entry.name), hint: entry.size > 0 ? fileSizeLabel(entry.size) : "" }));
+    .filter(
+      (entry) =>
+        entry.project === project &&
+        !files.some((item) => item.id === entry.id),
+    )
+    .map((entry) =>
+      menuButton(entry.name, () => attachRecentUpload(entry), {
+        testid: "files-menu-recent",
+        icon: projectFileIcon(entry.name),
+        hint: entry.size > 0 ? fileSizeLabel(entry.size) : "",
+      }),
+    );
   for (const button of recent) button.disabled = !attachable;
   const pagesSection = menuSection("Space pages", [], "Checking…");
-  body.append(uploadButton, menuSection("Recent uploads", recent, "Nothing uploaded in this project yet."), pagesSection);
+  body.append(
+    uploadButton,
+    menuSection(
+      "Recent uploads",
+      recent,
+      "Nothing uploaded in this project yet.",
+    ),
+    pagesSection,
+  );
   const detail = projectDetails[project];
   if (!detail || detail.root)
-    body.append(menuButton("Browse project files…", browseProjectFiles, { testid: "files-menu-browse", icon: HarnessUI.icon("folder") }));
+    body.append(
+      menuButton("Browse project files…", browseProjectFiles, {
+        testid: "files-menu-browse",
+        icon: HarnessUI.icon("folder"),
+      }),
+    );
   menu.replaceChildren(heading, body);
   try {
-    const listed = (await json("/v1/pages?" + new URLSearchParams({ project_id: project }))).pages || [];
+    const listed =
+      (await json("/v1/pages?" + new URLSearchParams({ project_id: project })))
+        .pages || [];
     const buttons = listed.map((page) =>
-      menuButton(page.title, () => void attachSpacePage(page.id, project), { testid: "files-menu-page", icon: projectFileIcon(page.title + ".md"), hint: "Current version" }),
+      menuButton(page.title, () => void attachSpacePage(page.id, project), {
+        testid: "files-menu-page",
+        icon: projectFileIcon(page.title + ".md"),
+        hint: "Current version",
+      }),
     );
     for (const button of buttons) button.disabled = !attachable;
-    pagesSection.replaceWith(menuSection("Space pages", buttons, "No pages in this project yet."));
+    pagesSection.replaceWith(
+      menuSection("Space pages", buttons, "No pages in this project yet."),
+    );
   } catch (error) {
-    pagesSection.replaceWith(menuSection("Space pages", [], "Couldn't load pages. " + error.message));
+    pagesSection.replaceWith(
+      menuSection("Space pages", [], "Couldn't load pages. " + error.message),
+    );
   }
 }
 $("plugins-menu").addEventListener("toggle", (event) =>
-  $("plugins-chip").setAttribute("aria-expanded", String(event.newState === "open")),
+  $("plugins-chip").setAttribute(
+    "aria-expanded",
+    String(event.newState === "open"),
+  ),
 );
 $("project-menu").addEventListener("toggle", (event) =>
-  $("project-button").setAttribute("aria-expanded", String(event.newState === "open")),
+  $("project-button").setAttribute(
+    "aria-expanded",
+    String(event.newState === "open"),
+  ),
 );
 $("project-menu").addEventListener("keydown", (event) => {
   const options = [...$("project-menu").querySelectorAll("[role=option]")],
     index = options.indexOf(document.activeElement);
-  if (!options.length || !["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return;
+  if (
+    !options.length ||
+    !["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)
+  )
+    return;
   event.preventDefault();
-  const next = event.key === "Home" ? 0 : event.key === "End" ? options.length - 1
-    : (index + (event.key === "ArrowDown" ? 1 : -1) + options.length) % options.length;
+  const next =
+    event.key === "Home"
+      ? 0
+      : event.key === "End"
+        ? options.length - 1
+        : (index + (event.key === "ArrowDown" ? 1 : -1) + options.length) %
+          options.length;
   options[next].focus();
 });
 // Chat | Code view switch (D45): the same conversation, with files and run activity beside it.
@@ -7099,14 +8181,24 @@ $("view-switch").addEventListener("keydown", (event) => {
   event.preventDefault();
   showView(event.key === "ArrowRight" || event.key === "End" ? "code" : "chat");
 });
-new MutationObserver(syncViewSwitch).observe($("panel-toggle"), { attributes: true, attributeFilter: ["aria-expanded"] });
+new MutationObserver(syncViewSwitch).observe($("panel-toggle"), {
+  attributes: true,
+  attributeFilter: ["aria-expanded"],
+});
 syncViewSwitch();
 function positionAttentionPopover() {
   const popover = $("attention-popover");
   if (popover.hidden) return;
   const anchor = $("attention-bell").getBoundingClientRect();
   popover.style.right = "auto";
-  popover.style.left = Math.max(12, Math.min(anchor.right - popover.offsetWidth, innerWidth - popover.offsetWidth - 12)) + "px";
+  popover.style.left =
+    Math.max(
+      12,
+      Math.min(
+        anchor.right - popover.offsetWidth,
+        innerWidth - popover.offsetWidth - 12,
+      ),
+    ) + "px";
   popover.style.top = anchor.bottom + 8 + "px";
 }
 window.addEventListener("resize", positionAttentionPopover);
@@ -7126,7 +8218,9 @@ const updateAttentionLabel = () => {
     `Attention, ${count} ${count === 1 ? "item" : "items"}`,
   );
   $("attention-summary").textContent =
-    (count ? `${count} ${count === 1 ? "item needs" : "items need"} you now.` : "Nothing needs you right now.") +
+    (count
+      ? `${count} ${count === 1 ? "item needs" : "items need"} you now.`
+      : "Nothing needs you right now.") +
     " Choose which events to open in the inbox.";
 };
 new MutationObserver(updateAttentionLabel).observe($("attention-count"), {
@@ -7145,10 +8239,7 @@ for (const button of document.querySelectorAll("[data-attention-filter]"))
     document
       .querySelectorAll("[data-attention-filter]")
       .forEach((item) =>
-        item.setAttribute(
-          "aria-pressed",
-          String(item === button),
-        ),
+        item.setAttribute("aria-pressed", String(item === button)),
       );
     $("attention-popover").hidden = true;
     $("attention-bell").setAttribute("aria-expanded", "false");
@@ -7198,7 +8289,9 @@ let startupTimer,
 function setReadiness(ready, message = "") {
   if (!ready && interfaceReady) {
     const active = document.activeElement;
-    readinessFocus = active.closest("#settings-dialog") ? $("settings") : active;
+    readinessFocus = active.closest("#settings-dialog")
+      ? $("settings")
+      : active;
   }
   if (!ready) window.keepHarnessTour?.stop(false);
   interfaceReady = ready;
@@ -7218,7 +8311,11 @@ function setReadiness(ready, message = "") {
   document.body.dataset.connectionReady = String(ready);
   if (ready) {
     syncWorkspaceModal();
-    if (readinessFocus?.isConnected && readinessFocus.checkVisibility() && !readinessFocus.closest("[inert]"))
+    if (
+      readinessFocus?.isConnected &&
+      readinessFocus.checkVisibility() &&
+      !readinessFocus.closest("[inert]")
+    )
       readinessFocus.focus({ preventScroll: true });
     readinessFocus = null;
     document.dispatchEvent(new Event("harness:ready"));
@@ -7313,8 +8410,14 @@ async function initialize() {
     if (!startupTimer) {
       try {
         saved = JSON.parse(sessionStorage.getItem("remote-view") || "{}") || {};
-        const routeConversation = new URLSearchParams(location.search).get("conversation");
-        if (routeConversation && /^[A-Za-z0-9_-]{1,200}$/.test(routeConversation) && routeConversation !== saved.conversation)
+        const routeConversation = new URLSearchParams(location.search).get(
+          "conversation",
+        );
+        if (
+          routeConversation &&
+          /^[A-Za-z0-9_-]{1,200}$/.test(routeConversation) &&
+          routeConversation !== saved.conversation
+        )
           saved = { conversation: routeConversation };
       } catch {}
     }
@@ -7360,7 +8463,12 @@ async function initialize() {
     if (!startupTimer) {
       try {
         if (saved.conversation)
-          resumeWatch = await load(saved.conversation, false, saved, scrollByConversation.get(saved.conversation));
+          resumeWatch = await load(
+            saved.conversation,
+            false,
+            saved,
+            scrollByConversation.get(saved.conversation),
+          );
         restoreView(saved);
       } catch {}
       startupTimer = setInterval(() => {
@@ -7368,7 +8476,12 @@ async function initialize() {
           // Check installed UI and runtime updates every third tick.
           if (++backgroundTicks % VERSION_CHECK_EVERY === 0) checkVersion();
           // Rebuilding the sidebar would close an open row or project actions menu.
-          if (!document.querySelector(".conversation-actions[open], .project-actions-menu:popover-open")) history(undefined, true);
+          if (
+            !document.querySelector(
+              ".conversation-actions[open], .project-actions-menu:popover-open",
+            )
+          )
+            history(undefined, true);
         }
       }, 10000);
     }
@@ -7547,7 +8660,11 @@ async function probeReadiness() {
 }
 $("resume-execution").onclick = () => watch();
 $("models-retry").onclick = async () => {
-  if (!busy) { await initialize(); composerCondition = null; updateComposer(); }
+  if (!busy) {
+    await initialize();
+    composerCondition = null;
+    updateComposer();
+  }
 };
 initialize();
 
@@ -7556,16 +8673,25 @@ initialize();
 function normalizeDraftMode(saved) {
   const state = saved.draft_mode;
   const mode = state ? state.mode : saved.execution_mode;
-  const originBackend = saved.composer_selection?.backend || saved.resource_context?.backend ||
-    models.find(model => model.id === saved.composer_selection?.model)?.backend;
+  const originBackend =
+    saved.composer_selection?.backend ||
+    saved.resource_context?.backend ||
+    models.find((model) => model.id === saved.composer_selection?.model)
+      ?.backend;
   return {
     mode: ["native", "scoped"].includes(mode) ? mode : null,
-    modeChosen: (state ? state.modeChosen : saved.execution_mode_chosen) === true,
-    retiredLock: state ? state.retiredLock === true :
-      mode === "scoped" && (!originBackend || ["codex", "claude"].includes(originBackend)),
+    modeChosen:
+      (state ? state.modeChosen : saved.execution_mode_chosen) === true,
+    retiredLock: state
+      ? state.retiredLock === true
+      : mode === "scoped" &&
+        (!originBackend || ["codex", "claude"].includes(originBackend)),
   };
 }
-function restoreView(saved, { resetExecutionMode = false, restoreModelSelection = true } = {}) {
+function restoreView(
+  saved,
+  { resetExecutionMode = false, restoreModelSelection = true } = {},
+) {
   if (
     restoreModelSelection &&
     saved.project === $("project").value &&
@@ -7587,7 +8713,11 @@ function restoreView(saved, { resetExecutionMode = false, restoreModelSelection 
     syncExecutionMode();
   } else {
     const restoredMode = normalizeDraftMode(saved);
-    draftMode = { ...restoredMode, mode: executionMode, retiredLock: draftMode.retiredLock || restoredMode.retiredLock };
+    draftMode = {
+      ...restoredMode,
+      mode: executionMode,
+      retiredLock: draftMode.retiredLock || restoredMode.retiredLock,
+    };
   }
   if (typeof saved.draft === "string") $("prompt").value = saved.draft;
   invalidResourceTokens = new Set(
@@ -7643,12 +8773,15 @@ function restoreView(saved, { resetExecutionMode = false, restoreModelSelection 
 }
 const draftViews = new Map();
 const unsavedDrafts = new Map();
-let latestDraftSnapshot = null, draftRetry = 0;
+let latestDraftSnapshot = null,
+  draftRetry = 0;
 function flushDrafts() {
   clearTimeout(draftRetry);
   try {
-    for (const [key, snapshot] of unsavedDrafts) sessionStorage.setItem(key, snapshot);
-    if (latestDraftSnapshot !== null) sessionStorage.setItem("remote-view", latestDraftSnapshot);
+    for (const [key, snapshot] of unsavedDrafts)
+      sessionStorage.setItem(key, snapshot);
+    if (latestDraftSnapshot !== null)
+      sessionStorage.setItem("remote-view", latestDraftSnapshot);
     unsavedDrafts.clear();
     latestDraftSnapshot = null;
   } catch {
@@ -7658,15 +8791,22 @@ function flushDrafts() {
   $("draft-storage-warning").hidden = !dirty;
   return !dirty;
 }
-window.addEventListener("beforeunload", event => {
-  if (temporarySession || !flushDrafts()) { event.preventDefault(); event.returnValue = ""; }
+window.addEventListener("beforeunload", (event) => {
+  if (temporarySession || !flushDrafts()) {
+    event.preventDefault();
+    event.returnValue = "";
+  }
 });
 window.addEventListener("pagehide", flushDrafts);
-document.addEventListener("visibilitychange", () => { if (document.hidden) flushDrafts(); });
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) flushDrafts();
+});
 function retireDraft(key) {
   draftViews.delete(key);
   unsavedDrafts.delete(key);
-  try { sessionStorage.removeItem(key); } catch {}
+  try {
+    sessionStorage.removeItem(key);
+  } catch {}
 }
 // The view a closed temporary chat leaves behind is not a draft: saving it would overwrite the real
 // draft of the conversation or Home it came from, and persist private temporary text.
@@ -7677,8 +8817,13 @@ function saveOutgoingView() {
 }
 function readDraft(key) {
   if (temporarySession) return null;
-  try { return JSON.parse(draftViews.get(key) || sessionStorage.getItem(key) || "null"); }
-  catch { return null; }
+  try {
+    return JSON.parse(
+      draftViews.get(key) || sessionStorage.getItem(key) || "null",
+    );
+  } catch {
+    return null;
+  }
 }
 function saveView() {
   if (temporarySession || temporaryStarting) return true;
@@ -7687,25 +8832,27 @@ function saveView() {
     const route = new URL(location.href);
     if (conversation) route.searchParams.set("conversation", conversation);
     else route.searchParams.delete("conversation");
-    if (route.href !== location.href) window.history.replaceState(window.history.state, "", route);
+    if (route.href !== location.href)
+      window.history.replaceState(window.history.state, "", route);
     const snapshot = JSON.stringify({
-        conversation,
-        composer_selection: {
-          model: $("model").value,
-          backend: selected()?.backend,
-          effort: $("effort").value,
-        },
-        execution_mode: executionMode,
-        execution_mode_chosen: draftMode.modeChosen,
-        draft_mode: { ...draftMode, mode: executionMode },
-        project: $("project").value,
-        draft: $("prompt").value,
-        files,
-        resource_selections: resourceSelections,
-        invalid_resource_tokens: [...invalidResourceTokens],
-        resource_context: { project: $("project").value, ...resourceEngine() },
-      });
-    const key = "conversation-draft:" + (conversation || "new:" + $("project").value);
+      conversation,
+      composer_selection: {
+        model: $("model").value,
+        backend: selected()?.backend,
+        effort: $("effort").value,
+      },
+      execution_mode: executionMode,
+      execution_mode_chosen: draftMode.modeChosen,
+      draft_mode: { ...draftMode, mode: executionMode },
+      project: $("project").value,
+      draft: $("prompt").value,
+      files,
+      resource_selections: resourceSelections,
+      invalid_resource_tokens: [...invalidResourceTokens],
+      resource_context: { project: $("project").value, ...resourceEngine() },
+    });
+    const key =
+      "conversation-draft:" + (conversation || "new:" + $("project").value);
     draftViews.set(key, snapshot);
     unsavedDrafts.set(key, snapshot);
     latestDraftSnapshot = snapshot;
@@ -7775,8 +8922,11 @@ async function checkVersion() {
   void refreshComposerGit();
   try {
     const v = await json("/v1/version");
-    const restartPending = v.disk_source_build && v.disk_source_build !== v.source_build;
-    $("version").textContent = "Release: " + v.version +
+    const restartPending =
+      v.disk_source_build && v.disk_source_build !== v.source_build;
+    $("version").textContent =
+      "Release: " +
+      v.version +
       (restartPending ? " · Restart to finish the update" : "");
     $("version").title = "";
     $("about-version").textContent = "Release " + v.version + " · MIT licence";
@@ -7823,8 +8973,14 @@ const FILES_SECTIONS = ["project-files", "system-files"];
 const ACCORDION_GROUPS = [ACTIVITY_SECTIONS, FILES_SECTIONS];
 function syncPanelToggles() {
   const open = !$("activity-panel").hidden;
-  $("files-toggle").setAttribute("aria-expanded", String(open && rightPanelView === "files"));
-  $("activity-toggle").setAttribute("aria-expanded", String(open && rightPanelView === "activity"));
+  $("files-toggle").setAttribute(
+    "aria-expanded",
+    String(open && rightPanelView === "files"),
+  );
+  $("activity-toggle").setAttribute(
+    "aria-expanded",
+    String(open && rightPanelView === "activity"),
+  );
 }
 function setPanelView(view, persist = true) {
   rightPanelView = view === "files" ? "files" : "activity";
@@ -7839,8 +8995,11 @@ function setPanelView(view, persist = true) {
 function selectAccordionSection(name, { persist = true, focus = false } = {}) {
   const group = ACCORDION_GROUPS.find((names) => names.includes(name));
   for (const section of group) {
-    const on = section === name, head = $("workspace-" + section + "-head");
-    document.querySelector('[data-workspace-section="' + section + '"]').dataset.open = String(on);
+    const on = section === name,
+      head = $("workspace-" + section + "-head");
+    document.querySelector(
+      '[data-workspace-section="' + section + '"]',
+    ).dataset.open = String(on);
     head.setAttribute("aria-expanded", String(on));
     head.setAttribute("aria-disabled", String(on));
     $("workspace-" + section).hidden = !on;
@@ -7849,7 +9008,12 @@ function selectAccordionSection(name, { persist = true, focus = false } = {}) {
   if (persist)
     prefs.set("workspace_sections", {
       ...prefs.get("workspace_sections", {}),
-      ...Object.fromEntries(group.map((section) => [section, { open: section === name, height: null }])),
+      ...Object.fromEntries(
+        group.map((section) => [
+          section,
+          { open: section === name, height: null },
+        ]),
+      ),
     });
 }
 const quotaHome = document.createComment("quota-indicator-home");
@@ -7878,7 +9042,8 @@ function setPanelOpen(open, persist = true) {
   panel.setAttribute("role", overlay ? "dialog" : "complementary");
   if (overlay) panel.setAttribute("aria-modal", "true");
   else panel.removeAttribute("aria-modal");
-  if (overlay && !panel.contains(document.activeElement)) $("files-toggle").focus();
+  if (overlay && !panel.contains(document.activeElement))
+    $("files-toggle").focus();
   syncQuotaDock();
   $("panel-toggle").setAttribute("aria-expanded", String(open));
   if (!open && $("activity-panel").contains(document.activeElement))
@@ -7892,23 +9057,64 @@ function setPanelOpen(open, persist = true) {
   }
   if (persist) prefs.set("activity_open", !!open);
 }
-document.addEventListener("keydown", event => {
-  if (event.defaultPrevented || event.key !== "Tab" || document.querySelector("dialog[open], #tour-root, [popover]:popover-open")) return;
-  const panel = !$("attention-popover").hidden ? $("attention-popover")
-    : (innerWidth <= 700 || innerHeight <= 500) && document.querySelector("#run-console:not([hidden])") ? $("run-console")
-    : innerWidth <= 620 && $("sidebar").classList.contains("open") ? $("sidebar")
-    : innerWidth < 1000 && !$("activity-panel").hidden ? $("activity-panel") : null;
+document.addEventListener("keydown", (event) => {
+  if (
+    event.defaultPrevented ||
+    event.key !== "Tab" ||
+    document.querySelector("dialog[open], #tour-root, [popover]:popover-open")
+  )
+    return;
+  const panel = !$("attention-popover").hidden
+    ? $("attention-popover")
+    : (innerWidth <= 700 || innerHeight <= 500) &&
+        document.querySelector("#run-console:not([hidden])")
+      ? $("run-console")
+      : innerWidth <= 620 && $("sidebar").classList.contains("open")
+        ? $("sidebar")
+        : innerWidth < 1000 && !$("activity-panel").hidden
+          ? $("activity-panel")
+          : null;
   // With no overlay, only the page edges wrap, so Tab never drops focus out of the window onto <body>.
-  const surfaces = panel ? [panel, ...(panel.getAttribute("aria-owns") || "").split(/\s+/).map(id => $(id)).filter(Boolean)] : [document.body];
-  const controls = [...new Set(surfaces.flatMap(surface => [...surface.querySelectorAll("a[href],button,input,select,textarea,summary,[tabindex]")]))]
-    .filter(node => node.tabIndex >= 0 && !node.disabled && node.checkVisibility());
+  const surfaces = panel
+    ? [
+        panel,
+        ...(panel.getAttribute("aria-owns") || "")
+          .split(/\s+/)
+          .map((id) => $(id))
+          .filter(Boolean),
+      ]
+    : [document.body];
+  const controls = [
+    ...new Set(
+      surfaces.flatMap((surface) => [
+        ...surface.querySelectorAll(
+          "a[href],button,input,select,textarea,summary,[tabindex]",
+        ),
+      ]),
+    ),
+  ].filter(
+    (node) => node.tabIndex >= 0 && !node.disabled && node.checkVisibility(),
+  );
   if (!controls.length) return;
   const index = controls.indexOf(document.activeElement);
-  if (!panel && !controls.at(event.shiftKey ? 0 : -1).contains(document.activeElement)) return;
+  if (
+    !panel &&
+    !controls.at(event.shiftKey ? 0 : -1).contains(document.activeElement)
+  )
+    return;
   event.preventDefault();
-  const next = index < 0 ? (event.shiftKey ? controls.length - 1 : 0) : (index + (event.shiftKey ? -1 : 1) + controls.length) % controls.length;
+  const next =
+    index < 0
+      ? event.shiftKey
+        ? controls.length - 1
+        : 0
+      : (index + (event.shiftKey ? -1 : 1) + controls.length) % controls.length;
   controls[next].focus();
-  controls[next].scrollIntoView({ block: "nearest", inline: "nearest", behavior: "instant" });
+  controls[next].scrollIntoView({
+    block: "nearest",
+    inline: "nearest",
+    behavior: "instant",
+  });
 });
 let authorizedRootsRequest = 0;
 async function loadAuthorizedProjectRoots() {
@@ -7977,53 +9183,54 @@ async function loadAuthorizedProjectRoots() {
           start: "1",
           limit: "100",
         });
-      try {
-        const listing = await json("/v1/project-files?" + params);
-        if (request !== authorizedRootsRequest) return;
-        for (const entry of (listing.entries || []).slice(0, 12)) {
-          const row = document.createElement("li");
-          const name = document.createElement(
-            entry.type === "directory" ? "span" : "button",
-          );
-          name.textContent = entry.name;
-          name.title = entry.name;
-          name.prepend(projectFileIcon(entry.name, entry.type === "directory"));
-          if (name.tagName === "BUTTON") {
-            name.type = "button";
-            name.title = "Attach " + entry.name;
-            name.onclick = () =>
-              attachSelectedProjectFiles({
-                project_root_id: root.id,
-                paths: [entry.path],
-              });
+        try {
+          const listing = await json("/v1/project-files?" + params);
+          if (request !== authorizedRootsRequest) return;
+          for (const entry of (listing.entries || []).slice(0, 12)) {
+            const row = document.createElement("li");
+            const name = document.createElement(
+              entry.type === "directory" ? "span" : "button",
+            );
+            name.textContent = entry.name;
+            name.title = entry.name;
+            name.prepend(
+              projectFileIcon(entry.name, entry.type === "directory"),
+            );
+            if (name.tagName === "BUTTON") {
+              name.type = "button";
+              name.title = "Attach " + entry.name;
+              name.onclick = () =>
+                attachSelectedProjectFiles({
+                  project_root_id: root.id,
+                  paths: [entry.path],
+                });
+            }
+            row.append(name);
+            if (entry.status) {
+              const state = document.createElement("b");
+              state.className = "file-status-badge";
+              state.textContent = entry.status;
+              state.title = "Git status " + entry.status;
+              row.append(state);
+            }
+            list.append(row);
           }
-          row.append(name);
-          if (entry.status) {
-            const state = document.createElement("b");
-            state.className = "file-status-badge";
-            state.textContent = entry.status;
-            state.title = "Git status " + entry.status;
-            row.append(state);
+          if (!list.children.length) {
+            const empty = document.createElement("li");
+            empty.textContent = "No files at this level.";
+            list.append(empty);
           }
-          list.append(row);
+        } catch {
+          if (request !== authorizedRootsRequest) return;
+          const unavailable = document.createElement("li");
+          unavailable.textContent = "Couldn't load this root.";
+          list.append(unavailable);
         }
-        if (!list.children.length) {
-          const empty = document.createElement("li");
-          empty.textContent = "No files at this level.";
-          list.append(empty);
-        }
-      } catch {
-        if (request !== authorizedRootsRequest) return;
-        const unavailable = document.createElement("li");
-        unavailable.textContent = "Couldn't load this root.";
-        list.append(unavailable);
-      }
       }
     }
     await Promise.all(
-      Array.from(
-        { length: Math.min(4, rootListings.length) },
-        () => loadNextRoot(),
+      Array.from({ length: Math.min(4, rootListings.length) }, () =>
+        loadNextRoot(),
       ),
     );
     if (!roots.length) holder.textContent = "No project root is authorized.";
@@ -8135,9 +9342,7 @@ try {
   rightPanelView = savedView || (preference ? "activity" : "files");
   setPanelView(rightPanelView, false);
   setPanelOpen(
-    matchMedia("(max-width:700px)").matches
-      ? false
-      : preference,
+    matchMedia("(max-width:700px)").matches ? false : preference,
     false,
   );
 } catch {
@@ -8256,12 +9461,18 @@ function sizePanel(id, width, persist = true) {
   if (persist) {
     panelWidths[id] = value;
     customizedPanels.add(id);
-    prefs.set("panel_widths", { ...prefs.get("panel_widths", {}), [panelField(id)]: value });
+    prefs.set("panel_widths", {
+      ...prefs.get("panel_widths", {}),
+      [panelField(id)]: value,
+    });
   }
 }
 for (const id of Object.keys(panelWidths)) {
   const saved = Number(prefs.get("panel_widths", {})[panelField(id)]);
-  if (saved >= 220 && saved <= 720) { panelWidths[id] = saved; customizedPanels.add(id); }
+  if (saved >= 220 && saved <= 720) {
+    panelWidths[id] = saved;
+    customizedPanels.add(id);
+  }
   const handle = $(id + "-resize");
   let drag = null;
   handle.addEventListener("pointerdown", (e) => {
@@ -8304,12 +9515,27 @@ for (const id of Object.keys(panelWidths)) {
 }
 function fitPanels() {
   syncSidebarFocus();
-  $("menu").setAttribute("aria-expanded", String(
-    matchMedia("(max-width:620px)").matches ? $("sidebar").classList.contains("open") : !document.body.classList.contains("sidebar-collapsed")
-  ));
+  $("menu").setAttribute(
+    "aria-expanded",
+    String(
+      matchMedia("(max-width:620px)").matches
+        ? $("sidebar").classList.contains("open")
+        : !document.body.classList.contains("sidebar-collapsed"),
+    ),
+  );
   const narrow = innerWidth >= 1000 && innerWidth < 1200;
-  sizePanel("sidebar", narrow && !customizedPanels.has("sidebar") ? 260 : panelWidths.sidebar, false);
-  sizePanel("activity-panel", narrow && !customizedPanels.has("activity-panel") ? 340 : panelWidths["activity-panel"], false);
+  sizePanel(
+    "sidebar",
+    narrow && !customizedPanels.has("sidebar") ? 260 : panelWidths.sidebar,
+    false,
+  );
+  sizePanel(
+    "activity-panel",
+    narrow && !customizedPanels.has("activity-panel")
+      ? 340
+      : panelWidths["activity-panel"],
+    false,
+  );
 }
 window.addEventListener("resize", fitPanels);
 function applyPanelOrder(value, persist = true) {
@@ -8359,7 +9585,10 @@ let pendingSelectionNotice = "";
 prefs.onNotice((code) => {
   const text = userErrors[code];
   if (interfaceReady) setTimeout(() => status(text));
-  else pendingSelectionNotice = pendingSelectionNotice ? pendingSelectionNotice + " " + text : text;
+  else
+    pendingSelectionNotice = pendingSelectionNotice
+      ? pendingSelectionNotice + " " + text
+      : text;
 });
 function selectionNotice(gone) {
   const text =
@@ -8391,7 +9620,9 @@ function restoreSelection() {
 // "customize" is the pre-rename key of the Plugins section.
 const savedSection = prefs.get("last_section", "appearance");
 let lastSection = savedSection === "customize" ? "plugins" : savedSection;
-const pluginsSettingsButton = document.querySelector('[data-settings="plugins"]');
+const pluginsSettingsButton = document.querySelector(
+  '[data-settings="plugins"]',
+);
 function syncPluginsEntryPoint() {
   if ($("settings-system-nav").hidden) {
     pluginsSettingsButton.dataset.settings = "plugins";
@@ -8404,7 +9635,14 @@ function syncPluginsEntryPoint() {
 function showSettingsPage(button) {
   lastSection = button.dataset.adminSection || button.dataset.settings;
   prefs.set("last_section", lastSection);
-  for (const name of ["appearance", "plugins", "agents", "models", "archived", "system"])
+  for (const name of [
+    "appearance",
+    "plugins",
+    "agents",
+    "models",
+    "archived",
+    "system",
+  ])
     $("settings-" + name).hidden = name !== button.dataset.settings;
   if (button.dataset.settings === "archived") void loadArchived();
   const system = button.dataset.settings === "system";
@@ -8416,10 +9654,13 @@ function showSettingsPage(button) {
     .querySelectorAll("[data-settings]")
     .forEach((b) => b.setAttribute("aria-pressed", String(b === button)));
 }
-document.querySelectorAll("[data-settings]").forEach(
-  (button) =>
-    (button.onclick = () => void navigate(settingsView(button.dataset.settings, button))),
-);
+document
+  .querySelectorAll("[data-settings]")
+  .forEach(
+    (button) =>
+      (button.onclick = () =>
+        void navigate(settingsView(button.dataset.settings, button))),
+  );
 // Settings › System shows the local admin panel on the same screen.
 function adminFrameUrl(section) {
   const url = new URL($("admin-link").href);
@@ -8433,7 +9674,10 @@ function showAdminSection(section = "providers") {
   // Created on first use so ordinary page loads carry no extra document.
   const next = adminFrameUrl(section);
   let frame = $("admin-frame");
-  if (frame && new URL(frame.src).origin !== new URL(next).origin) { frame.remove(); frame = null; }
+  if (frame && new URL(frame.src).origin !== new URL(next).origin) {
+    frame.remove();
+    frame = null;
+  }
   const created = !frame;
   if (!frame) {
     frame = document.createElement("iframe");
@@ -8441,19 +9685,33 @@ function showAdminSection(section = "providers") {
     // Share only our origin so the embedded admin can authenticate theme messages.
     frame.referrerPolicy = "origin";
     frame.onload = () => {
-      window.HarnessTheme?.apply(document.documentElement.dataset.palette, false);
+      window.HarnessTheme?.apply(
+        document.documentElement.dataset.palette,
+        false,
+      );
       // Joint traversal can restore an older iframe document after the shell's popstate.
       const desired = new URL(frame.dataset.adminUrl || frame.src);
-      frame.contentWindow.postMessage({ type: "keepharness:settings-section", section: desired.hash.slice(1) }, desired.origin);
+      frame.contentWindow.postMessage(
+        {
+          type: "keepharness:settings-section",
+          section: desired.hash.slice(1),
+        },
+        desired.origin,
+      );
     };
     frame.src = next;
     $("settings-system").append(frame);
   }
-  const label = document.querySelector('[data-admin-section="' + section + '"]');
+  const label = document.querySelector(
+    '[data-admin-section="' + section + '"]',
+  );
   frame.title = "Administration: " + (label?.textContent || section);
   if (!created && frame.dataset.settingsSearchReady) {
     // Search has authenticated this admin document. Retain its unsaved form values.
-    frame.contentWindow.postMessage({ type: "keepharness:settings-section", section }, new URL(next).origin);
+    frame.contentWindow.postMessage(
+      { type: "keepharness:settings-section", section },
+      new URL(next).origin,
+    );
   } else if (!created && frame.dataset.adminUrl !== next) {
     // Iframe entries share browser history with the shell. Replace, never append.
     frame.contentWindow.location.replace(next);
@@ -8466,8 +9724,11 @@ function openSettings(section) {
   const remembered = section === undefined;
   const find = (name) =>
     document.querySelector('[data-admin-section="' + name + '"]') ||
-    document.querySelector('[data-settings="' + name + '"]:not([data-admin-section])');
-  const usable = (item) => item && !(item.dataset.adminSection && $("settings-system-nav").hidden);
+    document.querySelector(
+      '[data-settings="' + name + '"]:not([data-admin-section])',
+    );
+  const usable = (item) =>
+    item && !(item.dataset.adminSection && $("settings-system-nav").hidden);
   let button = find(remembered ? lastSection : section);
   // A remembered section that no longer exists (or is hidden here) opens Appearance.
   if (remembered && !usable(button)) button = find("appearance");
@@ -8556,33 +9817,40 @@ const settingsMenu = $("settings-menu");
 settingsMenu.addEventListener("beforetoggle", (event) => {
   if (event.newState !== "open") return;
   settingsMenu.replaceChildren(
-    ...[...document.querySelectorAll(".settings-nav-group:not([hidden])")].map((group) => {
-      const section = document.createElement("div");
-      section.className = "settings-menu-group";
-      section.setAttribute("role", "group");
-      section.setAttribute("aria-label", group.querySelector(".settings-nav-label").textContent);
-      const heading = Object.assign(document.createElement("p"), {
-        className: "access-menu-heading",
-        textContent: group.querySelector(".settings-nav-label").textContent,
-      });
-      heading.setAttribute("aria-hidden", "true");
-      section.append(heading);
-      for (const source of group.querySelectorAll("[data-settings]")) {
-        const item = document.createElement("button");
-        item.type = "button";
-        item.setAttribute("role", "menuitem");
-        item.tabIndex = -1;
-        const icon = source.querySelector("svg");
-        if (icon) item.append(icon.cloneNode(true));
-        item.append(document.createTextNode(source.textContent.trim()));
-        item.onclick = () => {
-          settingsMenu.hidePopover();
-          openSettings(source.dataset.adminSection || source.dataset.settings);
-        };
-        section.append(item);
-      }
-      return section;
-    }),
+    ...[...document.querySelectorAll(".settings-nav-group:not([hidden])")].map(
+      (group) => {
+        const section = document.createElement("div");
+        section.className = "settings-menu-group";
+        section.setAttribute("role", "group");
+        section.setAttribute(
+          "aria-label",
+          group.querySelector(".settings-nav-label").textContent,
+        );
+        const heading = Object.assign(document.createElement("p"), {
+          className: "access-menu-heading",
+          textContent: group.querySelector(".settings-nav-label").textContent,
+        });
+        heading.setAttribute("aria-hidden", "true");
+        section.append(heading);
+        for (const source of group.querySelectorAll("[data-settings]")) {
+          const item = document.createElement("button");
+          item.type = "button";
+          item.setAttribute("role", "menuitem");
+          item.tabIndex = -1;
+          const icon = source.querySelector("svg");
+          if (icon) item.append(icon.cloneNode(true));
+          item.append(document.createTextNode(source.textContent.trim()));
+          item.onclick = () => {
+            settingsMenu.hidePopover();
+            openSettings(
+              source.dataset.adminSection || source.dataset.settings,
+            );
+          };
+          section.append(item);
+        }
+        return section;
+      },
+    ),
   );
 });
 settingsMenu.addEventListener("toggle", (event) => {
@@ -8593,20 +9861,31 @@ settingsMenu.addEventListener("toggle", (event) => {
     const rect = $("settings").getBoundingClientRect(),
       height = settingsMenu.offsetHeight;
     settingsMenu.style.top =
-      Math.max(8, rect.bottom + 6 + height <= innerHeight - 8 ? rect.bottom + 6 : rect.top - height - 6) + "px";
-    settingsMenu.style.left = Math.max(8, Math.min(rect.right - 240, innerWidth - 248)) + "px";
+      Math.max(
+        8,
+        rect.bottom + 6 + height <= innerHeight - 8
+          ? rect.bottom + 6
+          : rect.top - height - 6,
+      ) + "px";
+    settingsMenu.style.left =
+      Math.max(8, Math.min(rect.right - 240, innerWidth - 248)) + "px";
     settingsMenu.dataset.placed = ""; // revealed only once positioned (see the stylesheet)
     settingsMenu.querySelector('[role="menuitem"]')?.focus();
-  }
-  else {
+  } else {
     delete settingsMenu.dataset.placed;
-    if (!document.activeElement || document.activeElement === document.body) $("settings").focus();
+    if (!document.activeElement || document.activeElement === document.body)
+      $("settings").focus();
   }
 });
 settingsMenu.addEventListener("keydown", (event) => {
   const items = [...settingsMenu.querySelectorAll('[role="menuitem"]')];
   const at = items.indexOf(document.activeElement);
-  const step = { ArrowDown: at + 1, ArrowUp: at - 1, Home: 0, End: items.length - 1 }[event.key];
+  const step = {
+    ArrowDown: at + 1,
+    ArrowUp: at - 1,
+    Home: 0,
+    End: items.length - 1,
+  }[event.key];
   if (step !== undefined) {
     event.preventDefault();
     items[(step + items.length) % items.length].focus();
@@ -8617,16 +9896,26 @@ $("settings-close").onclick = () => $("settings-dialog").close();
 // Back / forward: a bounded view history, mirrored in this document's browser history.
 // Embedded admin iframe navigation remains separate.
 const NAV_LIMIT = 50;
-const DIALOG_VIEWS = { settings: "settings-dialog", plugins: "settings-dialog", space: "space-dialog", scheduled: "scheduled-dialog" };
+const DIALOG_VIEWS = {
+  settings: "settings-dialog",
+  plugins: "settings-dialog",
+  space: "space-dialog",
+  scheduled: "scheduled-dialog",
+};
 let viewHistory = [],
   viewIndex = -1;
-const navigationSession = Array.from(crypto.getRandomValues(new Uint32Array(4))).join("-");
+const navigationSession = Array.from(
+  crypto.getRandomValues(new Uint32Array(4)),
+).join("-");
 let navigationSequence = 0;
-const browserViewState = view => ({ keepHarnessView: { session: navigationSession, id: view.historyId } });
+const browserViewState = (view) => ({
+  keepHarnessView: { session: navigationSession, id: view.historyId },
+});
 // Scroll positions survive a reload: the 50 most recent conversations are kept in the UI state store.
 const scrollByConversation = new Map();
 for (const [id, top] of prefs.get("conversation_scroll", []))
-  if (typeof id === "string" && Number.isFinite(top)) scrollByConversation.set(id, top);
+  if (typeof id === "string" && Number.isFinite(top))
+    scrollByConversation.set(id, top);
 function rememberScroll() {
   if (temporarySession) return;
   // While a conversation loads, #messages is not its content yet.
@@ -8634,37 +9923,74 @@ function rememberScroll() {
   const box = $("messages");
   scrollByConversation.delete(conversation);
   // At the bottom, remember "the end" (-1), not a pixel offset: the reply may grow or the window shrink.
-  scrollByConversation.set(conversation, box.scrollHeight - box.scrollTop - box.clientHeight < 48 ? -1 : box.scrollTop);
-  while (scrollByConversation.size > NAV_LIMIT) scrollByConversation.delete(scrollByConversation.keys().next().value);
+  scrollByConversation.set(
+    conversation,
+    box.scrollHeight - box.scrollTop - box.clientHeight < 48
+      ? -1
+      : box.scrollTop,
+  );
+  while (scrollByConversation.size > NAV_LIMIT)
+    scrollByConversation.delete(scrollByConversation.keys().next().value);
   prefs.set("conversation_scroll", [...scrollByConversation]);
 }
 // ui-prefs.js sends on pagehide too, but before this runs; flush again so the last scroll goes out.
-const rememberScrollAndFlush = () => { rememberScroll(); void prefs.flush({ keepalive: true }); };
+const rememberScrollAndFlush = () => {
+  rememberScroll();
+  void prefs.flush({ keepalive: true });
+};
 addEventListener("pagehide", rememberScrollAndFlush);
-document.addEventListener("visibilitychange", () => document.hidden && rememberScrollAndFlush());
-const sameView = (a, b) => a.kind === b.kind && (a.id || null) === (b.id || null) && (a.section || null) === (b.section || null) && (a.sub || null) === (b.sub || null);
-const currentBaseView = () => (conversation && !temporarySession ? { kind: "conversation", id: conversation } : { kind: "home", project: $("project").value });
-const pressedSettings = () => document.querySelector('[data-settings][aria-pressed="true"]');
+document.addEventListener(
+  "visibilitychange",
+  () => document.hidden && rememberScrollAndFlush(),
+);
+const sameView = (a, b) =>
+  a.kind === b.kind &&
+  (a.id || null) === (b.id || null) &&
+  (a.section || null) === (b.section || null) &&
+  (a.sub || null) === (b.sub || null);
+const currentBaseView = () =>
+  conversation && !temporarySession
+    ? { kind: "conversation", id: conversation }
+    : { kind: "home", project: $("project").value };
+const pressedSettings = () =>
+  document.querySelector('[data-settings][aria-pressed="true"]');
 // The five System buttons share data-settings="system"; `sub` (the admin section) tells them apart.
 const settingsView = (section, button) =>
   button === pluginsSettingsButton || section === "plugins"
     ? { kind: "plugins", button }
-    : { kind: "settings", section, sub: section === "system" ? (button || pressedSettings())?.dataset.adminSection : undefined, button };
-const navigationBlocked = (view) => temporaryStarting || ["conversation", "home"].includes(view.kind) && (submitting || cancelling || loading || uploads > 0);
+    : {
+        kind: "settings",
+        section,
+        sub:
+          section === "system"
+            ? (button || pressedSettings())?.dataset.adminSection
+            : undefined,
+        button,
+      };
+const navigationBlocked = (view) =>
+  temporaryStarting ||
+  (["conversation", "home"].includes(view.kind) &&
+    (submitting || cancelling || loading || uploads > 0));
 function syncNavButtons() {
-  const unavailable = (delta) => !viewHistory[viewIndex + delta] || navigationBlocked(viewHistory[viewIndex + delta]);
+  const unavailable = (delta) =>
+    !viewHistory[viewIndex + delta] ||
+    navigationBlocked(viewHistory[viewIndex + delta]);
   $("nav-back").disabled = unavailable(-1);
   $("nav-forward").disabled = unavailable(1);
 }
 function recordView({ button, legacy, ...view }) {
   const base = currentBaseView();
   if (!viewHistory.length) {
-    [viewHistory, viewIndex] = [[{ ...base, historyId: navigationSequence++, historyPosition: 0 }], 0];
+    [viewHistory, viewIndex] = [
+      [{ ...base, historyId: navigationSequence++, historyPosition: 0 }],
+      0,
+    ];
     window.history.replaceState(browserViewState(viewHistory[0]), "");
   }
   // The first send creates the conversation outside navigate(); only that Home entry is corrected here.
   // Any other entry may be a Back target whose load is still pending, while `conversation` is stale.
-  if (viewHistory[viewIndex].kind === "home") Object.assign(viewHistory[viewIndex], base);
+  if (viewHistory[viewIndex].kind === "home")
+    Object.assign(viewHistory[viewIndex], base);
   if (!sameView(viewHistory[viewIndex], view)) {
     view.historyId = navigationSequence++;
     view.historyPosition = viewHistory[viewIndex].historyPosition + 1;
@@ -8701,7 +10027,8 @@ async function applyView(view, replay = false) {
     const top = scrollByConversation.get(view.id);
     // A click on the open conversation reloads it (it may have advanced or been deleted elsewhere);
     // Back or Forward onto it only restores the scroll.
-    if (view.id !== conversation || !replay) await load(view.id, view.legacy, null, top);
+    if (view.id !== conversation || !replay)
+      await load(view.id, view.legacy, null, top);
     else if (top !== undefined) restoreScroll(top);
     if (conversation !== view.id) return false;
   } else if (view.kind === "home") {
@@ -8710,8 +10037,14 @@ async function applyView(view, replay = false) {
     if (innerWidth < 1000) setPanelOpen(false, false);
     window.runConsole?.closeForPanel();
     // A click on New chat always starts a fresh one; a replayed Home only leaves the conversation.
-    if (replay && view.project && [...$("project").options].some(option => option.value === view.project)) {
-      newConversation("New Conversation", view.project, { restoreHomeDraft: true });
+    if (
+      replay &&
+      view.project &&
+      [...$("project").options].some((option) => option.value === view.project)
+    ) {
+      newConversation("New Conversation", view.project, {
+        restoreHomeDraft: true,
+      });
       renderProjects();
       history();
       closeSidebar();
@@ -8719,16 +10052,27 @@ async function applyView(view, replay = false) {
   } else if (view.kind === "space") await openSpace();
   else if (view.kind === "scheduled") await openScheduled();
   else {
-    const section = view.kind === "plugins" ? pluginsSettingsButton.dataset.settings : view.section;
+    const section =
+      view.kind === "plugins"
+        ? pluginsSettingsButton.dataset.settings
+        : view.section;
     if (!$("settings-dialog").open) {
       syncThemeToggle();
       $("settings-dialog").showModal();
       refreshCatalog();
     }
-    const button = view.kind === "plugins"
-      ? pluginsSettingsButton
-      : view.button || document.querySelector('[data-settings="' + section + '"]' + (view.sub ? '[data-admin-section="' + view.sub + '"]' : ""));
-    if (view.kind === "plugins" || view.button || button !== pressedSettings()) showSettingsPage(button);
+    const button =
+      view.kind === "plugins"
+        ? pluginsSettingsButton
+        : view.button ||
+          document.querySelector(
+            '[data-settings="' +
+              section +
+              '"]' +
+              (view.sub ? '[data-admin-section="' + view.sub + '"]' : ""),
+          );
+    if (view.kind === "plugins" || view.button || button !== pressedSettings())
+      showSettingsPage(button);
   }
 }
 async function navigate(view, { record = true } = {}) {
@@ -8749,27 +10093,44 @@ async function navigate(view, { record = true } = {}) {
 function stepHistory(delta) {
   const target = viewHistory[viewIndex + delta];
   if (!target || navigationBlocked(target) || foreignModalOpen()) return;
-  window.history.go(target.historyPosition - viewHistory[viewIndex].historyPosition);
+  window.history.go(
+    target.historyPosition - viewHistory[viewIndex].historyPosition,
+  );
 }
-addEventListener("popstate", async event => {
+addEventListener("popstate", async (event) => {
   const state = event.state?.keepHarnessView;
   if (!state) return;
-  const targetIndex = state.session === navigationSession
-    ? viewHistory.findIndex(view => view.historyId === state.id) : -1;
+  const targetIndex =
+    state.session === navigationSession
+      ? viewHistory.findIndex((view) => view.historyId === state.id)
+      : -1;
   // Reloaded or evicted views are outside the bounded history. Keep the URL honest.
-  if (targetIndex < 0 || targetIndex === viewIndex) { saveView(); return; }
-  const from = viewIndex, target = viewHistory[targetIndex];
+  if (targetIndex < 0 || targetIndex === viewIndex) {
+    saveView();
+    return;
+  }
+  const from = viewIndex,
+    target = viewHistory[targetIndex];
   if (navigationBlocked(target) || foreignModalOpen()) {
-    window.history.go(viewHistory[from].historyPosition - target.historyPosition);
+    window.history.go(
+      viewHistory[from].historyPosition - target.historyPosition,
+    );
     return;
   }
   viewIndex = targetIndex;
   syncNavButtons();
-  if ((await navigate(target, { record: false })) !== false || viewIndex !== targetIndex) return;
+  if (
+    (await navigate(target, { record: false })) !== false ||
+    viewIndex !== targetIndex
+  )
+    return;
   // A refused dialog or a failed load stays on the previous view.
   viewIndex = from;
   window.history.go(viewHistory[from].historyPosition - target.historyPosition);
-  if (target.kind === "conversation" && !conversations.some(c => c.id === target.id)) {
+  if (
+    target.kind === "conversation" &&
+    !conversations.some((c) => c.id === target.id)
+  ) {
     viewHistory.splice(targetIndex, 1);
     if (targetIndex < from) viewIndex--;
   }
@@ -8777,25 +10138,47 @@ addEventListener("popstate", async event => {
 });
 // A modal dialog that is not a history view (About, search, ...) owns the keyboard shortcuts.
 const foreignModalOpen = () =>
-  [...document.querySelectorAll("dialog[open]")].some((d) => !Object.values(DIALOG_VIEWS).includes(d.id));
+  [...document.querySelectorAll("dialog[open]")].some(
+    (d) => !Object.values(DIALOG_VIEWS).includes(d.id),
+  );
 const back = () => stepHistory(-1),
   forward = () => stepHistory(1);
 $("nav-back").onclick = back;
 $("nav-forward").onclick = forward;
 document.addEventListener("keydown", (e) => {
-  if (e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey && ["ArrowLeft", "ArrowRight"].includes(e.key)) {
+  if (
+    e.altKey &&
+    !e.ctrlKey &&
+    !e.metaKey &&
+    !e.shiftKey &&
+    ["ArrowLeft", "ArrowRight"].includes(e.key)
+  ) {
     const delta = e.key === "ArrowLeft" ? -1 : 1;
     if (!viewHistory[viewIndex + delta]) return;
     e.preventDefault();
     stepHistory(delta);
     return;
   }
-  if (!(e.ctrlKey || e.metaKey) || e.altKey || e.shiftKey || !["[", "]"].includes(e.key)) return;
+  if (
+    !(e.ctrlKey || e.metaKey) ||
+    e.altKey ||
+    e.shiftKey ||
+    !["[", "]"].includes(e.key)
+  )
+    return;
   e.preventDefault();
   (e.key === "[" ? back : forward)();
 });
 document.addEventListener("keydown", (e) => {
-  if (!(e.ctrlKey || e.metaKey) || e.altKey || e.shiftKey || e.key !== "," || !interfaceReady || foreignModalOpen()) return;
+  if (
+    !(e.ctrlKey || e.metaKey) ||
+    e.altKey ||
+    e.shiftKey ||
+    e.key !== "," ||
+    !interfaceReady ||
+    foreignModalOpen()
+  )
+    return;
   e.preventDefault();
   settingsMenu.matches(":popover-open") && settingsMenu.hidePopover();
   openSettings() || openSettings("appearance");
@@ -8804,7 +10187,11 @@ document.addEventListener("keydown", (e) => {
 function openFromHash() {
   const section = /^#open=settings\/([a-z]+)$/.exec(location.hash)?.[1];
   if (!section || !interfaceReady) return;
-  window.history.replaceState(window.history.state, "", location.pathname + location.search);
+  window.history.replaceState(
+    window.history.state,
+    "",
+    location.pathname + location.search,
+  );
   openSettings(section);
 }
 addEventListener("hashchange", openFromHash);
@@ -8819,7 +10206,11 @@ document.addEventListener("mouseup", (e) => {
 for (const id of new Set(Object.values(DIALOG_VIEWS)))
   $(id).addEventListener("close", () => {
     const current = viewHistory[viewIndex];
-    if (document.querySelector("dialog[open]") || (current && !(current.kind in DIALOG_VIEWS))) return;
+    if (
+      document.querySelector("dialog[open]") ||
+      (current && !(current.kind in DIALOG_VIEWS))
+    )
+      return;
     recordView(currentBaseView());
   });
 // Harness-owned agents: own instructions, purpose, tasks, target output and the
@@ -8867,35 +10258,67 @@ function fillRoute(prefix, backend, model, effort) {
     backends = [
       ...new Set(models.filter((m) => m.backend).map((m) => m.backend)),
     ];
-  backendSelect.replaceChildren(...backends.map((b) => new Option(providerNames[b] || b, b)));
-  backendSelect.value = backends.includes(backend) ? backend : backends[0] || "";
+  backendSelect.replaceChildren(
+    ...backends.map((b) => new Option(providerNames[b] || b, b)),
+  );
+  backendSelect.value = backends.includes(backend)
+    ? backend
+    : backends[0] || "";
   const choices = models.filter((m) => m.backend === backendSelect.value);
-  modelSelect.replaceChildren(...choices.map((m) => new Option(modelName(m.id), m.id)));
-  modelSelect.value = choices.some((m) => m.id === model) ? model : choices[0]?.id || "";
-  const efforts = choices.find((m) => m.id === modelSelect.value)?.efforts || [];
+  modelSelect.replaceChildren(
+    ...choices.map((m) => new Option(modelName(m.id), m.id)),
+  );
+  modelSelect.value = choices.some((m) => m.id === model)
+    ? model
+    : choices[0]?.id || "";
+  const efforts =
+    choices.find((m) => m.id === modelSelect.value)?.efforts || [];
   effortSelect.replaceChildren(
-    ...efforts.map((e) => new Option(e === "configured" ? "Provider's default" : e[0].toUpperCase() + e.slice(1), e)),
+    ...efforts.map(
+      (e) =>
+        new Option(
+          e === "configured"
+            ? "Provider's default"
+            : e[0].toUpperCase() + e.slice(1),
+          e,
+        ),
+    ),
   );
   effortSelect.value = efforts.includes(effort) ? effort : efforts[0] || "";
 }
-const fillAgentRoute = (backend, model, effort) => fillRoute("agent", backend, model, effort);
+const fillAgentRoute = (backend, model, effort) =>
+  fillRoute("agent", backend, model, effort);
 for (const prefix of ["agent", "schedule"]) {
-  $(prefix + "-backend").onchange = () => fillRoute(prefix, $(prefix + "-backend").value, "", "");
+  $(prefix + "-backend").onchange = () =>
+    fillRoute(prefix, $(prefix + "-backend").value, "", "");
   $(prefix + "-model").onchange = () =>
-    fillRoute(prefix, $(prefix + "-backend").value, $(prefix + "-model").value, $(prefix + "-effort").value);
+    fillRoute(
+      prefix,
+      $(prefix + "-backend").value,
+      $(prefix + "-model").value,
+      $(prefix + "-effort").value,
+    );
 }
 // Seconds since a timestamp given as UNIX seconds or an ISO string.
 function stampSeconds(value) {
   const number = Number(value);
-  return Number.isFinite(number) && number > 0 ? number : Date.parse(value) / 1000 || 0;
+  return Number.isFinite(number) && number > 0
+    ? number
+    : Date.parse(value) / 1000 || 0;
 }
 function projectChoices(select, value) {
   select.replaceChildren(
     ...[...$("project").options].map(
-      (o) => new Option(o.value === "sem-projeto" ? "No project" : o.textContent, o.value),
+      (o) =>
+        new Option(
+          o.value === "sem-projeto" ? "No project" : o.textContent,
+          o.value,
+        ),
     ),
   );
-  select.value = [...select.options].some((o) => o.value === value) ? value : "sem-projeto";
+  select.value = [...select.options].some((o) => o.value === value)
+    ? value
+    : "sem-projeto";
 }
 async function confirmTwice(button, label, action) {
   if (!button.dataset.confirm) {
@@ -8925,7 +10348,10 @@ async function openSpace() {
 }
 async function loadPages(selectedId = currentPage?.id) {
   try {
-    const data = await json("/v1/pages?" + new URLSearchParams({ project_id: $("space-project").value }));
+    const data = await json(
+      "/v1/pages?" +
+        new URLSearchParams({ project_id: $("space-project").value }),
+    );
     const pages = Array.isArray(data.pages) ? data.pages : [];
     $("pages-list").replaceChildren(
       ...pages.map((page) => {
@@ -8976,13 +10402,17 @@ function setPagePreview(on) {
   $("page-preview-toggle").setAttribute("aria-pressed", String(on));
   $("page-preview").hidden = !on;
   $("page-body").hidden = on;
-  if (on) renderAnswer($("page-preview"), $("page-body").value || "*Empty page*");
+  if (on)
+    renderAnswer($("page-preview"), $("page-body").value || "*Empty page*");
 }
 async function openPage(id) {
   if (!(await leavePage())) return;
   try {
     const page = await json(
-      "/v1/pages/" + encodeURIComponent(id) + "?" + new URLSearchParams({ project_id: $("space-project").value }),
+      "/v1/pages/" +
+        encodeURIComponent(id) +
+        "?" +
+        new URLSearchParams({ project_id: $("space-project").value }),
     );
     showPageEditor(page);
     await loadPages(page.id);
@@ -9041,7 +10471,11 @@ async function closeSpace() {
   if (await leavePage()) $("space-dialog").close();
 }
 function pageFile(title, body) {
-  const name = title.replace(/[^\w.-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 80) || "page";
+  const name =
+    title
+      .replace(/[^\w.-]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 80) || "page";
   return new File([body], name + ".md", { type: "text/markdown" });
 }
 // A page is attached as its current text, into the composer's own project (QA-R2-2): the
@@ -9052,7 +10486,11 @@ async function usePage(startChat) {
     title = $("page-title").value.trim() || "Untitled",
     file = pageFile(title, $("page-body").value);
   $("space-dialog").close();
-  if (startChat && newConversation(title, project, { resetExecutionMode: true }) === false) return;
+  if (
+    startChat &&
+    newConversation(title, project, { resetExecutionMode: true }) === false
+  )
+    return;
   await refreshProjectPermissions();
   await upload([file]);
   $("prompt").focus({ preventScroll: true });
@@ -9073,12 +10511,14 @@ $("page-editor").addEventListener("keydown", (event) => {
   }
 });
 $("page-preview-toggle").onclick = () =>
-  setPagePreview($("page-preview-toggle").getAttribute("aria-pressed") !== "true");
+  setPagePreview(
+    $("page-preview-toggle").getAttribute("aria-pressed") !== "true",
+  );
 $("page-new").onclick = async () => {
   if (!(await leavePage())) return;
   showPageEditor(null);
-  await loadPages(null);
   $("page-title").focus();
+  await loadPages(null);
 };
 $("page-empty-new").onclick = () => $("page-new").click();
 $("page-attach").onclick = () => void usePage(false);
@@ -9089,7 +10529,10 @@ $("page-delete").onclick = () =>
       await json("/v1/pages/" + encodeURIComponent(currentPage.id), {
         method: "DELETE",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ project_id: $("space-project").value, revision: currentPage.revision }),
+        body: JSON.stringify({
+          project_id: $("space-project").value,
+          revision: currentPage.revision,
+        }),
       });
       showPageEditor(undefined);
       await loadPages(null);
@@ -9115,17 +10558,33 @@ $("space-dialog").addEventListener("cancel", (event) => {
 // Scheduled tasks (Codex Scheduled): a prompt that runs unattended on its own
 // route as a new conversation each time; only Ask and Read only access.
 let currentSchedule = null;
-const weekdays = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+const weekdays = [
+  "Monday",
+  "Tuesday",
+  "Wednesday",
+  "Thursday",
+  "Friday",
+  "Saturday",
+  "Sunday",
+];
 function cadenceLabel(cadence = {}) {
   if (cadence.kind === "interval") return "Every " + cadence.hours + " h";
-  if (cadence.kind === "weekly") return weekdays[cadence.weekday] + "s at " + cadence.time;
+  if (cadence.kind === "weekly")
+    return weekdays[cadence.weekday] + "s at " + cadence.time;
   return "Daily at " + cadence.time;
 }
 function untilLabel(seconds) {
   const wait = Number(seconds) - Date.now() / 1000;
   if (!Number.isFinite(wait)) return "";
   if (wait <= 60) return "due now";
-  return "next in " + (wait < 3600 ? Math.round(wait / 60) + " min" : wait < 86400 ? Math.round(wait / 3600) + " h" : Math.round(wait / 86400) + " d");
+  return (
+    "next in " +
+    (wait < 3600
+      ? Math.round(wait / 60) + " min"
+      : wait < 86400
+        ? Math.round(wait / 3600) + " h"
+        : Math.round(wait / 86400) + " d")
+  );
 }
 async function openScheduled() {
   if (!$("scheduled-dialog").open) $("scheduled-dialog").showModal();
@@ -9166,7 +10625,8 @@ async function loadSchedules(selectedId = currentSchedule?.id) {
     return schedules;
   } catch (error) {
     $("schedules-list").replaceChildren();
-    $("schedules-empty").textContent = "Couldn't load scheduled tasks. " + error.message;
+    $("schedules-empty").textContent =
+      "Couldn't load scheduled tasks. " + error.message;
     $("schedules-empty").hidden = false;
     return [];
   }
@@ -9182,9 +10642,12 @@ function showScheduleEditor(task) {
   const editing = task !== undefined;
   $("schedule-empty-state").hidden = editing;
   $("schedule-editor").hidden = !editing;
-  for (const row of $("schedules-list").querySelectorAll("[aria-current]")) row.removeAttribute("aria-current");
+  for (const row of $("schedules-list").querySelectorAll("[aria-current]"))
+    row.removeAttribute("aria-current");
   if (task?.id)
-    $("schedules-list").querySelector('[data-schedule-id="' + CSS.escape(task.id) + '"]')?.setAttribute("aria-current", "true");
+    $("schedules-list")
+      .querySelector('[data-schedule-id="' + CSS.escape(task.id) + '"]')
+      ?.setAttribute("aria-current", "true");
   if (!editing) return;
   const current = selected(),
     cadence = task?.cadence || { kind: "daily", time: "09:00" };
@@ -9192,7 +10655,12 @@ function showScheduleEditor(task) {
   $("schedule-prompt").value = task?.prompt || "";
   projectChoices($("schedule-project"), task?.project_id || $("project").value);
   void fillScheduleContext(task);
-  fillRoute("schedule", task?.backend || current?.backend, task?.model || current?.id, task?.effort || $("effort").value);
+  fillRoute(
+    "schedule",
+    task?.backend || current?.backend,
+    task?.model || current?.id,
+    task?.effort || $("effort").value,
+  );
   $("schedule-kind").value = cadence.kind;
   $("schedule-time").value = cadence.time || "09:00";
   $("schedule-weekday").value = String(cadence.weekday ?? 0);
@@ -9202,7 +10670,8 @@ function showScheduleEditor(task) {
   $("schedule-enabled").checked = task ? !!task.enabled : true;
   syncCadenceFields();
   $("schedule-error").textContent = "";
-  for (const el of $("schedule-editor").querySelectorAll("[aria-invalid]")) el.removeAttribute("aria-invalid");
+  for (const el of $("schedule-editor").querySelectorAll("[aria-invalid]"))
+    el.removeAttribute("aria-invalid");
   $("schedule-delete").hidden = $("schedule-run").hidden = !task?.id;
   $("schedule-delete").textContent = "Delete";
   delete $("schedule-delete").dataset.confirm;
@@ -9224,10 +10693,14 @@ async function fillScheduleContext(task) {
   try {
     const data = await json("/v1/harness-agents");
     if (session !== scheduleContextLoad) return;
-    const names = (Array.isArray(data.agents) ? data.agents : []).map((item) => item.name);
+    const names = (Array.isArray(data.agents) ? data.agents : []).map(
+      (item) => item.name,
+    );
     picker.replaceChildren(
       new Option("No agent", ""),
-      ...[...new Set([...names, ...(agent ? [agent] : [])])].map((name) => new Option("@@" + name, name)),
+      ...[...new Set([...names, ...(agent ? [agent] : [])])].map(
+        (name) => new Option("@@" + name, name),
+      ),
     );
     picker.value = agent;
   } catch {}
@@ -9238,13 +10711,17 @@ async function renderSchedulePages(project, chosen) {
     box = $("schedule-pages-list");
   let listed = null;
   try {
-    listed = (await json("/v1/pages?" + new URLSearchParams({ project_id: project }))).pages;
+    listed = (
+      await json("/v1/pages?" + new URLSearchParams({ project_id: project }))
+    ).pages;
   } catch {}
   if (session !== scheduleContextLoad) return;
   // A list that did not load keeps the stored choice: saving must not drop pages it never showed.
   box.dataset.loaded = String(Array.isArray(listed));
   if (!Array.isArray(listed) || !listed.length) {
-    box.textContent = Array.isArray(listed) ? "No pages in this project yet." : "Couldn't load pages.";
+    box.textContent = Array.isArray(listed)
+      ? "No pages in this project yet."
+      : "Couldn't load pages.";
     return;
   }
   box.replaceChildren(
@@ -9279,7 +10756,11 @@ function showLastRun(task) {
     return;
   }
   const state = run.state === "submitted" ? "running" : run.state;
-  $("schedule-last").textContent = ["Last run " + usageAge(stampSeconds(run.at)), state, run.needs_you && "needs you"]
+  $("schedule-last").textContent = [
+    "Last run " + usageAge(stampSeconds(run.at)),
+    state,
+    run.needs_you && "needs you",
+  ]
     .filter(Boolean)
     .join(" · ");
   appendOpenRun(run.job_id);
@@ -9312,7 +10793,11 @@ function scheduleBody() {
       kind === "interval"
         ? { kind, hours: Number($("schedule-hours").value) }
         : kind === "weekly"
-          ? { kind, weekday: Number($("schedule-weekday").value), time: $("schedule-time").value }
+          ? {
+              kind,
+              weekday: Number($("schedule-weekday").value),
+              time: $("schedule-time").value,
+            }
           : { kind, time: $("schedule-time").value },
     enabled: $("schedule-enabled").checked,
     agent: $("schedule-agent").value || null,
@@ -9322,14 +10807,30 @@ function scheduleBody() {
 function showScheduleError(field, message) {
   $("schedule-error").textContent = message;
   const input = $(
-    { title: "schedule-title", prompt: "schedule-prompt", agent: "schedule-agent", page_ids: "schedule-pages-list", project_id: "schedule-project", backend: "schedule-backend", model: "schedule-model", effort: "schedule-effort", access_mode: "schedule-access", allow_internet: "schedule-internet", cadence: $("schedule-kind").value === "interval" ? "schedule-hours" : "schedule-time" }[field] || "",
+    {
+      title: "schedule-title",
+      prompt: "schedule-prompt",
+      agent: "schedule-agent",
+      page_ids: "schedule-pages-list",
+      project_id: "schedule-project",
+      backend: "schedule-backend",
+      model: "schedule-model",
+      effort: "schedule-effort",
+      access_mode: "schedule-access",
+      allow_internet: "schedule-internet",
+      cadence:
+        $("schedule-kind").value === "interval"
+          ? "schedule-hours"
+          : "schedule-time",
+    }[field] || "",
   );
   if (!input) return;
   input.setAttribute("aria-invalid", "true");
   input.focus();
 }
 $("schedule-kind").onchange = syncCadenceFields;
-$("schedule-project").onchange = () => void renderSchedulePages($("schedule-project").value, []);
+$("schedule-project").onchange = () =>
+  void renderSchedulePages($("schedule-project").value, []);
 $("schedule-pages-list").onchange = limitSchedulePages;
 $("schedule-editor").addEventListener("input", (event) => {
   if (event.target.getAttribute?.("aria-invalid") !== "true") return;
@@ -9341,13 +10842,21 @@ $("schedule-editor").onsubmit = async (event) => {
   const body = scheduleBody(),
     task = currentSchedule;
   if (!body.title) return showScheduleError("title", "Give the task a title.");
-  if (!body.prompt) return showScheduleError("prompt", "Write what the task should do.");
+  if (!body.prompt)
+    return showScheduleError("prompt", "Write what the task should do.");
   // D41: an @@name in the prompt must be the agent picked above, as in the composer.
-  const stray = [...unfencedPrompt(body.prompt).matchAll(/(?:^|\s)(@@[\w:-]+)(?=\s|$)/g)].find(
-    (match) => !body.agent || match[1] !== "@@" + body.agent,
-  );
-  if (stray) return showScheduleError("agent", "Pick " + stray[1] + " in the Agent field, or remove it from the prompt.");
-  if (body.cadence.kind !== "interval" && !/^\d{2}:\d{2}$/.test(body.cadence.time))
+  const stray = [
+    ...unfencedPrompt(body.prompt).matchAll(/(?:^|\s)(@@[\w:-]+)(?=\s|$)/g),
+  ].find((match) => !body.agent || match[1] !== "@@" + body.agent);
+  if (stray)
+    return showScheduleError(
+      "agent",
+      "Pick " + stray[1] + " in the Agent field, or remove it from the prompt.",
+    );
+  if (
+    body.cadence.kind !== "interval" &&
+    !/^\d{2}:\d{2}$/.test(body.cadence.time)
+  )
     return showScheduleError("cadence", "Choose a time.");
   $("schedule-save").disabled = true;
   try {
@@ -9360,7 +10869,10 @@ $("schedule-editor").onsubmit = async (event) => {
       : await post("/v1/schedules", body);
     const schedules = await loadSchedules(saved.id);
     showScheduleEditor(schedules.find((item) => item.id === saved.id) || saved);
-    $("schedule-last").textContent = (task?.id ? "Saved." : "Created.") + " " + (saved.enabled ? untilLabel(saved.next_run) : "Paused.");
+    $("schedule-last").textContent =
+      (task?.id ? "Saved." : "Created.") +
+      " " +
+      (saved.enabled ? untilLabel(saved.next_run) : "Paused.");
   } catch (error) {
     showScheduleError(error.field || "", error.message);
   } finally {
@@ -9371,11 +10883,16 @@ $("schedule-run").onclick = async () => {
   const task = currentSchedule;
   if (!task?.id) return;
   try {
-    const started = await post("/v1/schedules/" + encodeURIComponent(task.id) + "/run", {});
+    const started = await post(
+      "/v1/schedules/" + encodeURIComponent(task.id) + "/run",
+      {},
+    );
     $("schedule-last").textContent = "Started now. It appears in Chats.";
     appendOpenRun(started.job_id);
     void history();
-    const fresh = (await loadSchedules(task.id)).find((item) => item.id === task.id);
+    const fresh = (await loadSchedules(task.id)).find(
+      (item) => item.id === task.id,
+    );
     // The run rewrote the stored task, so Save and Delete need its new revision (CDX-R1-4);
     // the editor fields stay as typed.
     if (fresh && currentSchedule?.id === task.id) currentSchedule = fresh;
@@ -9404,11 +10921,15 @@ $("schedule-new").onclick = () => {
 $("schedule-empty-new").onclick = () => $("schedule-new").click();
 $("scheduled-close").onclick = () => $("scheduled-dialog").close();
 // The drawer repeats Space and Scheduled for the phone layout, where the rail hides them.
-for (const id of ["rail-space", "sidebar-space"]) $(id).onclick = () => void navigate({ kind: "space" });
-for (const id of ["rail-scheduled", "sidebar-scheduled"]) $(id).onclick = () => void navigate({ kind: "scheduled" });
+for (const id of ["rail-space", "sidebar-space"])
+  $(id).onclick = () => void navigate({ kind: "space" });
+for (const id of ["rail-scheduled", "sidebar-scheduled"])
+  $(id).onclick = () => void navigate({ kind: "scheduled" });
 function openAgentDialog(agent = null) {
   editingAgent = agent;
-  $("agent-dialog-title").textContent = agent ? "Edit @@" + agent.name : "Create agent";
+  $("agent-dialog-title").textContent = agent
+    ? "Edit @@" + agent.name
+    : "Create agent";
   $("agent-save").textContent = agent ? "Save agent" : "Create agent";
   $("agent-delete").hidden = !agent;
   $("agent-delete").textContent = "Delete agent";
@@ -9436,7 +10957,10 @@ function agentFormBody() {
     name: $("agent-name").value.trim(),
     purpose: $("agent-purpose").value.trim(),
     instructions: $("agent-instructions").value.trim(),
-    tasks: $("agent-tasks").value.split("\n").map((t) => t.trim()).filter(Boolean),
+    tasks: $("agent-tasks")
+      .value.split("\n")
+      .map((t) => t.trim())
+      .filter(Boolean),
     target_output: $("agent-target-output").value.trim(),
     backend: $("agent-backend").value,
     model: $("agent-model").value,
@@ -9445,12 +10969,17 @@ function agentFormBody() {
 }
 function agentFormProblem(body) {
   if (!/^[a-z0-9][a-z0-9-]{1,47}$/.test(body.name))
-    return ["name", "Use 2 to 48 lowercase letters, digits or hyphens, starting with a letter or digit."];
+    return [
+      "name",
+      "Use 2 to 48 lowercase letters, digits or hyphens, starting with a letter or digit.",
+    ];
   if (!body.purpose) return ["purpose", "Describe what the agent is for."];
-  if (!body.instructions) return ["instructions", "Write the agent's instructions."];
+  if (!body.instructions)
+    return ["instructions", "Write the agent's instructions."];
   if (body.tasks.length > 12 || body.tasks.some((t) => t.length > 200))
     return ["tasks", "Use up to 12 tasks of at most 200 characters each."];
-  if (!body.backend || !body.model) return ["model", "Choose a provider and a model."];
+  if (!body.backend || !body.model)
+    return ["model", "Choose a provider and a model."];
   return null;
 }
 function showAgentError(field, message) {
@@ -9481,7 +11010,9 @@ $("agent-form").onsubmit = async (event) => {
     $("agent-dialog").close();
     clearResourceItems();
     await loadHarnessAgents();
-    status((agent ? "Saved" : "Created") + " @@" + (saved?.name || body.name) + ".");
+    status(
+      (agent ? "Saved" : "Created") + " @@" + (saved?.name || body.name) + ".",
+    );
   } catch (error) {
     showAgentError(error.field || "", error.message);
   } finally {
@@ -9516,7 +11047,8 @@ $("agent-form").addEventListener("input", (event) => {
   event.target.removeAttribute("aria-invalid");
   $("agent-form-error").textContent = "";
 });
-$("agent-cancel").onclick = $("agent-dialog-close").onclick = () => $("agent-dialog").close();
+$("agent-cancel").onclick = $("agent-dialog-close").onclick = () =>
+  $("agent-dialog").close();
 $("agent-create").onclick = () => openAgentDialog();
 async function loadHarnessAgents() {
   try {
@@ -9557,7 +11089,12 @@ function renderHarnessAgents() {
       edit.textContent = "Edit";
       edit.setAttribute("aria-label", "Edit @@" + agent.name);
       edit.onclick = () => openAgentDialog(agent);
-      row.append(providerModelIcon(agent.backend, agent.model), text, use, edit);
+      row.append(
+        providerModelIcon(agent.backend, agent.model),
+        text,
+        use,
+        edit,
+      );
       return row;
     }),
   );
@@ -9572,7 +11109,12 @@ async function useHarnessAgent(agent) {
     spacer = before && !/\s$/.test(before) ? " " : "";
   input.focus();
   input.setRangeText(spacer + "@@", at, input.selectionEnd ?? at, "end");
-  const trigger = { prefix: "@@", query: "", start: input.selectionStart - 2, end: input.selectionStart },
+  const trigger = {
+      prefix: "@@",
+      query: "",
+      start: input.selectionStart - 2,
+      end: input.selectionStart,
+    },
     m = resourceEngine();
   try {
     const data = await json(
@@ -9584,7 +11126,9 @@ async function useHarnessAgent(agent) {
           execution_mode: m.execution_mode,
         }),
     );
-    const item = (data.items || []).find((i) => i.resource_id === "harness/agents/" + agent.id);
+    const item = (data.items || []).find(
+      (i) => i.resource_id === "harness/agents/" + agent.id,
+    );
     if (!item) throw Error("@@" + agent.name + " is not available here.");
     selectResource(item, trigger);
   } catch (error) {
@@ -9642,7 +11186,9 @@ async function refreshConversationContentSearch(value) {
   conversationContentQuery = "";
   if (normalized.length >= 2) {
     try {
-      const data = await json("/v1/conversations?" + new URLSearchParams({ q: value.trim() }));
+      const data = await json(
+        "/v1/conversations?" + new URLSearchParams({ q: value.trim() }),
+      );
       if (request !== conversationContentRequest) return;
       conversationContent = (data.conversations || []).filter((c) => c.snippet);
       conversationContentQuery = normalized;
@@ -9684,14 +11230,20 @@ async function refreshProjectFileSearch(value) {
 }
 function renderConversationSearch() {
   const input = $("conversation-search"),
-    activeResult = document.activeElement?.closest?.(".conversation-search-result"),
+    activeResult = document.activeElement?.closest?.(
+      ".conversation-search-result",
+    ),
     focusedResultId = activeResult?.dataset.searchResultId,
     query = normalizeSearch(input.value.trim());
   const includes = (...values) =>
     !query || normalizeSearch(values.filter(Boolean).join(" ")).includes(query);
   const composerAvailable = () => {
     const composer = $("prompt");
-    return !composer.disabled && composer.checkVisibility() && !composer.closest("[inert]");
+    return (
+      !composer.disabled &&
+      composer.checkVisibility() &&
+      !composer.closest("[inert]")
+    );
   };
   const resultButton = (id, titleText, detailText, action) => {
     const button = document.createElement("button");
@@ -9707,15 +11259,39 @@ function renderConversationSearch() {
     return button;
   };
   const commandMatches = [
-    { id: "new-conversation", title: "New conversation", terms: "new chat home", available: () => !(submitting || cancelling || loading || uploads), run: () => void navigate({ kind: "home" }) },
-    { id: "focus-composer", title: "Focus composer", terms: "write message prompt", available: composerAvailable, run: () => {
-      if (composerAvailable()) $("prompt").focus();
-    } },
-    { id: "keyboard-shortcuts", title: "Keyboard shortcuts", terms: "key bindings reference", run: openKeyboardShortcuts },
-  ].filter((item) => (!item.available || item.available()) && includes(item.title, item.terms));
-  const settingsMatches = [...document.querySelectorAll(".settings-nav-group:not([hidden])")]
+    {
+      id: "new-conversation",
+      title: "New conversation",
+      terms: "new chat home",
+      available: () => !(submitting || cancelling || loading || uploads),
+      run: () => void navigate({ kind: "home" }),
+    },
+    {
+      id: "focus-composer",
+      title: "Focus composer",
+      terms: "write message prompt",
+      available: composerAvailable,
+      run: () => {
+        if (composerAvailable()) $("prompt").focus();
+      },
+    },
+    {
+      id: "keyboard-shortcuts",
+      title: "Keyboard shortcuts",
+      terms: "key bindings reference",
+      run: openKeyboardShortcuts,
+    },
+  ].filter(
+    (item) =>
+      (!item.available || item.available()) && includes(item.title, item.terms),
+  );
+  const settingsMatches = [
+    ...document.querySelectorAll(".settings-nav-group:not([hidden])"),
+  ]
     .flatMap((section) => {
-      const group = section.querySelector(".settings-nav-label")?.textContent.trim() || "Settings";
+      const group =
+        section.querySelector(".settings-nav-label")?.textContent.trim() ||
+        "Settings";
       return [...section.querySelectorAll("[data-settings]")].map((button) => ({
         title: button.textContent.trim(),
         section: button.dataset.adminSection || button.dataset.settings,
@@ -9725,7 +11301,9 @@ function renderConversationSearch() {
     .filter((item) => includes(item.title, item.group, "Settings"));
   const observedConversationIds = new Set();
   const observedRuns = observedActivityJobs.map((item) => {
-    const source = conversations.find((conversation) => conversation.id === item.conversation_id);
+    const source = conversations.find(
+      (conversation) => conversation.id === item.conversation_id,
+    );
     if (item.conversation_id) observedConversationIds.add(item.conversation_id);
     return {
       ...source,
@@ -9748,30 +11326,37 @@ function renderConversationSearch() {
     ...conversations.filter((item) => !observedConversationIds.has(item.id)),
   ];
   const snippets = new Map(
-    conversationContentQuery === query ? conversationContent.map((c) => [c.id, c.snippet]) : [],
+    conversationContentQuery === query
+      ? conversationContent.map((c) => [c.id, c.snippet])
+      : [],
   );
-  const runMatches = searchableRuns.filter((c) =>
-    includes(
-      c.title || "Conversation",
-      c.runId,
-      c.state,
-      c.wait_reason,
-      c.activity,
-      c.execution?.backend,
-      c.execution?.model,
-      projectDetails[c.project]?.label,
-    ),
-  ).map((c) => ({ ...c, snippet: snippets.get(c.id) || "" }));
+  const runMatches = searchableRuns
+    .filter((c) =>
+      includes(
+        c.title || "Conversation",
+        c.runId,
+        c.state,
+        c.wait_reason,
+        c.activity,
+        c.execution?.backend,
+        c.execution?.model,
+        projectDetails[c.project]?.label,
+      ),
+    )
+    .map((c) => ({ ...c, snippet: snippets.get(c.id) || "" }));
   const matchedIds = new Set(runMatches.map((c) => c.id));
   for (const c of conversationContent)
     if (snippets.has(c.id) && !matchedIds.has(c.id))
-      runMatches.push({ ...conversations.find((item) => item.id === c.id), ...c });
+      runMatches.push({
+        ...conversations.find((item) => item.id === c.id),
+        ...c,
+      });
   const loadedFiles = new Map();
-  for (const file of files)
-    if (file?.name) loadedFiles.set(file.name, file);
+  for (const file of files) if (file?.name) loadedFiles.set(file.name, file);
   for (const entries of fileTree.cache.values())
     for (const file of entries || [])
-      if (file?.name && file.type !== "directory") loadedFiles.set(file.path || file.name, file);
+      if (file?.name && file.type !== "directory")
+        loadedFiles.set(file.path || file.name, file);
   if (projectFileSearchQuery === query)
     for (const file of projectFileSearch)
       if (file?.name && file.type !== "directory")
@@ -9779,7 +11364,11 @@ function renderConversationSearch() {
   const fileMatches = [...loadedFiles.entries()].filter(([path, file]) =>
     includes(path, file.name),
   );
-  const total = commandMatches.length + settingsMatches.length + runMatches.length + fileMatches.length;
+  const total =
+    commandMatches.length +
+    settingsMatches.length +
+    runMatches.length +
+    fileMatches.length;
   $("search-clear").hidden = !query;
   $("search-results").textContent = total
     ? total + " result(s) found"
@@ -9808,10 +11397,15 @@ function renderConversationSearch() {
   group(
     "Settings",
     settingsMatches.map((item) =>
-      resultButton("settings:" + item.section, item.title, "Settings › " + item.group, () => {
-        $("conversation-search-dialog").close();
-        openSettings(item.section);
-      }),
+      resultButton(
+        "settings:" + item.section,
+        item.title,
+        "Settings › " + item.group,
+        () => {
+          $("conversation-search-dialog").close();
+          openSettings(item.section);
+        },
+      ),
     ),
   );
   group(
@@ -9820,7 +11414,8 @@ function renderConversationSearch() {
       const button = document.createElement("button");
       button.type = "button";
       button.className = "conversation-search-result";
-      button.dataset.searchResultId = "run:" + (c.id || "") + ":" + (c.runId || "");
+      button.dataset.searchResultId =
+        "run:" + (c.id || "") + ":" + (c.runId || "");
       const title = document.createElement("strong"),
         detail = document.createElement("small");
       title.textContent = c.title || "Conversation";
@@ -9829,7 +11424,9 @@ function renderConversationSearch() {
           ?.textContent || "No project";
       detail.append(document.createTextNode(project));
       if (c.execution?.backend && providerNames[c.execution.backend])
-        detail.append(document.createTextNode(" · " + providerNames[c.execution.backend]));
+        detail.append(
+          document.createTextNode(" · " + providerNames[c.execution.backend]),
+        );
       if (c.execution?.model) {
         const icon = document.createElement("span");
         icon.className = "model-logo-icon";
@@ -9842,7 +11439,12 @@ function renderConversationSearch() {
         );
       }
       const updated = conversationUpdated(c);
-      if (updated) detail.append(document.createTextNode(" · " + new Date(updated * 1000).toLocaleDateString()));
+      if (updated)
+        detail.append(
+          document.createTextNode(
+            " · " + new Date(updated * 1000).toLocaleDateString(),
+          ),
+        );
       const indicator = conversationIndicator(c);
       if (indicator) title.prepend(indicator);
       button.append(title, detail);
@@ -9886,8 +11488,12 @@ function renderConversationSearch() {
   const list = $("conversation-search-list");
   list.replaceChildren(...sections);
   if (focusedResultId) {
-    const replacement = [...list.querySelectorAll(".conversation-search-result")]
-      .find((result) => result.dataset.searchResultId === focusedResultId && !result.disabled);
+    const replacement = [
+      ...list.querySelectorAll(".conversation-search-result"),
+    ].find(
+      (result) =>
+        result.dataset.searchResultId === focusedResultId && !result.disabled,
+    );
     (replacement || input).focus({ preventScroll: true });
   }
 }
@@ -9906,41 +11512,52 @@ $("conversation-search-dialog").addEventListener("keydown", (event) => {
     return;
   }
   if (!["ArrowDown", "ArrowUp"].includes(event.key)) return;
-  const results = [...$("conversation-search-list").querySelectorAll("button:not(:disabled)")];
+  const results = [
+    ...$("conversation-search-list").querySelectorAll("button:not(:disabled)"),
+  ];
   if (!results.length) return;
   const index = results.indexOf(document.activeElement);
   event.preventDefault();
-  results[event.key === "ArrowDown"
-    ? (index + 1 + results.length) % results.length
-    : (index < 0 ? results.length - 1 : index - 1 + results.length) % results.length
+  results[
+    event.key === "ArrowDown"
+      ? (index + 1 + results.length) % results.length
+      : (index < 0 ? results.length - 1 : index - 1 + results.length) %
+        results.length
   ].focus();
 });
 $("conversation-search").addEventListener("input", () => {
   renderConversationSearch();
   clearTimeout(projectFileSearchTimer);
-  projectFileSearchTimer = setTimeout(
-    () => {
-      refreshProjectFileSearch($("conversation-search").value);
-      refreshConversationContentSearch($("conversation-search").value);
-    },
-    180,
-  );
+  projectFileSearchTimer = setTimeout(() => {
+    refreshProjectFileSearch($("conversation-search").value);
+    refreshConversationContentSearch($("conversation-search").value);
+  }, 180);
 });
 $("search-clear").onclick = () => {
   $("conversation-search").value = "";
   renderConversationSearch();
   $("conversation-search").focus();
 };
-const shortcutModifier = /Mac|iPhone|iPad/.test(navigator.platform) ? "⌘" : "Ctrl";
+const shortcutModifier = /Mac|iPhone|iPad/.test(navigator.platform)
+  ? "⌘"
+  : "Ctrl";
 $("conversation-search-title").textContent = "Search KeepHarness";
-document.querySelector('label[for="conversation-search"]').textContent = "Commands, Settings, runs, and files";
+document.querySelector('label[for="conversation-search"]').textContent =
+  "Commands, Settings, runs, and files";
 $("conversation-search").placeholder = "Type a command, setting, run, or file…";
-$("search-conversations").querySelector("span").textContent = "Search KeepHarness";
-$("search-conversations").querySelector("kbd").textContent = shortcutModifier + " K";
-$("search-conversations").title = "Search KeepHarness · " + shortcutModifier + "+K";
+$("search-conversations").querySelector("span").textContent =
+  "Search KeepHarness";
+$("search-conversations").querySelector("kbd").textContent =
+  shortcutModifier + " K";
+$("search-conversations").title =
+  "Search KeepHarness · " + shortcutModifier + "+K";
 $("settings-appearance").querySelector(".shortcut-help").textContent =
-  shortcutModifier + "+/: keyboard shortcuts\n" +
-  shortcutModifier + "+K or " + shortcutModifier + "+Shift+P: search KeepHarness\n" +
+  shortcutModifier +
+  "+/: keyboard shortcuts\n" +
+  shortcutModifier +
+  "+K or " +
+  shortcutModifier +
+  "+Shift+P: search KeepHarness\n" +
   "Escape: close the current dialog or panel";
 const keyboardShortcuts = [
   ["Search KeepHarness", [shortcutModifier, "K"]],
@@ -9955,8 +11572,12 @@ const keyboardShortcuts = [
 let shortcutReturnFocus = null;
 function renderKeyboardShortcuts() {
   const query = normalizeSearch($("keyboard-shortcuts-search").value.trim());
-  const matches = keyboardShortcuts.filter(([action, keys]) =>
-    !query || normalizeSearch(action + " " + keys.join(" ") + " " + keys.join("+")).includes(query),
+  const matches = keyboardShortcuts.filter(
+    ([action, keys]) =>
+      !query ||
+      normalizeSearch(
+        action + " " + keys.join(" ") + " " + keys.join("+"),
+      ).includes(query),
   );
   $("keyboard-shortcuts-status").textContent = matches.length
     ? matches.length + " shortcut(s) found"
@@ -9978,7 +11599,10 @@ function renderKeyboardShortcuts() {
 }
 function closeKeyboardShortcuts() {
   $("keyboard-shortcuts-dialog").close();
-  if (shortcutReturnFocus?.isConnected && !shortcutReturnFocus.closest("[inert]"))
+  if (
+    shortcutReturnFocus?.isConnected &&
+    !shortcutReturnFocus.closest("[inert]")
+  )
     shortcutReturnFocus.focus();
   shortcutReturnFocus = null;
 }
@@ -9989,7 +11613,10 @@ function openKeyboardShortcuts() {
   $("keyboard-shortcuts-dialog").showModal();
   $("keyboard-shortcuts-search").focus();
 }
-$("keyboard-shortcuts-search").addEventListener("input", renderKeyboardShortcuts);
+$("keyboard-shortcuts-search").addEventListener(
+  "input",
+  renderKeyboardShortcuts,
+);
 $("keyboard-shortcuts-close").onclick = closeKeyboardShortcuts;
 $("keyboard-shortcuts-dialog").addEventListener("keydown", (event) => {
   if (event.key === "Escape") {
@@ -9998,17 +11625,20 @@ $("keyboard-shortcuts-dialog").addEventListener("keydown", (event) => {
     return;
   }
   if (!["ArrowDown", "ArrowUp"].includes(event.key)) return;
-  const rows = [...$("keyboard-shortcuts-list").querySelectorAll(".keyboard-shortcut-row")];
+  const rows = [
+    ...$("keyboard-shortcuts-list").querySelectorAll(".keyboard-shortcut-row"),
+  ];
   if (!rows.length) return;
   const index = rows.indexOf(document.activeElement);
   event.preventDefault();
-  rows[event.key === "ArrowDown"
-    ? (index + 1 + rows.length) % rows.length
-    : (index < 0 ? rows.length - 1 : index - 1 + rows.length) % rows.length
+  rows[
+    event.key === "ArrowDown"
+      ? (index + 1 + rows.length) % rows.length
+      : (index < 0 ? rows.length - 1 : index - 1 + rows.length) % rows.length
   ].focus();
 });
 let composerWidth = 0;
-new ResizeObserver(entries => {
+new ResizeObserver((entries) => {
   const width = entries[0].contentRect.width;
   if (width === composerWidth) return;
   composerWidth = width;
@@ -10021,16 +11651,23 @@ const utf8 = new TextEncoder();
 function syncDraftLimit(value) {
   const note = $("draft-limit");
   // UTF-8 takes at most 3 bytes per UTF-16 unit, so a short draft needs no exact count.
-  const bytes = value.length * 3 < PROMPT_WARN_BYTES ? 0 : utf8.encode(value).length;
+  const bytes =
+    value.length * 3 < PROMPT_WARN_BYTES ? 0 : utf8.encode(value).length;
   const over = bytes > PROMPT_BYTE_LIMIT;
   note.hidden = bytes < PROMPT_WARN_BYTES;
   note.dataset.over = String(over);
   note.textContent = note.hidden
     ? ""
     : over
-      ? "This message is " + (bytes - PROMPT_BYTE_LIMIT).toLocaleString("en-US") + " bytes over the " +
-        PROMPT_BYTE_LIMIT.toLocaleString("en-US") + "-byte limit. Shorten it or attach it as a file."
-      : bytes.toLocaleString("en-US") + " / " + PROMPT_BYTE_LIMIT.toLocaleString("en-US") + " bytes";
+      ? "This message is " +
+        (bytes - PROMPT_BYTE_LIMIT).toLocaleString("en-US") +
+        " bytes over the " +
+        PROMPT_BYTE_LIMIT.toLocaleString("en-US") +
+        "-byte limit. Shorten it or attach it as a file."
+      : bytes.toLocaleString("en-US") +
+        " / " +
+        PROMPT_BYTE_LIMIT.toLocaleString("en-US") +
+        " bytes";
   return over;
 }
 // The spoken character count is computed once typing pauses: counting code points of a long draft per key is slow.
@@ -10040,33 +11677,51 @@ function scheduleCharacterCount() {
   clearTimeout(characterCountTimer);
   characterCountTimer = setTimeout(() => {
     const count = Array.from($("prompt").value).length;
-    $("character-count").textContent = count.toLocaleString("en-US") + (count === 1 ? " character" : " characters");
+    $("character-count").textContent =
+      count.toLocaleString("en-US") +
+      (count === 1 ? " character" : " characters");
   }, CHARACTER_COUNT_DELAY_MS);
 }
 // UX-R1-4: before a message goes to another provider, say that the conversation goes along.
 function syncRouteCarryover() {
   const note = $("route-carryover"),
     next = selected(),
-    switching = lastRoute?.backend && next?.backend && lastRoute.backend !== next.backend;
+    switching =
+      lastRoute?.backend && next?.backend && lastRoute.backend !== next.backend;
   note.hidden = !switching;
   note.replaceChildren();
   if (!switching) return;
   note.append(
-    "Next message goes to " + (providerNames[next.backend] || next.backend) + " · " + modelName(next.id) +
+    "Next message goes to " +
+      (providerNames[next.backend] || next.backend) +
+      " · " +
+      modelName(next.id) +
       ". The conversation so far goes with it.",
   );
   for (const line of carryoverToolLines(lastRoute.backend, next))
-    note.append(Object.assign(document.createElement("span"), { className: "route-carryover-tool", textContent: line }));
+    note.append(
+      Object.assign(document.createElement("span"), {
+        className: "route-carryover-tool",
+        textContent: line,
+      }),
+    );
 }
 // D-031: a model that cannot read images never receives one; the composer says so before sending.
 let imageRefusedModel = "";
-const imageRefusalCodes = new Set(["model_images_unavailable", "images_require_native_service", "local_vision_not_enabled"]);
+const imageRefusalCodes = new Set([
+  "model_images_unavailable",
+  "images_require_native_service",
+  "local_vision_not_enabled",
+]);
 const imageUnreadableCopy = () =>
-  modelName(selected()?.id) + " can't read images. Choose a model that reads images, or remove the image.";
+  modelName(selected()?.id) +
+  " can't read images. Choose a model that reads images, or remove the image.";
 function syncImageWarning() {
-  const m = selected(), hasImage = files.some((f) => f.preview_url);
+  const m = selected(),
+    hasImage = files.some((f) => f.preview_url);
   const refused = !!m && imageRefusedModel === m.id;
-  const shown = !!m && ((hasImage && m.capabilities?.images === false) || refused);
+  const shown =
+    !!m && ((hasImage && m.capabilities?.images === false) || refused);
   $("image-capability-warning").hidden = !shown;
   $("image-capability-remove").hidden = !hasImage;
   if (shown) $("image-capability-text").textContent = imageUnreadableCopy();
@@ -10084,7 +11739,8 @@ $("image-capability-remove").onclick = () => {
   $("prompt").focus();
 };
 function updateComposer() {
-  if (projectTrustContext && !currentProjectTrust(projectTrustContext)) void refreshProjectTrust();
+  if (projectTrustContext && !currentProjectTrust(projectTrustContext))
+    void refreshProjectTrust();
   syncComposerProjectButton();
   syncViewSwitch();
   syncComposerPickers();
@@ -10182,13 +11838,22 @@ document.addEventListener("keydown", (e) => {
   const searchShortcut =
     (e.key.toLowerCase() === "k" && !e.shiftKey) ||
     (e.key.toLowerCase() === "p" && e.shiftKey);
-  if ((e.ctrlKey || e.metaKey) && !e.altKey && (e.key === "/" || searchShortcut)) {
+  if (
+    (e.ctrlKey || e.metaKey) &&
+    !e.altKey &&
+    (e.key === "/" || searchShortcut)
+  ) {
     e.preventDefault();
     if (e.key === "/") openKeyboardShortcuts();
     else openConversationSearch();
   }
   if (e.key === "Escape") {
-    if ($("attention-popover").hidden && $("quota-panel").hidden && document.querySelector("#run-console:not([hidden])")) return;
+    if (
+      $("attention-popover").hidden &&
+      $("quota-panel").hidden &&
+      document.querySelector("#run-console:not([hidden])")
+    )
+      return;
     if (!$("attention-popover").hidden) {
       $("attention-popover").hidden = true;
       $("attention-bell").setAttribute("aria-expanded", "false");
@@ -10198,8 +11863,9 @@ document.addEventListener("keydown", (e) => {
     }
     if (!$("quota-panel").hidden) {
       e.preventDefault();
-      const meter = [...$("provider-quotas").querySelectorAll(".provider-quota-meter")]
-        .find((node) => node.dataset.provider === quotaFocus);
+      const meter = [
+        ...$("provider-quotas").querySelectorAll(".provider-quota-meter"),
+      ].find((node) => node.dataset.provider === quotaFocus);
       setQuotaOpen(false);
       if (quotaReturnsToSettings) {
         quotaReturnsToSettings = false;
@@ -10280,20 +11946,29 @@ $("vpn-login-form").onsubmit = async (e) => {
     $("vpn-login-error").textContent = error.message;
   }
 };
-const gateChoiceKey = id => "gate-choice-draft:" + id;
+const gateChoiceKey = (id) => "gate-choice-draft:" + id;
 function pendingGateStatus() {
   const gate = document.querySelector('.gate-card[data-state="pending"]');
   if (!gate) return;
-  const text = gate.dataset.publish === "true" ? "Waiting for publication approval" : "Waiting for your choice";
+  const text =
+    gate.dataset.publish === "true"
+      ? "Waiting for publication approval"
+      : "Waiting for your choice";
   status(text);
   $("activity-state").textContent = text;
-  if (active) { active.chip.textContent = text; setActivitySummary(active, text); }
+  if (active) {
+    active.chip.textContent = text;
+    setActivitySummary(active, text);
+  }
 }
 function finishGate(id, state, data = {}) {
   retireDraft(gateChoiceKey(id));
   const box = document.getElementById("gate-" + id);
   if (!box) return;
-  if (box.contains(document.activeElement) || box.dataset.restoreFocus === "true")
+  if (
+    box.contains(document.activeElement) ||
+    box.dataset.restoreFocus === "true"
+  )
     $("prompt").focus({ preventScroll: true });
   box.dataset.state = state;
   if (box.classList.contains("maestro-plan-card")) {
@@ -10302,27 +11977,64 @@ function finishGate(id, state, data = {}) {
     return;
   }
   if (state === "resolved") {
-    const choices = data.choice === undefined ? [] : Array.isArray(data.choice) ? data.choice : [data.choice];
-    box.querySelectorAll("input").forEach(input => { input.checked = choices.includes(input.value); });
+    const choices =
+      data.choice === undefined
+        ? []
+        : Array.isArray(data.choice)
+          ? data.choice
+          : [data.choice];
+    box.querySelectorAll("input").forEach((input) => {
+      input.checked = choices.includes(input.value);
+    });
   }
-  box.querySelectorAll("button,input").forEach(node => { node.disabled = true; });
+  box.querySelectorAll("button,input").forEach((node) => {
+    node.disabled = true;
+  });
   const title = box.querySelector("h3");
-  if (title) title.textContent = state === "resolved"
-    ? (box.dataset.publish === "true" ? (data.choice === "deny" ? "Publication denied" : data.choice === "approve" ? "Publication approved" : "Publication decision recorded") : "Answered")
-    : box.dataset.publish === "true" ? (state === "invalidated" ? "Publication approval closed" : "Publication approval expired")
-    : state === "invalidated" ? "Question closed" : "Question expired";
+  if (title)
+    title.textContent =
+      state === "resolved"
+        ? box.dataset.publish === "true"
+          ? data.choice === "deny"
+            ? "Publication denied"
+            : data.choice === "approve"
+              ? "Publication approved"
+              : "Publication decision recorded"
+          : "Answered"
+        : box.dataset.publish === "true"
+          ? state === "invalidated"
+            ? "Publication approval closed"
+            : "Publication approval expired"
+          : state === "invalidated"
+            ? "Question closed"
+            : "Question expired";
   const note = box.querySelector('[role="status"]');
-  if (state === "resolved" && data.choice === undefined && box.dataset.publish !== "true") {
+  if (
+    state === "resolved" &&
+    data.choice === undefined &&
+    box.dataset.publish !== "true"
+  ) {
     title.textContent = "Answered in another session";
-    note.textContent = "The recorded answer is not available yet. Reload to see it.";
+    note.textContent =
+      "The recorded answer is not available yet. Reload to see it.";
     return;
   }
-  note.textContent = state === "resolved"
-    ? (box.dataset.publish === "true" ? (data.choice === "deny" ? "Publication denied" : data.choice === "approve" ? "Publication approved" : "Publication decision recorded") : "Answered") + (data.resolved_by ? " by " + data.resolved_by : "") + "."
-    : box.dataset.publish === "true" ? "This publication approval is no longer active; ask again for a fresh approval before publishing."
-    : state === "invalidated"
-      ? "This question is no longer active. Send a message to ask again."
-      : "This question expired. Send a message to ask again.";
+  note.textContent =
+    state === "resolved"
+      ? (box.dataset.publish === "true"
+          ? data.choice === "deny"
+            ? "Publication denied"
+            : data.choice === "approve"
+              ? "Publication approved"
+              : "Publication decision recorded"
+          : "Answered") +
+        (data.resolved_by ? " by " + data.resolved_by : "") +
+        "."
+      : box.dataset.publish === "true"
+        ? "This publication approval is no longer active; ask again for a fresh approval before publishing."
+        : state === "invalidated"
+          ? "This question is no longer active. Send a message to ask again."
+          : "This question expired. Send a message to ask again.";
 }
 function restoreGates(gates = []) {
   for (const gate of Array.isArray(gates) ? gates : []) {
@@ -10338,10 +12050,16 @@ function showGate(data) {
     showMaestroPlan({ ...data.plan, gate_id: data.gate_id, state: "pending" });
     return;
   }
-  if (data.publish && data.effect_id) { showPublishGate(data); return; }
-  const box = document.createElement("section"), title = document.createElement("h3"),
-    note = document.createElement("p"), fields = document.createElement("fieldset"),
-    legend = document.createElement("legend"), submit = document.createElement("button");
+  if (data.publish && data.effect_id) {
+    showPublishGate(data);
+    return;
+  }
+  const box = document.createElement("section"),
+    title = document.createElement("h3"),
+    note = document.createElement("p"),
+    fields = document.createElement("fieldset"),
+    legend = document.createElement("legend"),
+    submit = document.createElement("button");
   box.id = "gate-" + data.gate_id;
   box.className = "approval-card gate-card";
   box.dataset.publish = String(!!data.publish);
@@ -10350,12 +12068,16 @@ function showGate(data) {
   legend.textContent = data.question;
   fields.append(legend);
   for (const option of data.options || []) {
-    const label = document.createElement("label"), input = document.createElement("input"),
-      text = document.createElement("span"), description = document.createElement("small");
+    const label = document.createElement("label"),
+      input = document.createElement("input"),
+      text = document.createElement("span"),
+      description = document.createElement("small");
     input.type = data.multi_select ? "checkbox" : "radio";
     input.name = "gate-choice-" + data.gate_id;
     input.value = option.id;
-    input.checked = (readDraft(gateChoiceKey(data.gate_id)) || []).includes(option.id);
+    input.checked = (readDraft(gateChoiceKey(data.gate_id)) || []).includes(
+      option.id,
+    );
     text.textContent = option.label;
     description.textContent = option.description || "";
     label.append(input, text, description);
@@ -10366,8 +12088,11 @@ function showGate(data) {
   submit.textContent = "Confirm choice";
   submit.disabled = !fields.querySelector("input:checked");
   fields.onchange = () => {
-    const choices = [...fields.querySelectorAll("input:checked")].map(input => input.value);
-    const key = gateChoiceKey(data.gate_id), snapshot = JSON.stringify(choices);
+    const choices = [...fields.querySelectorAll("input:checked")].map(
+      (input) => input.value,
+    );
+    const key = gateChoiceKey(data.gate_id),
+      snapshot = JSON.stringify(choices);
     if (!temporarySession) {
       draftViews.set(key, snapshot);
       unsavedDrafts.set(key, snapshot);
@@ -10377,25 +12102,40 @@ function showGate(data) {
   };
   submit.onclick = async () => {
     if (box.dataset.state !== "pending") return;
-    const choices = [...fields.querySelectorAll("input:checked")].map(input => input.value);
+    const choices = [...fields.querySelectorAll("input:checked")].map(
+      (input) => input.value,
+    );
     if (!choices.length) return;
     box.dataset.state = "submitting";
     box.dataset.restoreFocus = String(box.contains(document.activeElement));
-    box.querySelectorAll("button,input").forEach(node => { node.disabled = true; });
+    box.querySelectorAll("button,input").forEach((node) => {
+      node.disabled = true;
+    });
     note.textContent = "Sending your choice…";
     try {
-      const result = await post("/v1/approvals/" + data.gate_id, { choice: data.multi_select ? choices : choices[0] });
-      finishGate(data.gate_id, "resolved", { choice: data.multi_select ? choices : choices[0], ...result });
+      const result = await post("/v1/approvals/" + data.gate_id, {
+        choice: data.multi_select ? choices : choices[0],
+      });
+      finishGate(data.gate_id, "resolved", {
+        choice: data.multi_select ? choices : choices[0],
+        ...result,
+      });
     } catch (error) {
-      if (error.code === "gate_already_resolved") finishGate(data.gate_id, "resolved");
-      else if (["gate_invalidated", "gate_expired"].includes(error.code)) finishGate(data.gate_id, error.code.slice(5));
+      if (error.code === "gate_already_resolved")
+        finishGate(data.gate_id, "resolved");
+      else if (["gate_invalidated", "gate_expired"].includes(error.code))
+        finishGate(data.gate_id, error.code.slice(5));
       else if (box.dataset.state === "submitting") {
         box.dataset.state = "pending";
         note.textContent = "Couldn't send your choice. " + error.message;
-        box.querySelectorAll("button,input").forEach(node => { node.disabled = false; });
+        box.querySelectorAll("button,input").forEach((node) => {
+          node.disabled = false;
+        });
         if (box.dataset.restoreFocus === "true") submit.focus();
       }
-    } finally { delete box.dataset.restoreFocus; }
+    } finally {
+      delete box.dataset.restoreFocus;
+    }
   };
   box.append(title, fields, submit, note);
   if (data.publish) appendPublishEvidence(box, data);
@@ -10406,7 +12146,9 @@ function showGate(data) {
 
 // OP-R1-21: "mediated" and "unenforced" are protocol words; say what they mean for the user.
 function publicationLabel(enforcement) {
-  return enforcement === "mediated" ? "Sent through KeepHarness" : "Not controlled by KeepHarness";
+  return enforcement === "mediated"
+    ? "Sent through KeepHarness"
+    : "Not controlled by KeepHarness";
 }
 function appendPublishEvidence(container, data) {
   const evidence = document.createElement("div");
@@ -10417,7 +12159,10 @@ function appendPublishEvidence(container, data) {
   const add = (label, value, pre = false) => {
     if (value == null) return;
     const node = document.createElement(pre ? "pre" : "p");
-    node.textContent = label + ": " + (typeof value === "string" ? value : JSON.stringify(value, null, 2));
+    node.textContent =
+      label +
+      ": " +
+      (typeof value === "string" ? value : JSON.stringify(value, null, 2));
     evidence.append(node);
   };
   add("Operation", data.operation);
@@ -10431,12 +12176,17 @@ function appendPublishEvidence(container, data) {
   add("Arguments digest", data.arguments_digest);
   add("Artifact preview", data.artifact_preview, true);
   add("Artifact digest", data.artifact_digest);
-  add("Approval", "An enrolled human session is required. This decision applies once to this exact request and artifact.");
+  add(
+    "Approval",
+    "An enrolled human session is required. This decision applies once to this exact request and artifact.",
+  );
   container.append(evidence);
 }
 
 function showPublishGate(data) {
-  const box = document.createElement("section"), title = document.createElement("h3"), note = document.createElement("p");
+  const box = document.createElement("section"),
+    title = document.createElement("h3"),
+    note = document.createElement("p");
   box.id = "gate-" + data.gate_id;
   box.className = "approval-card gate-card publish-gate-card";
   box.dataset.tour = "publish-gate";
@@ -10446,7 +12196,10 @@ function showPublishGate(data) {
   box.append(title);
   appendPublishEvidence(box, data);
   note.setAttribute("role", "status");
-  for (const [choice, label] of [["approve", "Approve"], ["deny", "Deny"]]) {
+  for (const [choice, label] of [
+    ["approve", "Approve"],
+    ["deny", "Deny"],
+  ]) {
     const action = document.createElement("button");
     action.className = "btn";
     action.type = "button";
@@ -10455,22 +12208,34 @@ function showPublishGate(data) {
       if (box.dataset.state !== "pending") return;
       box.dataset.state = "submitting";
       box.dataset.restoreFocus = String(box.contains(document.activeElement));
-      box.querySelectorAll("button").forEach(node => { node.disabled = true; });
+      box.querySelectorAll("button").forEach((node) => {
+        node.disabled = true;
+      });
       note.textContent = "Sending your decision…";
       try {
-        const result = await post("/v1/approvals/" + encodeURIComponent(data.gate_id), { choice });
-        if (box.dataset.state === "submitting") finishGate(data.gate_id, "resolved", result);
+        const result = await post(
+          "/v1/approvals/" + encodeURIComponent(data.gate_id),
+          { choice },
+        );
+        if (box.dataset.state === "submitting")
+          finishGate(data.gate_id, "resolved", result);
       } catch (error) {
         if (box.dataset.state !== "submitting") return;
-        if (error.code === "gate_already_resolved") finishGate(data.gate_id, "resolved");
-        else if (["gate_invalidated", "gate_expired"].includes(error.code)) finishGate(data.gate_id, error.code.slice(5));
+        if (error.code === "gate_already_resolved")
+          finishGate(data.gate_id, "resolved");
+        else if (["gate_invalidated", "gate_expired"].includes(error.code))
+          finishGate(data.gate_id, error.code.slice(5));
         else if (box.dataset.state === "submitting") {
           box.dataset.state = "pending";
           note.textContent = "Couldn't send your decision. " + error.message;
-          box.querySelectorAll("button").forEach(node => { node.disabled = false; });
+          box.querySelectorAll("button").forEach((node) => {
+            node.disabled = false;
+          });
           if (box.dataset.restoreFocus === "true") action.focus();
         }
-      } finally { delete box.dataset.restoreFocus; }
+      } finally {
+        delete box.dataset.restoreFocus;
+      }
     };
     box.append(action);
   }
@@ -10483,13 +12248,18 @@ function showPublishGate(data) {
 function expireApproval(id) {
   const box = document.getElementById("approval-" + id);
   if (!box) return;
-  if (box.contains(document.activeElement) ||
-      (box.dataset.restoreFocus === "true" && document.activeElement === document.body)) {
+  if (
+    box.contains(document.activeElement) ||
+    (box.dataset.restoreFocus === "true" &&
+      document.activeElement === document.body)
+  ) {
     $("prompt").focus({ preventScroll: true });
   }
   box.dataset.state = "expired";
   box.querySelector("h3").textContent = "Approval expired";
-  box.querySelectorAll("button,input").forEach((node) => (node.disabled = true));
+  box
+    .querySelectorAll("button,input")
+    .forEach((node) => (node.disabled = true));
   const progress = box.querySelector('[role="status"]');
   progress.hidden = false;
   progress.textContent = userErrors.approval_expired;
@@ -10581,7 +12351,9 @@ function showApproval(data) {
       progress.textContent = "Sending your decision…";
       try {
         const answers = approved
-          ? Object.fromEntries(fields.map(([id, input]) => [id, { answers: [input.value] }]))
+          ? Object.fromEntries(
+              fields.map(([id, input]) => [id, { answers: [input.value] }]),
+            )
           : {};
         await post("/v1/approvals/" + data.approval_id, {
           approved,
@@ -10593,19 +12365,26 @@ function showApproval(data) {
       } catch (e) {
         if (e.code === "approval_already_resolved") {
           progress.textContent = e.message;
-          box.querySelectorAll("button,input").forEach(node => node.remove());
+          box.querySelectorAll("button,input").forEach((node) => node.remove());
           if (hadFocus) $("prompt").focus({ preventScroll: true });
-        } else if (e.code === "approval_expired") expireApproval(data.approval_id);
-        else if (e.code === "approval_session_required" || e.code === "approval_session_expired") {
+        } else if (e.code === "approval_expired")
+          expireApproval(data.approval_id);
+        else if (
+          e.code === "approval_session_required" ||
+          e.code === "approval_session_expired"
+        ) {
           // Approvals need an owner-enrolled browser; say how, here and in the status line.
           progress.textContent = e.message;
           box.dataset.enrollment = "required";
           status(e.message);
-        } else if (box.dataset.state !== "expired") progress.textContent = "Couldn't confirm your decision. " + e.message;
+        } else if (box.dataset.state !== "expired")
+          progress.textContent = "Couldn't confirm your decision. " + e.message;
       } finally {
         deciding = false;
         if (box.dataset.state !== "expired") {
-          box.querySelectorAll("button,input").forEach((node) => (node.disabled = false));
+          box
+            .querySelectorAll("button,input")
+            .forEach((node) => (node.disabled = false));
           if (hadFocus && box.isConnected) button.focus();
         }
         delete box.dataset.restoreFocus;
@@ -10669,17 +12448,22 @@ for (const button of document.querySelectorAll("[data-settings]")) {
     HarnessUI.icon(
       button.dataset.settings === "appearance"
         ? "adjustments"
-        : button.dataset.settings === "plugins" || button.dataset.settings === "agents"
+        : button.dataset.settings === "plugins" ||
+            button.dataset.settings === "agents"
           ? "stack-2"
           : button.dataset.settings === "models"
             ? "server"
             : button.dataset.settings === "archived"
-            ? "archive"
-            : button.dataset.settings === "system"
-            ? { providers: "plug", home: "pulse", runs: "list", catalogs: "archive", connection: "server" }[
-                button.dataset.adminSection
-              ]
-            : "message",
+              ? "archive"
+              : button.dataset.settings === "system"
+                ? {
+                    providers: "plug",
+                    home: "pulse",
+                    runs: "list",
+                    catalogs: "archive",
+                    connection: "server",
+                  }[button.dataset.adminSection]
+                : "message",
     ),
   );
 }
@@ -10718,7 +12502,8 @@ function attachmentNotice(filename, code) {
     unsupported_binary_format: "this format has no reader available in the app",
     binary_denied: "this binary format has no reader available in the app",
     invalid_pdf: "the PDF is invalid or damaged",
-    document_tools_unavailable: "PDF extraction requires bwrap (bubblewrap) on the server",
+    document_tools_unavailable:
+      "PDF extraction requires bwrap (bubblewrap) on the server",
     pdf_extraction_failed: "its text could not be extracted from the PDF",
     document_text_unavailable: "the document contains no readable text",
     document_text_limit: "the document's text exceeds the size limit",
@@ -10749,7 +12534,8 @@ function attachmentNotice(filename, code) {
   $("messages").scrollTop = $("messages").scrollHeight;
 }
 function attachmentError(code) {
-  if (imageRefusalCodes.has(code)) return imageUnreadableCopy() + " The image was not attached.";
+  if (imageRefusalCodes.has(code))
+    return imageUnreadableCopy() + " The image was not attached.";
   return {
     video_capability_unavailable:
       "Couldn't check the model's MP4 support. Try again once the integration is available.",
@@ -10780,7 +12566,8 @@ function attachmentError(code) {
       "Local transcription failed; the audio was not attached.",
     image_capability_unavailable:
       "Couldn't check this server's vision support. Try again once it's available.",
-    select_model_for_image: "Choose a model that reads images before attaching one.",
+    select_model_for_image:
+      "Choose a model that reads images before attaching one.",
     image_size_limit: "Images can be up to 100 MiB.",
     unsupported_binary_format:
       "This binary format doesn't have a reader available yet. Upload a compatible image, a PDF with text, an Office/OpenDocument document, or a text file.",
@@ -10789,7 +12576,8 @@ function attachmentError(code) {
     document_expansion_limit:
       "The document exceeds the safe decompression limit.",
     invalid_pdf: "The PDF is invalid or damaged.",
-    document_tools_unavailable: "PDF extraction is unavailable. Install bwrap (bubblewrap) on the server.",
+    document_tools_unavailable:
+      "PDF extraction is unavailable. Install bwrap (bubblewrap) on the server.",
     pdf_extraction_failed: "Couldn't extract the text from the PDF.",
     unsafe_document_xml:
       "The document contains XML declarations that are not allowed.",
@@ -10820,7 +12608,8 @@ document.addEventListener("click", (event) => {
 
 // Shared native popovers for the three concrete composer controls.
 // OP-R2-2: one label per access mode, the same in the composer menu and the header chip.
-const accessLabel = () => $("access-mode").selectedOptions[0]?.textContent || "Ask for approval";
+const accessLabel = () =>
+  $("access-mode").selectedOptions[0]?.textContent || "Ask for approval";
 // D11: the menu offers Full access only to the owner, once turned on in the admin.
 function offerFullAccess(offered) {
   fullAccessOffered = offered;
@@ -10896,7 +12685,9 @@ function moreModels(group) {
 }
 // A menu entry is reachable only while every group around it is open.
 function menuEntryVisible(entry) {
-  let group = (entry.tagName === "SUMMARY" ? entry.parentElement.parentElement : entry).closest("details");
+  let group = (
+    entry.tagName === "SUMMARY" ? entry.parentElement.parentElement : entry
+  ).closest("details");
   while (group) {
     if (!group.open) return false;
     group = group.parentElement.closest("details");
@@ -10918,7 +12709,10 @@ function renderPicker(id) {
     max: "Maximum effort offered by the model.",
     ultra: "The most intense reasoning level offered by the model.",
   };
-  const providers = { ...HarnessUI.providerNames, qwen: HarnessUI.providerNames.local };
+  const providers = {
+    ...HarnessUI.providerNames,
+    qwen: HarnessUI.providerNames.local,
+  };
   const groups = new Map();
   const options = [...$(id).options];
   // Sort Claude families together, newest numeric version first within each family.
@@ -11002,9 +12796,7 @@ function renderPicker(id) {
           heading.setAttribute("aria-controls", list.id);
           heading.append(providerModelIcon(backend));
           const label =
-            HarnessUI.providerNames[backend] ||
-            model?.backend ||
-            "Others";
+            HarnessUI.providerNames[backend] || model?.backend || "Others";
           group.setAttribute("role", "group");
           group.setAttribute("aria-label", label);
           heading.className = "model-provider-heading";
@@ -11022,8 +12814,11 @@ function renderPicker(id) {
           });
           heading.setAttribute("aria-expanded", "false");
         }
-        const more = legacy.has(option.value) ? moreModels(groups.get(backend)) : null;
-        (more?.querySelector(".model-more-options") ||
+        const more = legacy.has(option.value)
+          ? moreModels(groups.get(backend))
+          : null;
+        (
+          more?.querySelector(".model-more-options") ||
           groups.get(backend).querySelector(".model-provider-options")
         ).append(button);
         if (option.selected) {
@@ -11467,7 +13262,8 @@ $("project-form").onsubmit = async (event) => {
 async function refreshWorkspaceResources() {
   const target = $("workspace-resources");
   if (!target) return;
-  const request = ++workspaceResourceRequest, engine = resourceEngine();
+  const request = ++workspaceResourceRequest,
+    engine = resourceEngine();
   const project = $("project").value;
   target.textContent = "Loading resources…";
   $("workspace-resources-count").textContent = "0";
@@ -11478,9 +13274,15 @@ async function refreshWorkspaceResources() {
     return;
   }
   try {
-    const query = new URLSearchParams({ project_id: project, backend: engine.backend,
-      model: engine.model, execution_mode: engine.execution_mode });
-    const data = await json("/v1/resources?" + query, { signal: AbortSignal.timeout(5000) });
+    const query = new URLSearchParams({
+      project_id: project,
+      backend: engine.backend,
+      model: engine.model,
+      execution_mode: engine.execution_mode,
+    });
+    const data = await json("/v1/resources?" + query, {
+      signal: AbortSignal.timeout(5000),
+    });
     if (request !== workspaceResourceRequest) return;
     const items = Array.isArray(data.items) ? data.items : [];
     target.replaceChildren();
@@ -11488,49 +13290,84 @@ async function refreshWorkspaceResources() {
     for (const item of items) {
       const key = item.kind + ":" + item.name;
       if (!workspaceCatalog.has(key)) workspaceCatalog.set(key, item.id);
-      const row = document.createElement("div"), name = document.createElement("span"), badge = document.createElement("span");
+      const row = document.createElement("div"),
+        name = document.createElement("span"),
+        badge = document.createElement("span");
       row.className = "workspace-row";
       row.tabIndex = -1;
       row.dataset.resourceId = item.id;
       row.dataset.resourceRevision = item.revision;
-      name.textContent = item.name; name.className = "workspace-item-name";
+      name.textContent = item.name;
+      name.className = "workspace-item-name";
       const catalog = catalogResourceMeta(item);
-      row.title = [item.name, item.description, item.kind, item.scope, item.origin, catalog?.title].filter(Boolean).join(" · ");
+      row.title = [
+        item.name,
+        item.description,
+        item.kind,
+        item.scope,
+        item.origin,
+        catalog?.title,
+      ]
+        .filter(Boolean)
+        .join(" · ");
       badge.className = "workspace-source";
-      badge.textContent = [item.scope, item.origin, catalog?.short].filter(Boolean).join(" · ");
-      row.append(name, badge); target.append(row);
+      badge.textContent = [item.scope, item.origin, catalog?.short]
+        .filter(Boolean)
+        .join(" · ");
+      row.append(name, badge);
+      target.append(row);
     }
     refreshVisualMarkers();
     if (pendingResourceFocus) focusResourceRow(pendingResourceFocus);
     pendingResourceFocus = "";
-    if (!items.length) target.textContent = "No resources for this project and model.";
+    if (!items.length)
+      target.textContent = "No resources for this project and model.";
     for (const warning of data.warnings || []) {
-      const note = document.createElement("p"); note.textContent = warning; target.append(note);
+      const note = document.createElement("p");
+      note.textContent = warning;
+      target.append(note);
     }
   } catch {
     if (request !== workspaceResourceRequest) return;
-    target.textContent = "Couldn't load resources. Change the model or reopen the panel to retry.";
+    target.textContent =
+      "Couldn't load resources. Change the model or reopen the panel to retry.";
     refreshVisualMarkers();
   }
 }
 function renderWorkspaceTasks(jobs) {
   const target = $("workspace-background-tasks");
   if (!target) return;
-  const active = jobs.filter(item => !["completed", "failed", "cancelled", "interrupted"].includes(item.state));
+  const active = jobs.filter(
+    (item) =>
+      !["completed", "failed", "cancelled", "interrupted"].includes(item.state),
+  );
   target.replaceChildren();
   $("workspace-background-tasks-count").textContent = String(active.length);
   for (const item of active) {
-    const row = document.createElement("button"), name = document.createElement("span"), state = document.createElement("span");
-    row.type = "button"; row.className = "workspace-row";
+    const row = document.createElement("button"),
+      name = document.createElement("span"),
+      state = document.createElement("span");
+    row.type = "button";
+    row.className = "workspace-row";
     name.className = "workspace-item-name";
     name.textContent = item.title || item.work_item || item.job_id;
-    state.className = "workspace-source"; state.textContent = item.state;
-    row.title = [name.textContent, item.wait_reason, item.state].filter(Boolean).join(" · ");
+    state.className = "workspace-source";
+    state.textContent = item.state;
+    row.title = [name.textContent, item.wait_reason, item.state]
+      .filter(Boolean)
+      .join(" · ");
     row.onclick = () => window.runConsole?.openRun(item.job_id);
     const identity = document.createElement("span");
-    identity.className = "workspace-model"; identity.textContent = item.model || item.backend || "";
+    identity.className = "workspace-model";
+    identity.textContent = item.model || item.backend || "";
     identity.title = [item.backend, item.model].filter(Boolean).join(" / ");
-    row.append(providerModelIcon(item.backend, item.model), name, identity, state); target.append(row);
+    row.append(
+      providerModelIcon(item.backend, item.model),
+      name,
+      identity,
+      state,
+    );
+    target.append(row);
   }
   if (!active.length) target.textContent = "No background tasks.";
 }
@@ -11542,19 +13379,35 @@ for (const names of ACCORDION_GROUPS) {
       selectAccordionSection(names[index], { focus: true });
     });
     head.addEventListener("keydown", (event) => {
-      const target = { ArrowDown: index + 1, ArrowUp: index - 1, Home: 0, End: heads.length - 1 }[event.key];
+      const target = {
+        ArrowDown: index + 1,
+        ArrowUp: index - 1,
+        Home: 0,
+        End: heads.length - 1,
+      }[event.key];
       if (target === undefined) return;
       event.preventDefault();
       heads[(target + heads.length) % heads.length].focus();
     });
   });
   const sections = prefs.get("workspace_sections", {});
-  selectAccordionSection(names.find((name) => sections[name]?.open === true) || names[0], { persist: false });
+  selectAccordionSection(
+    names.find((name) => sections[name]?.open === true) || names[0],
+    { persist: false },
+  );
 }
 function updateWorkspaceCounts() {
-  $("workspace-project-files-count").textContent = String($("authorized-project-roots").querySelectorAll(".authorized-root-card").length);
-  $("workspace-activity-count").textContent = String($("activity-events").querySelectorAll("li[data-state]").length);
+  $("workspace-project-files-count").textContent = String(
+    $("authorized-project-roots").querySelectorAll(".authorized-root-card")
+      .length,
+  );
+  $("workspace-activity-count").textContent = String(
+    $("activity-events").querySelectorAll("li[data-state]").length,
+  );
 }
 for (const id of ["authorized-project-roots", "activity-events"])
-  new MutationObserver(updateWorkspaceCounts).observe($(id), { childList: true, subtree: true });
+  new MutationObserver(updateWorkspaceCounts).observe($(id), {
+    childList: true,
+    subtree: true,
+  });
 document.addEventListener("harness:ready", refreshWorkspaceResources);

@@ -16,7 +16,9 @@ const turn = (id, backend, model, prompt) => ({
 (async () => {
   const browser = await chromium.launch();
   try {
-    const page = await browser.newPage({ viewport: { width: 1280, height: 860 } });
+    const page = await browser.newPage({
+      viewport: { width: 1280, height: 860 },
+    });
     const posted = [];
     page.on("pageerror", (e) => console.error("PAGEERROR", e.message));
     await page.route("http://route.test/**", async (route) => {
@@ -41,9 +43,27 @@ const turn = (id, backend, model, prompt) => ({
       else if (pathname === "/v1/models")
         data = {
           models: [
-            { id: "gpt-6-astra", name: "GPT-6 Astra", backend: "codex", execution_modes: executionModes("codex"), efforts: ["medium"] },
-            { id: "gpt-5.6-sol", name: "GPT-5.6 Sol", backend: "codex", execution_modes: executionModes("codex"), efforts: ["medium"] },
-            { id: "claude-sonnet-5-5", name: "Claude Sonnet 5.5", backend: "claude", execution_modes: executionModes("claude"), efforts: ["medium"] },
+            {
+              id: "gpt-6-astra",
+              name: "GPT-6 Astra",
+              backend: "codex",
+              execution_modes: executionModes("codex"),
+              efforts: ["medium"],
+            },
+            {
+              id: "gpt-5.6-sol",
+              name: "GPT-5.6 Sol",
+              backend: "codex",
+              execution_modes: executionModes("codex"),
+              efforts: ["medium"],
+            },
+            {
+              id: "claude-sonnet-5-5",
+              name: "Claude Sonnet 5.5",
+              backend: "claude",
+              execution_modes: executionModes("claude"),
+              efforts: ["medium"],
+            },
           ],
           providers: { codex: true, claude: true },
           uploads_enabled: false,
@@ -51,42 +71,83 @@ const turn = (id, backend, model, prompt) => ({
       else if (pathname === "/v1/conversations")
         data = {
           conversations: [
-            { id: "mix", title: "Mixed models", project: "sem-projeto", state: "completed", last_job_id: "t3", updated_at: 1 },
+            {
+              id: "mix",
+              title: "Mixed models",
+              project: "sem-projeto",
+              state: "completed",
+              last_job_id: "t3",
+              updated_at: 1,
+            },
           ],
         };
-      else if (pathname === "/v1/conversations/mix") data = { title: "Mixed models", execution_mode: "native", turns };
-      else if (pathname === "/v1/version") data = { version: "fixture", build: "route-divider" };
+      else if (pathname === "/v1/conversations/mix")
+        data = { title: "Mixed models", execution_mode: "native", turns };
+      else if (pathname === "/v1/version")
+        data = { version: "fixture", build: "route-divider" };
       else if (pathname === "/v1/jobs" && route.request().method() === "POST") {
         const body = route.request().postDataJSON();
         posted.push(body);
-        data = { job_id: "t4", backend: body.backend, model: body.model, execution_mode: "native" };
+        data = {
+          job_id: "t4",
+          backend: body.backend,
+          model: body.model,
+          execution_mode: "native",
+        };
       } else if (pathname === "/v1/jobs/t4/events")
         return route.fulfill({ body: "", contentType: "text/event-stream" });
-      else if (pathname === "/v1/jobs/t4") data = turn("t4", "codex", "gpt-6-astra", "Back to Astra");
-      else if (/^\/v1\/jobs\/t[123]$/.test(pathname)) data = turns.find((t) => "/v1/jobs/" + t.id === pathname);
+      else if (pathname === "/v1/jobs/t4")
+        data = turn("t4", "codex", "gpt-6-astra", "Back to Astra");
+      else if (/^\/v1\/jobs\/t[123]$/.test(pathname))
+        data = turns.find((t) => "/v1/jobs/" + t.id === pathname);
       return route.fulfill({ json: data });
     });
-    await page.addInitScript(() => localStorage.setItem("keepharness-tour-seen", "0.16.0"));
+    await page.addInitScript(() =>
+      localStorage.setItem("keepharness-tour-seen", "0.16.0"),
+    );
     await page.goto("http://route.test/");
     await page.locator("#startup-gate").waitFor({ state: "hidden" });
-    await page.locator("#history .conversation-row > button", { hasText: "Mixed models" }).click();
-    await page.waitForFunction(() => document.querySelectorAll("#messages article.user").length === 3);
+    await page
+      .locator("#history .conversation-row > button", {
+        hasText: "Mixed models",
+      })
+      .click();
+    await page.waitForFunction(
+      () => document.querySelectorAll("#messages article.user").length === 3,
+    );
 
-    const dividers = page.getByRole("note").filter({ hasText: /changed to|Switched to/ });
+    const dividers = page
+      .getByRole("note")
+      .filter({ hasText: /changed to|Switched to/ });
     assert.deepEqual(await dividers.allInnerTexts(), [
       "Model changed to GPT-5.6 Sol",
       "Switched to Claude Sonnet 5.5 · Claude Code — the conversation so far goes with it",
     ]);
     // Each divider sits right before the user message that used the new model.
-    const order = await page.locator("#messages > *").evaluateAll((nodes) =>
-      nodes.map((node) => (node.classList.contains("route-divider") ? "divider" : node.classList.contains("user") ? "user" : "other")),
+    const order = await page
+      .locator("#messages > *")
+      .evaluateAll((nodes) =>
+        nodes.map((node) =>
+          node.classList.contains("route-divider")
+            ? "divider"
+            : node.classList.contains("user")
+              ? "user"
+              : "other",
+        ),
+      );
+    assert.deepEqual(
+      order.filter((kind) => kind !== "other"),
+      ["user", "divider", "user", "divider", "user"],
     );
-    assert.deepEqual(order.filter((kind) => kind !== "other"), ["user", "divider", "user", "divider", "user"]);
 
     // UX-R1-4: a visible one-line note before sending on another provider, hidden when it is the same one.
     const carryover = page.locator("#route-carryover");
     await page.locator("#model").selectOption("claude-sonnet-5-5");
-    assert.equal(await carryover.isHidden(), true, "the last turn used Claude already");
+    assert.equal(
+      await carryover.isHidden(),
+      true,
+      "the last turn used Claude already",
+    );
     await page.locator("#model").selectOption("gpt-6-astra");
     assert.equal(
       await carryover.innerText(),
@@ -98,7 +159,9 @@ const turn = (id, backend, model, prompt) => ({
     await page.locator("#model").selectOption("gpt-6-astra");
     await page.fill("#prompt", "Back to Astra");
     await page.locator("#send").click();
-    await page.waitForFunction(() => document.querySelectorAll("#messages article.user").length === 4);
+    await page.waitForFunction(
+      () => document.querySelectorAll("#messages article.user").length === 4,
+    );
     assert.equal(posted.at(-1).backend, "codex");
     assert.equal(
       await dividers.last().innerText(),
@@ -106,11 +169,17 @@ const turn = (id, backend, model, prompt) => ({
     );
     assert.equal(await dividers.count(), 3);
 
-    assert.equal(await carryover.isHidden(), true, "the sent turn is the new baseline");
+    assert.equal(
+      await carryover.isHidden(),
+      true,
+      "the sent turn is the new baseline",
+    );
     // A new conversation starts without dividers.
     await page.click("#new");
     assert.equal(await page.locator("#messages .route-divider").count(), 0);
-    console.log("PASS model and provider switches are marked in the conversation");
+    console.log(
+      "PASS model and provider switches are marked in the conversation",
+    );
   } finally {
     await browser.close();
   }

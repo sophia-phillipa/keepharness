@@ -116,7 +116,16 @@ def create_app(config, runtime_path=None):
     )
     app.add_middleware(
         StaticGZipMiddleware,
-        paths=("/", "/ui.js", "/ui-prefs.js", "/run-console.js", "/tour.js", "/ui.css", "/tour.css", "/vendor/markdown-it.min.js"),
+        paths=(
+            "/",
+            "/ui.js",
+            "/ui-prefs.js",
+            "/run-console.js",
+            "/tour.js",
+            "/ui.css",
+            "/tour.css",
+            "/vendor/markdown-it.min.js",
+        ),
     )
     app.state.build_versions = build_versions
     app.state.service = service

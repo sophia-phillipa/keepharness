@@ -312,7 +312,10 @@ def test_installed_plugin_catalog_replaces_the_profile_plugins(client, settings)
 def test_remote_chatgpt_plugins_are_not_effective_in_codex_runs(client, settings):
     # Harness Codex runs set features.apps=false; remote ChatGPT plugins bring their
     # tools as apps, so a real run never sees them (checked live 2026-10-03).
-    settings["codex"]["plugin_inventory"] = ["plugin:github@openai-curated-remote", "plugin:notes@market"]
+    settings["codex"]["plugin_inventory"] = [
+        "plugin:github@openai-curated-remote",
+        "plugin:notes@market",
+    ]
     settings["services"]["codex"]["integrations"] = [
         "plugin:github@openai-curated-remote",
         "plugin:notes@market",
@@ -661,9 +664,7 @@ def test_family_key_normalises_the_connector_name(item, key):
 
 
 def test_plugin_directory_javascript_family_cases_share_the_python_contract():
-    fixture = json.loads(
-        (Path(__file__).parent / "fixtures" / "plugin-directory.json").read_text()
-    )
+    fixture = json.loads((Path(__file__).parent / "fixtures" / "plugin-directory.json").read_text())
     for case in fixture["family_cases"]:
         assert integrations_view.family_key(case["item"]) == case["key"]
 
@@ -700,7 +701,11 @@ def test_a_tool_allowed_elsewhere_is_absent_where_it_is_not_installed(client, gi
     assert entry["here"] == "absent"
     providers = {item["backend"]: item for item in entry["providers"]}
     assert providers["codex"]["allowed"] is True
-    assert providers["claude"] == {"backend": "claude", "allowed": False, "effective_capable": False}
+    assert providers["claude"] == {
+        "backend": "claude",
+        "allowed": False,
+        "effective_capable": False,
+    }
 
 
 def test_a_tool_already_allowed_on_this_provider_is_not_reported(client, github_on_codex, settings):
@@ -708,9 +713,7 @@ def test_a_tool_already_allowed_on_this_provider_is_not_reported(client, github_
     assert "github" not in elsewhere(client, backend="claude")
 
 
-def test_providers_sharing_one_inventory_are_not_elsewhere_for_each_other(
-    client, github_on_codex
-):
+def test_providers_sharing_one_inventory_are_not_elsewhere_for_each_other(client, github_on_codex):
     assert "github" not in elsewhere(client, backend="deepseek")
     assert "github" not in elsewhere(client, backend="codex")
 
@@ -736,7 +739,11 @@ def test_a_remote_plugin_is_allowed_elsewhere_but_not_effective_capable(
     (home / ".codex/config.toml").write_text('[plugins."slack@openai-remote"]\nenabled = true\n')
     settings["services"]["codex"]["integrations"] = ["plugin:slack@openai-remote"]
     entry = elsewhere(client, backend="claude")["slack"]
-    assert entry["providers"][0] == {"backend": "codex", "allowed": True, "effective_capable": False}
+    assert entry["providers"][0] == {
+        "backend": "codex",
+        "allowed": True,
+        "effective_capable": False,
+    }
 
 
 def test_elsewhere_is_capped(client, github_on_codex, settings, monkeypatch):
@@ -745,7 +752,13 @@ def test_elsewhere_is_capped(client, github_on_codex, settings, monkeypatch):
     monkeypatch.setattr(
         integrations_view,
         "inventory",
-        lambda: {"claude": [], "gemini": [], "local": fake["codex"], "deepseek": fake["codex"], **fake},
+        lambda: {
+            "claude": [],
+            "gemini": [],
+            "local": fake["codex"],
+            "deepseek": fake["codex"],
+            **fake,
+        },
     )
     settings["services"]["codex"]["integrations"] = ["mcp:" + n for n in names]
     entries = view(client, backend="claude").json()["elsewhere"]
@@ -753,7 +766,9 @@ def test_elsewhere_is_capped(client, github_on_codex, settings, monkeypatch):
     assert integrations_view.ELSEWHERE_LIMIT == 50
 
 
-def test_elsewhere_label_keeps_the_name_as_the_menu_shows_it(client, github_on_codex, settings, monkeypatch):
+def test_elsewhere_label_keeps_the_name_as_the_menu_shows_it(
+    client, github_on_codex, settings, monkeypatch
+):
     fake = [
         {"id": "mcp:GitHub", "name": "GitHub", "kind": "mcp"},
         {"id": "plugin:PostgreSQL@market", "name": "PostgreSQL@market", "kind": "plugin"},

@@ -311,8 +311,10 @@ def session_marker(marker, provider):
         if "adapter" in saved and saved["adapter"] != "deepseek":
             raise ToolError("deepseek_session_identity_mismatch")
         identified = all(saved.get(key) == value for key, value in expected.items())
-        if not isinstance(saved.get("id"), str) or not saved["id"].strip() or (
-            not identified and saved.get("adapter") != "deepseek"
+        if (
+            not isinstance(saved.get("id"), str)
+            or not saved["id"].strip()
+            or (not identified and saved.get("adapter") != "deepseek")
         ):
             raise ToolError("deepseek_session_identity_ambiguous")
     elif saved.get("adapter") == "deepseek":
@@ -472,7 +474,13 @@ async def run_turn(
                 text = params.get("delta", "")
                 item_id = params.get("itemId")
                 # Distinct agent messages (progress commentary, final answer) must not run together.
-                if item_id and answer_item and item_id != answer_item and answer and not answer.endswith("\n"):
+                if (
+                    item_id
+                    and answer_item
+                    and item_id != answer_item
+                    and answer
+                    and not answer.endswith("\n")
+                ):
                     answer += "\n\n"
                     event("answer_delta", {"text": "\n\n"})
                 answer_item = item_id or answer_item

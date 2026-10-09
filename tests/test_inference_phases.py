@@ -65,7 +65,9 @@ def test_admission_errors_precede_executor_registration(tmp_path, unknown_backen
         instance.db.close()
 
 
-def test_native_turn_reports_quota_around_the_adapter_and_saves_the_cursor_last(tmp_path, monkeypatch):
+def test_native_turn_reports_quota_around_the_adapter_and_saves_the_cursor_last(
+    tmp_path, monkeypatch
+):
     instance, identity = service(tmp_path)
     order = []
     quota, cursor, panel = recorder(order)

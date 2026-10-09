@@ -94,6 +94,4 @@ def test_admin_body_refuses_deep_json(admin):  # noqa: F811
     client, _ = admin
     response = client.post("/api/remote-model-remove", content=deep_text())
     assert response.status_code == 400
-    assert response.json() == {
-        "error": "Invalid request structure. Check the submitted fields."
-    }
+    assert response.json() == {"error": "Invalid request structure. Check the submitted fields."}

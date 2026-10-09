@@ -237,7 +237,8 @@ class MessageRepository:
     def events_before(self, job, before=None, after=0, limit=200):
         return self.db.execute(
             "SELECT * FROM events WHERE job=? AND id>? AND (? IS NULL OR id<?) "
-            "ORDER BY id DESC LIMIT ?", (job, after, before, before, limit),
+            "ORDER BY id DESC LIMIT ?",
+            (job, after, before, before, limit),
         ).fetchall()
 
     def answer_deltas(self, job):

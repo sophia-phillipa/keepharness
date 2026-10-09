@@ -326,10 +326,10 @@ def discover(
     access_mode=None,
 ):
     """The caller's resources; ``owner`` must be True for the owner's personal ones to show."""
+    from .approval_policy import effective_permissions, hooks_allowed
     from .catalog_manifest import load_manifest, preflight
     from .catalog_pin import effective_catalogs, snapshot_catalogs
     from .harness_agents import add_resources
-    from .approval_policy import effective_permissions, hooks_allowed
     from .integrations import integration_preflight
     from .maestro import model_permissions
     from .workflows import discover_workflows
@@ -563,7 +563,13 @@ def discover(
         for prompts_base, identity in ((global_base, "user/codex"), (owner_home, "owner/codex")):
             if prompts_base:
                 source(
-                    prompts_base / "prompts", "user", "codex", None, "command", identity, prompts_base
+                    prompts_base / "prompts",
+                    "user",
+                    "codex",
+                    None,
+                    "command",
+                    identity,
+                    prompts_base,
                 )
     for shared_root in shared:
         source(
@@ -677,7 +683,9 @@ def discover(
                         reason = "This resource is not available in the isolated environment of this executor."
                     if scope == "user":
                         owned = source_spec["identity"].startswith("owner/")
-                        reason = unloaded_user_resource(engine, kind, owned, personal, hooks) or reason
+                        reason = (
+                            unloaded_user_resource(engine, kind, owned, personal, hooks) or reason
+                        )
                     delegate_allowed = project.get("permissions", {}).get("delegate") is True
                     declared_mode = str(meta.get("mode", "")).strip()
                     if (
@@ -840,7 +848,9 @@ def conversation_title(prompt):
     text = RESERVED_MARKER.sub(" ", str(prompt)).strip()
     sentence = " ".join(SENTENCE_END.split(text, 1)[0].split())
     # "e.g." or "Hi." is not a title: a very short first sentence falls back to the whole prompt.
-    return (sentence if len(sentence) > 11 else " ".join(text.split()))[:TITLE_LIMIT] or "Conversation"
+    return (sentence if len(sentence) > 11 else " ".join(text.split()))[
+        :TITLE_LIMIT
+    ] or "Conversation"
 
 
 def reserved_markers(prompt, selections):

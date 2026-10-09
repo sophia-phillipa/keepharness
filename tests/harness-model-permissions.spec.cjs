@@ -58,7 +58,9 @@ const assert = require("node:assert/strict");
         }));
       await r.fulfill({ json: data });
     });
-    await p.addInitScript(() => localStorage.setItem("keepharness-tour-seen", "0.16.0"));
+    await p.addInitScript(() =>
+      localStorage.setItem("keepharness-tour-seen", "0.16.0"),
+    );
     await p.goto(process.env.HARNESS_URL || "http://127.0.0.1:18196/");
     await p.waitForFunction(
       () =>
@@ -123,7 +125,15 @@ const assert = require("node:assert/strict");
       /Internet allowed/,
     );
     await p.selectOption("#project", "sem-projeto", { force: true });
-    await p.waitForFunction(() => document.querySelector("#attach").disabled);
+    // The attach button is also disabled while the new project's permissions load, so wait for
+    // the loaded permissions themselves.
+    await p.waitForFunction(
+      () =>
+        document.querySelector("#attach").disabled &&
+        /Internet disabled/.test(
+          document.querySelector("#model-permissions").textContent,
+        ),
+    );
     assert.match(
       await p.locator("#model-permissions").innerText(),
       /Internet disabled/,

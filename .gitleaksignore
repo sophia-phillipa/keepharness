@@ -6,3 +6,15 @@ be388ef5aa2000647009c050cd89dd6e6fbdd77f:desktop/policy.test.cjs:generic-api-key
 b4a82c839c95822af2b51b81cd97de84aa046474:desktop/policy.test.cjs:generic-api-key:111
 # A fake issue key ("PRIVATE-SYNTHETIC-12") in a security test.
 380860ab79fbee5909ae223245fd574a8cb7d212:tests/test_gauntlet_round12_security.py:generic-api-key:49
+
+# Synthetic credential sentinels verify that provider notices never persist or return credentials.
+c5b683def08495c6829d27d659af84fe9c055af8:tests/test_provider_state_notices.py:generic-api-key:409
+
+# Artificial key, private-key body and JWT shapes exercise continuation prompt redaction.
+5705605fdc551101f3593866690034f8b6717735:tests/test_continuation_prompt.py:generic-api-key:219
+5705605fdc551101f3593866690034f8b6717735:tests/test_continuation_prompt.py:private-key:223
+5705605fdc551101f3593866690034f8b6717735:tests/test_continuation_prompt.py:jwt:230
+
+# Made-up authorization header and sequential AWS-shaped fixture exercise metadata redaction.
+29859b253d428a790b839e7d1090132abaf92f8d:tests/test_tool_metadata.py:curl-auth-header:254
+29859b253d428a790b839e7d1090132abaf92f8d:tests/test_tool_metadata.py:aws-access-token:261

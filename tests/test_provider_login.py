@@ -132,8 +132,9 @@ def test_claude_login_bumps_only_the_cache_only_account_revision(tmp_path):
     assert first["provider_revisions"] == {"deepseek": "key-one"}
     assert manager.provider_revisions == {"deepseek": "key-one"}
     asyncio.run(manager.claude_login_completed())
-    assert manager._previous_runtime()["account_revisions"]["claude"] != (
-        first["account_revisions"]["claude"]
+    assert (
+        manager._previous_runtime()["account_revisions"]["claude"]
+        != (first["account_revisions"]["claude"])
     )
 
 
@@ -313,7 +314,10 @@ def test_login_code_endpoint_validates_and_never_records_the_code(tmp_path):
             for bad in ("", "has space", "line\nbreak", "x" * 600, 42):
                 response = client.post(path, json={"id": "login", "code": bad}, headers=headers)
                 assert response.status_code == 400, bad
-            assert client.post(path, json={"id": "other", "code": CODE}, headers=headers).status_code == 400
+            assert (
+                client.post(path, json={"id": "other", "code": CODE}, headers=headers).status_code
+                == 400
+            )
             ok = client.post(path, json={"id": "login", "code": CODE}, headers=headers)
             assert ok.status_code == 200 and ok.json() == {"sent": True}
             assert sent == [("login", CODE)]
@@ -322,7 +326,14 @@ def test_login_code_endpoint_validates_and_never_records_the_code(tmp_path):
 
 @pytest.mark.parametrize(
     "sequence",
-    ["\x1b[94m", "\x1b]8;;https://x.test\x07", "\x1b]8;;https://x.test\x1b\\", "\x1b(B", "\x1b7", "\x1b8"],
+    [
+        "\x1b[94m",
+        "\x1b]8;;https://x.test\x07",
+        "\x1b]8;;https://x.test\x1b\\",
+        "\x1b(B",
+        "\x1b7",
+        "\x1b8",
+    ],
 )
 def test_login_output_strips_terminal_sequences_at_every_read_boundary(sequence):
     for boundary in range(len(sequence) + 1):
@@ -365,7 +376,9 @@ def test_an_unterminated_osc_sequence_does_not_hold_back_later_output():
 
 
 def test_sign_in_output_after_an_unterminated_osc_is_kept_when_the_cli_exits(tmp_path):
-    script = "import sys\nsys.stdout.write('\\x1b]0;title\\nOpen https://x.test code ABCD-1234\\n')\n"
+    script = (
+        "import sys\nsys.stdout.write('\\x1b]0;title\\nOpen https://x.test code ABCD-1234\\n')\n"
+    )
 
     async def exercise():
         operations = Operations()

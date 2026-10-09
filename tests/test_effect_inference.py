@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 from test_approval_authority import ORIGIN, client_for
-from test_effect_crash_recovery import jira_fixture  # noqa: F401
+from test_effect_crash_recovery import jira_fixture as jira_fixture
 from test_effect_executor import configure_effects, request
 from test_invocation_normalization import invocation_service
 

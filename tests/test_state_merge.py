@@ -87,9 +87,18 @@ def test_the_dry_run_lists_every_action_and_changes_nothing(split, capsys):
     out = capsys.readouterr().out
     assert snapshot(home) == before
     for expected in (
-        "jobs.sqlite3", "approval_sessions.sqlite3", "runs/sessions/c3",
-        "runs/files/sem-projeto/f3", "autostart", "harness.log", "settings.json", "vpn.key",
-        "default_backend", "audit.jsonl", "keepharness.split-", "--apply",
+        "jobs.sqlite3",
+        "approval_sessions.sqlite3",
+        "runs/sessions/c3",
+        "runs/files/sem-projeto/f3",
+        "autostart",
+        "harness.log",
+        "settings.json",
+        "vpn.key",
+        "default_backend",
+        "audit.jsonl",
+        "keepharness.split-",
+        "--apply",
     ):
         assert expected in out
     assert "secret" not in out  # changed secret settings are masked
@@ -195,7 +204,9 @@ def test_the_merge_waits_while_either_folder_is_in_use(split):
         listener.bind(("127.0.0.1", 0))
         listener.listen()
         runtime = json.loads((new / "runtime.json").read_text())
-        (new / "runtime.json").write_text(json.dumps({**runtime, "port": listener.getsockname()[1]}))
+        (new / "runtime.json").write_text(
+            json.dumps({**runtime, "port": listener.getsockname()[1]})
+        )
         with pytest.raises(SystemExit) as refused:
             state_merge.main(["--apply"], home=home)
     assert "still answers" in str(refused.value.code)

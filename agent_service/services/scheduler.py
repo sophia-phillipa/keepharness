@@ -34,7 +34,9 @@ def run_key(record: dict) -> str:
     return f"schedule-{record['id']}-{record['next_run']}"
 
 
-async def submit(service, identity: tuple, record: dict, idempotency_key: str | None = None) -> dict:
+async def submit(
+    service, identity: tuple, record: dict, idempotency_key: str | None = None
+) -> dict:
     """The path of ``POST /v1/jobs``: a fresh conversation marked as started by the schedule."""
     return await service.submit_async(
         identity,
@@ -120,7 +122,9 @@ async def run_due(service, record: dict, now: float) -> None:
         if exc.code in TRANSIENT_CODES:
             logger.info("Scheduled run of %s deferred: %s", record["id"], exc.code)
             return
-        job_id = submitted_before(service, record, key) if exc.code == "idempotency_conflict" else None
+        job_id = (
+            submitted_before(service, record, key) if exc.code == "idempotency_conflict" else None
+        )
         if job_id is None:
             error = exc.code if SAFE_CODE.fullmatch(str(exc.code)) else "submit_failed"
             logger.warning("Scheduled run of %s was refused: %s", record["id"], error)

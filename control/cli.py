@@ -65,7 +65,9 @@ def main(argv=None):
     save = commands.add_parser(
         "backup", help="Write a backup of the state (without provider logins and keys by default)"
     )
-    save.add_argument("--output", help="Archive to create (default: keepharness-backup-<time>.tar.gz)")
+    save.add_argument(
+        "--output", help="Archive to create (default: keepharness-backup-<time>.tar.gz)"
+    )
     save.add_argument(
         "--with-secrets",
         action="store_true",
@@ -130,9 +132,7 @@ def approve_device(parser, args, default_state):
             parser.error("The browser URL must be a configured harness origin")
         if not args.yes:
             if not sys.stdin.isatty():
-                parser.error(
-                    "Enrollment requires terminal confirmation; use --yes for automation"
-                )
+                parser.error("Enrollment requires terminal confirmation; use --yes for automation")
             answer = input(f"Enable browser approval authority for owner {owner!r}? [y/N] ")
             if answer.strip().lower() not in ("y", "yes"):
                 parser.error("Enrollment cancelled")
@@ -154,11 +154,15 @@ def run_backup(args):
         if args.command == "restore":
             print(backup.restore(Path(args.archive), state, apply=args.apply, replace=args.replace))
             return
-        output = Path(args.output or f"{PRODUCT.slug}-backup-{time.strftime('%Y%m%d-%H%M%S')}.tar.gz")
+        output = Path(
+            args.output or f"{PRODUCT.slug}-backup-{time.strftime('%Y%m%d-%H%M%S')}.tar.gz"
+        )
         manifest = backup.create(state, output, with_secrets=args.with_secrets)
     except (backup.BackupRefused, OSError, sqlite3.Error) as exc:
         raise SystemExit(f"{args.command.capitalize()} failed: {exc}") from None
-    print(f"Backed up {state} to {output}: {manifest['files']} files, {len(manifest['databases'])} databases.")
+    print(
+        f"Backed up {state} to {output}: {manifest['files']} files, {len(manifest['databases'])} databases."
+    )
     print(
         "It includes provider logins and keys in clear: keep it private."
         if args.with_secrets
