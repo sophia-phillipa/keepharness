@@ -45,6 +45,17 @@ The browser preserves the original ordinary-chat draft across replacement
 temporary sessions. Console requests use the storage scope of the selected run;
 opening a temporary conversation does not change the scope of saved Activity runs.
 
+Correction round #60-R2 adds four boundaries. `TemporaryChatService.open` is
+async: the folder creation and lease lock run in `asyncio.to_thread`, so a slow
+close never blocks the event loop, and a cancelled open still removes its folder.
+Provider run folders live in a sibling `<sessions_dir>/temporary-chats/<sid>`,
+outside the key folder, and the crash sweep removes stale ones. Backup and state
+merge share `control/backup.py::is_temporary_chat`, so only the real temporary
+roots are excluded and are never archived or merged. Closing a temporary chat
+returns to the conversation it was opened from (Home origin returns to the Home
+draft); the stale temporary view is never saved as a draft, so the origin's own
+draft stays intact and no private text is persisted.
+
 ## Provider evidence
 
 - **Claude Code 2.1.294:** installed `claude --help`, run with disposable `HOME`,
