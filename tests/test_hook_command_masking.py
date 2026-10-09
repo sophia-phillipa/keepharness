@@ -438,7 +438,6 @@ def test_a_separated_token_is_not_a_model_id(token):
     assert safe_details({"model": token})["model"] == PLACEHOLDER
 
 
-
 def test_the_instructions_content_hash_never_reaches_the_api_snapshot():
     from adapters.shared.provider_state import StateItem, StateSnapshot
     from control.provider_state import snapshot_json
