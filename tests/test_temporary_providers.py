@@ -77,7 +77,11 @@ def test_temporary_claude_spawn_disables_persistence_and_resume(tmp_path):
         yield
 
     with (
-        patch.object(claude, "project_security", return_value={}),
+        patch.object(
+            claude,
+            "project_security",
+            return_value={"trusted": True, "disabled_servers": []},
+        ),
         patch.object(claude, "process_diagnostics", diagnostics),
         patch.object(
             claude.asyncio, "create_subprocess_exec", AsyncMock(return_value=proc)
