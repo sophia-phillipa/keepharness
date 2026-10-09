@@ -119,6 +119,23 @@ const origin = process.env.HARNESS_URL;
     assert.equal(await page.evaluate(() => JSON.stringify({ ...sessionStorage, ...localStorage }).includes('PRIVATE-MARKER-60')), false);
     originDeleted = false;
     console.log('PASS closing a temporary chat whose origin conversation was deleted keeps the Home draft and the error');
+    // The one-row entry must not push a visible composer note (draft limit) out of the viewport.
+    await page.fill('#prompt', 'x'.repeat(130000));
+    await page.locator('#draft-limit').waitFor({ state: 'visible' });
+    for (const width of [1280, 390]) {
+      await page.setViewportSize({ width, height: 860 });
+      const fit = await page.evaluate(() => {
+        const row = document.querySelector('.composer-context'), inside = element => {
+          const box = element.getBoundingClientRect();
+          return box.left >= 0 && box.right <= innerWidth;
+        };
+        return { contained: row.scrollWidth <= row.clientWidth, note: inside(document.querySelector('#draft-limit')), button: inside(document.querySelector('#composer-temporary')) };
+      });
+      assert.deepEqual(fit, { contained: true, note: true, button: true }, 'composer context at ' + width + 'px');
+    }
+    await page.setViewportSize({ width: 1280, height: 860 });
+    await page.fill('#prompt', '');
+    console.log('PASS the composer context row keeps its note and temporary-chat button inside the viewport');
     await page.keyboard.press('Control+,');
     await page.locator('#settings-dialog').waitFor({ state: 'visible' });
     await page.locator('#settings-close').click();
