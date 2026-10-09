@@ -15,6 +15,9 @@ from .remote_models import discover as discover_remote
 OLLAMA_TAGS_URL = "http://127.0.0.1:11434/api/tags"
 # Total seconds for the Ollama probe; httpx timeouts apply per read, not per response.
 PROBE_SECONDS = 3
+# Seconds a CLI may take to answer; past that ``command`` returns ``TIMED_OUT`` (the ``timeout(1)`` code).
+COMMAND_SECONDS = 8
+TIMED_OUT = 124
 
 
 def tool_inventory():
@@ -44,11 +47,12 @@ async def command(*args, env=None):
             *args, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL, env=env
         )
         try:
-            out, _ = await asyncio.wait_for(proc.communicate(), 8)
+            out, _ = await asyncio.wait_for(proc.communicate(), COMMAND_SECONDS)
             return proc.returncode, out[:100000].decode(errors="replace")
         except asyncio.TimeoutError:
             proc.kill()
             await proc.wait()
+            return TIMED_OUT, ""
     except OSError:
         pass
     return 1, ""

@@ -6,6 +6,7 @@ which also supplies the error raised for storage that is not safe to use.
 """
 
 import contextlib
+import fcntl
 import hashlib
 import os
 import re
@@ -157,6 +158,34 @@ class JsonFileRepository:
             os.fsync(directory)
         finally:
             os.close(directory)
+
+    @contextlib.contextmanager
+    def lock(self, entry_id: str):
+        """Hold an exclusive cross-process lock while a caller reads, merges and replaces an entry.
+
+        The lock sits on a sibling ``<entry>.json.lock`` file, never on the entry itself: the
+        atomic replace swaps the entry's inode, so a lock on it would bind to the old file.
+        """
+        # Unlike a write, taking the lock never changes the folder's mode: a read-only store stays so.
+        try:
+            directory = self._open_directory()
+        except FileNotFoundError:
+            self._create_folder()
+            directory = self._open_directory()
+        try:
+            descriptor = os.open(
+                entry_id + SUFFIX + ".lock",
+                os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW,
+                0o600,
+                dir_fd=directory,
+            )
+        finally:
+            os.close(directory)
+        try:
+            fcntl.flock(descriptor, fcntl.LOCK_EX)
+            yield
+        finally:
+            os.close(descriptor)  # closing the descriptor releases the lock
 
     def _write(self, entry_id: str, text: str, *, replace: bool) -> None:
         directory = self._open_folder(create=True)
