@@ -108,12 +108,13 @@ def _mask_option(word: _Word) -> str:
 
 
 def _opaque(text: str) -> bool:
-    """True for text that looks like a token: a known prefix, a long hex run or mixed base64."""
-    mixed = len(text) >= 20 and (
-        all(re.search(p, text) for p in ("[0-9]", "[A-Z]", "[a-z]"))
-        or len(re.findall("[a-z][A-Z]", text)) >= 3
+    """True for text that looks like a token: a known prefix, a long hex run, a word of 16+
+    characters mixing letters and digits, or 20+ characters of camel-cased base64."""
+    mixed = len(text) >= 20 and len(re.findall("[a-z][A-Z]", text)) >= 3
+    letters_and_digits = (
+        len(text) >= 16 and re.search("[A-Za-z]", text) and re.search("[0-9]", text)
     )
-    return bool(_TOKEN_PREFIX.match(text) or _HEX_RUN.search(text) or mixed)
+    return bool(_TOKEN_PREFIX.match(text) or _HEX_RUN.search(text) or mixed or letters_and_digits)
 
 
 def _is_path(value: str) -> bool:

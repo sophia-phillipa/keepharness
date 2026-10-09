@@ -312,3 +312,22 @@ def test_subcommand_literals_reject_token_prefixes_and_runs_past_the_limit(comma
 def test_subcommand_chains_stay_readable_within_the_limit():
     assert mask_command("git push origin main") == "git push origin main"
     assert mask_argv(["node", "sk-abc"]) == ["node", PLACEHOLDER]
+
+
+@pytest.mark.parametrize(
+    ("command", "secret"),
+    [
+        ("run /srv/k8s9x2m4q7w1z5r3t6y0/x", "k8s9x2m4q7w1z5r3t6y0"),
+        ("run /k/JBSWY3DPEHPK3PXP/x", "JBSWY3DPEHPK3PXP"),
+        ("JBSWY3DPEHPK3PXPJBSW status", "JBSWY3DPEHPK3PXPJBSW"),
+        ("hunter2supersecretpw status", "hunter2supersecretpw"),
+    ],
+)
+def test_long_letter_digit_words_are_opaque_in_any_case(command, secret):
+    assert secret not in mask_command(command)
+    assert secret not in " ".join(mask_argv(command.split()))
+
+
+def test_short_versioned_names_still_pass():
+    assert mask_command("python3.12 status") == "python3.12 status"
+    assert mask_command("node20 status") == "node20 status"
