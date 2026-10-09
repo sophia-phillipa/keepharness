@@ -54,6 +54,7 @@ def test_codex_conversational_agent_is_not_registered_for_delegation(tmp_path, m
         return {"answer": "done"}
 
     monkeypatch.setattr("adapters.codex.backend.run_turn", capture)
+    monkeypatch.setattr("adapters.codex.state._cli_version", lambda *args: "0.157.0")
     asyncio.run(
         run_codex(
             {"binary": "codex"},
