@@ -124,6 +124,7 @@ function contrast(rgb1, rgb2) {
         "Go backCtrl [",
         "Go forwardCtrl ]",
         "Keyboard shortcutsCtrl /",
+        "New temporary chatCtrl Shift N",
       ],
     );
     assert.equal(
@@ -132,7 +133,7 @@ function contrast(rgb1, rgb2) {
     );
     assert.equal(
       await dialog.locator('.keyboard-shortcut-row[role="listitem"]').count(),
-      7,
+      8,
     );
     assert.equal(
       await dialog.getByText("Focus composer", { exact: true }).count(),

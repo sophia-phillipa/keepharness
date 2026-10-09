@@ -255,3 +255,52 @@ def test_repository_checkout_is_a_protected_folder(tmp_path):
     app.state.service.db.close()
     assert response.status_code == 403
     assert response.json()["code"] == "project_directory_forbidden"
+
+
+@pytest.mark.parametrize("state", ["queued", "running"])
+def test_temporary_jobs_block_confirmed_project_deletion(setup, state, monkeypatch):
+    import asyncio
+
+    from agent_service.services.conversation_service import ConversationService
+
+    async def paused_worker(self):
+        await asyncio.Event().wait()
+
+    monkeypatch.setattr(ConversationService, "worker", paused_worker)
+    client, service, root, _ = setup
+    data = payload(client)
+    sid = client.post("/v1/temporary").json()["id"]
+    temporary = service.temporary.sessions[sid].service
+    with temporary.db:
+        temporary.db.execute("INSERT INTO jobs(id,project,state) VALUES('private','p',?)", (state,))
+    response = delete(client, data)
+    assert response.status_code == 409, response.text
+    assert response.json()["code"] == "project_folder_busy"
+    assert root.is_dir()
+    with temporary.db:
+        temporary.db.execute("DELETE FROM jobs WHERE id='private'")
+    assert client.delete("/v1/temporary/" + sid).status_code == 200
+    assert delete(client, data).status_code == 200
+
+
+def test_project_deletion_blocks_temporary_admission_and_marks_deleted(setup):
+    client, service, root, _ = setup
+    data = payload(client)
+    sid = client.post("/v1/temporary").json()["id"]
+    temporary = service.temporary.sessions[sid].service
+    remove = __import__("shutil").rmtree
+    identity = ("local", temporary.config["clients"]["local"])
+
+    def remove_with_admission(*args, **kwargs):
+        with pytest.raises(APIError, match="project_folder_busy"):
+            temporary.submit(identity, {"project_id": "p"})
+        remove(*args, **kwargs)
+
+    remove_with_admission.avoids_symlink_attacks = True
+    with patch("shutil.rmtree", remove_with_admission):
+        result = delete(client, data)
+    assert result.status_code == 200, result.text
+    assert not root.exists()
+    assert "p" in temporary.deleted_project_folders
+    with pytest.raises(APIError, match="project_folder_deleted"):
+        temporary._submit_prepared(identity, {"project_id": "p"}, None)

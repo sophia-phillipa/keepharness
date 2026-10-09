@@ -229,21 +229,33 @@ def preview_metadata(file_id, pages):
 
 
 class ConversationService:
-    def __init__(self, config):
+    def __init__(self, config, *, temporary_parent=None):
         self.config = config
+        self.temporary_parent = temporary_parent
         from agent_service.secret_vault import SecretVault
         from control.product import ensure_lineage
 
         self.root = Path(config["state_dir"])
-        ensure_lineage(self.root)
-        harness_agents.migrate_legacy_folder(config)
-        self.vault = SecretVault(
-            config.get("secret_vault_path", self.root / "harness.secrets.json")
+        if temporary_parent is None:
+            ensure_lineage(self.root)
+            harness_agents.migrate_legacy_folder(config)
+        self.vault = (
+            temporary_parent.vault
+            if temporary_parent
+            else SecretVault(config.get("secret_vault_path", self.root / "harness.secrets.json"))
         )
-        self.vault.status()
+        if temporary_parent is None:
+            self.vault.status()
         self.root.mkdir(parents=True, exist_ok=True, mode=0o700)
-        initialize_session_database(config)
-        self.db = connect(self.root)
+        if temporary_parent is None:
+            initialize_session_database(config)
+            self.db = connect(self.root)
+        else:
+            import sqlite3
+
+            self.db = sqlite3.connect(":memory:", check_same_thread=False)
+            self.db.row_factory = sqlite3.Row
+            self.identity = temporary_parent.identity
         migrate(self.db)
         self.conversation_repository = ConversationRepository(self.db)
         self.message_repository = MessageRepository(self.db)
@@ -251,6 +263,13 @@ class ConversationService:
         self.project_service = ProjectService(
             config, self.root, self.db, self.project_repository, self.conversation_repository
         )
+        if temporary_parent is not None:
+            for name in (
+                "conversation_repositories",
+                "deleted_project_folders",
+                "deleting_project_folders",
+            ):
+                setattr(self.project_service, name, getattr(temporary_parent.project_service, name))
         self.deleted_project_folders = self.project_service.deleted_project_folders
         self.deleting_project_folders = self.project_service.deleting_project_folders
         if config.get("local_access") and not config.get("local_secret_sha256"):
@@ -321,6 +340,10 @@ class ConversationService:
         self.effects = EffectService(self)
         for row in self.conversation_repository.running():
             self.finish(row["id"], "interrupted", {"error": "service_restarted", "metrics": None})
+        if temporary_parent is None:
+            from .temporary_chat_service import TemporaryChatService
+
+            self.temporary = TemporaryChatService(self)
 
     async def apply_runtime_config(self, candidate):
         """Atomically install a control-plane config without replacing live state."""
@@ -363,12 +386,13 @@ class ConversationService:
             "effect_credentials_path",
             candidate.get("secret_vault_path", self.root / "harness.effect_credentials.json"),
         )
-        SecretVault(vault_path).status()
-        SecretVault(effect_path).status()
-        self.vault.path = Path(vault_path)
-        self.vault.status()
-        self.effects.credentials.path = Path(effect_path)
-        self.effects.credentials.status()
+        if not self.config.get("temporary_chat"):
+            SecretVault(vault_path).status()
+            SecretVault(effect_path).status()
+            self.vault.path = Path(vault_path)
+            self.vault.status()
+            self.effects.credentials.path = Path(effect_path)
+            self.effects.credentials.status()
         self.config.clear()
         self.config.update(candidate)
         for condition in self.provider_slots.values():
@@ -406,6 +430,16 @@ class ConversationService:
                 self.cancellation_reasons[row["id"]] = reason
                 queue_worker.cancel_owned(self, row)
         self.wake.set()
+
+        if hasattr(self, "temporary"):
+            for session in list(self.temporary.sessions.values()):
+                temporary_config = {
+                    **candidate,
+                    "temporary_chat": True,
+                    "state_dir": str(session.service.root),
+                    "sessions_dir": str(session.service.sessions_root()),
+                }
+                await session.service.apply_runtime_config(temporary_config)
 
     def event(self, job, kind, data):
         from agent_service.secret_vault import redact_secrets
@@ -1713,6 +1747,14 @@ class ConversationService:
 
     def _prepare_submission(self, identity, data):
         data = dict(data)
+        if "temporary" in data and type(data["temporary"]) is not bool:
+            raise APIError("invalid_temporary")
+        if data.get("temporary") and not self.config.get("temporary_chat"):
+            raise APIError("temporary_session_required", 409)
+        if self.config.get("temporary_chat"):
+            data["temporary"] = True
+            if data.get("backend", "codex") not in ("codex", "claude", "deepseek", "local"):
+                raise APIError("temporary_backend_unsupported", 422)
         if data.get("project_id") in self.deleting_project_folders:
             raise APIError("project_folder_busy", 409)
         if any(
@@ -1851,14 +1893,22 @@ class ConversationService:
             turns = self.conversation(identity, self.conversation_id(previous))
             if turns[-1]["id"] != previous["id"]:
                 raise APIError("conversation_has_newer_turn", 409)
-        if self.conversation_repository.count_pending() >= 32:
+        root_service = self.temporary_parent or self
+        repositories = [
+            root_service.conversation_repository,
+            *(
+                session.service.conversation_repository
+                for session in root_service.temporary.sessions.values()
+            ),
+        ]
+        if sum(repo.count_pending() for repo in repositories) >= 32:
             raise APIError("queue_full", 429, 5)
         if self.conversation_repository.count_for_project(project) >= MAX_PROJECT_RUNS:
             raise APIError("job_storage_limit", 429)
-        if self.conversation_repository.count_pending_for_owner(identity[0]) >= 10:
+        if sum(repo.count_pending_for_owner(identity[0]) for repo in repositories) >= 10:
             raise APIError("owner_queue_full", 429, 5)
         self.limit((identity[0], "submission"), 12, "submission_rate_limit")
-        job = uuid.uuid4().hex
+        job = ("tmp-" if self.config.get("temporary_chat") else "") + uuid.uuid4().hex
         with self.db:
             self.conversation_repository.insert(
                 job,
@@ -1892,6 +1942,8 @@ class ConversationService:
     ):
         from agent_service.secret_vault import redact_secrets
 
+        if self.config.get("temporary_chat"):
+            return
         thinking, answer = redact_secrets(thinking), redact_secrets(answer)
         if not self.config["projects"][project].get("display", False):
             return
@@ -2097,6 +2149,13 @@ class ConversationService:
 
     async def _prepare_inference(self, row, data):
         """Resolve sources, history and the prompt; every admission error is raised here."""
+        if self.config.get("temporary_chat") and data.get("backend", "codex") not in (
+            "codex",
+            "claude",
+            "deepseek",
+            "local",
+        ):
+            raise APIError("temporary_backend_unsupported", 422)
         selected_resources = self.selected_resources(
             data,
             canonical=[invocations.Invocation(**value) for value in data["invocations"]]
@@ -2118,7 +2177,7 @@ class ConversationService:
             raise APIError("uploads_denied", 403)
         native_session = self.session_folder(row, data)
         backend = data.get("backend", "codex")
-        if backend in ("codex", "deepseek", "local"):
+        if backend in ("codex", "deepseek", "local") and not self.config.get("temporary_chat"):
             # Check provenance before context recovery or transfer can archive the marker.
             session_marker(native_session / "native-thread.json", backend)
         for fid in file_ids:
@@ -2237,7 +2296,7 @@ class ConversationService:
         )
         recovery = native_session / "context-recovery.json"
         recovered = json.loads(recovery.read_text()).get("job") if recovery.exists() else None
-        if overflow_job and recovered != overflow_job:
+        if overflow_job and recovered != overflow_job and not self.config.get("temporary_chat"):
             native_session.mkdir(parents=True, exist_ok=True, mode=0o700)
             for name in (
                 "native-thread.json",
@@ -2261,9 +2320,12 @@ class ConversationService:
         # The local adapter is visibly scoped but its persistent Codex cursor
         # uses the native RPC transport.  Keep that historical cursor contract.
         context_transport_mode = "native" if data.get("backend") == "local" else execution_mode
-        pending, persisted_session = conversation_context.pending_turns(
-            native_session, turns, data.get("backend", "codex"), context_transport_mode
-        )
+        if self.config.get("temporary_chat"):
+            pending, persisted_session = turns, None
+        else:
+            pending, persisted_session = conversation_context.pending_turns(
+                native_session, turns, data.get("backend", "codex"), context_transport_mode
+            )
         pending_files = {
             fid for payload, _ in pending for fid in payload.get("file_ids", [])
         } | set(data.get("file_ids", []))
@@ -2283,6 +2345,7 @@ class ConversationService:
                 len(history_text) + len(prompt) + len(context) > 140000
                 and data.get("backend") == "codex"
                 and execution_mode == "native"
+                and not self.config.get("temporary_chat")
                 and permissions.get("read")
                 and permissions.get("shell")
             ):
@@ -2348,6 +2411,8 @@ class ConversationService:
         selected_config = runtime_config(
             self.config, project_id, getattr(plan, "selected_resources", [])
         )
+        if self.config.get("temporary_chat"):
+            selected_config = {**selected_config, "control_state_dir": str(self.root)}
         try:
             runtime = runtime_for_project(selected_config, project_id)
         except (ValueError, OSError):
@@ -2483,7 +2548,12 @@ class ConversationService:
                 channel = (kind, value.get("parent_tool_use_id") or None)
                 value = {**value, "text": secret_stream.feed(channel, value.get("text", ""))}
             value = redact_secrets(value)
-            if kind == "session_turn_started" and backend == "codex" and execution_mode == "native":
+            if (
+                kind == "session_turn_started"
+                and backend == "codex"
+                and execution_mode == "native"
+                and not self.config.get("temporary_chat")
+            ):
                 conversation_context.save_cursor(
                     native_session, row["id"], value, context_transport_mode, started=True
                 )
@@ -2561,9 +2631,10 @@ class ConversationService:
         """Prefix skipped-attachment notices and persist the session cursor last."""
         if plan.attachment_notice:
             result["answer"] = plan.attachment_notice + result.get("answer", "")
-        conversation_context.save_cursor(
-            plan.native_session, plan.row["id"], result, plan.context_transport_mode
-        )
+        if not self.config.get("temporary_chat"):
+            conversation_context.save_cursor(
+                plan.native_session, plan.row["id"], result, plan.context_transport_mode
+            )
         return result
 
     def _project_config(self, plan):
@@ -2686,6 +2757,9 @@ class ConversationService:
             **backend_config,
             **run_settings(self.config, backend, data=data),
         }
+        if self.config.get("temporary_chat"):
+            backend_config["temporary_chat"] = True
+            project_config["temporary_chat"] = True
         return project_config, backend_config, permissions
 
     def expire_approval(self, job_id, expiration_limit):

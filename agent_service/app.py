@@ -28,6 +28,7 @@ from .routes import provider_state as provider_state_routes
 from .routes import schedules as schedule_routes
 from .routes import spans as span_routes
 from .routes import system as system_routes
+from .routes import temporary as temporary_routes
 from .routes import ui_state as ui_state_routes
 from .routes.projects import project_git  # noqa: F401  (re-exported)
 from .services import scheduler
@@ -48,6 +49,7 @@ def create_app(config, runtime_path=None):
     async def lifespan(app):
         worker = asyncio.create_task(service.worker())
         due_runs = asyncio.create_task(scheduler.run(service))
+        temporary_cleanup = asyncio.create_task(service.temporary.sweep())
 
         async def watch_runtime():
             previous = None
@@ -71,6 +73,8 @@ def create_app(config, runtime_path=None):
         try:
             yield
         finally:
+            temporary_cleanup.cancel()
+            await asyncio.gather(temporary_cleanup, return_exceptions=True)
             due_runs.cancel()
             try:
                 await due_runs
@@ -88,6 +92,7 @@ def create_app(config, runtime_path=None):
             except asyncio.CancelledError:
                 pass
             await service.effects.close()
+            await service.temporary.close_all()
             service.db.close()
 
     app = Starlette(
@@ -100,6 +105,7 @@ def create_app(config, runtime_path=None):
             *page_routes.ROUTES,
             *schedule_routes.ROUTES,
             *conversation_routes.ROUTES,
+            *temporary_routes.ROUTES,
             *activity_routes.ROUTES,
             *span_routes.ROUTES,
             *harness_agent_routes.ROUTES,
