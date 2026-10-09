@@ -30,7 +30,7 @@
     for (const [value, label] of choices) node.add(new Option(label, value));
     return node;
   };
-  const state = { tab: 'Pipeline', run: '', spans: [], selectedSpan: '', content: false, attentionFilter: 'request',
+  const state = { tab: 'Pipeline', run: '', runSession: '', spans: [], selectedSpan: '', content: false, attentionFilter: 'request',
     activity: { jobs: [], providers: [], needs_you: [], counts: {} }, logs: [], after: 0,
     more: true, logLoading: false, sequence: 0, activitySequence: 0, zoom: 1, detailTab: 'Metrics', filteredJobs: null, followLatest: true };
   const main = document.querySelector('main');
@@ -291,6 +291,7 @@
     projectFilter.value = project.value;
     workFilter.value = '';
     state.run = job || '';
+    state.runSession = job ? temporarySession : '';
     state.followLatest = true;
     state.filteredJobs = null;
     state.content = false;
@@ -376,6 +377,7 @@
       .sort((a, b) => (b.created || 0) - (a.created || 0));
     if (jobs.length && (!state.run || (state.followLatest && conversation && jobs[0].job_id !== state.run))) {
       state.run = jobs[0].job_id;
+      state.runSession = '';
       state.content = false;
       state.selectedSpan = '';
       state.spans = [];
@@ -391,8 +393,9 @@
     runSelect.value = state.run;
     controls.hidden = ['Agents', 'Runs'].includes(state.tab) || (!!state.run && state.tab !== 'Logs');
   }
-  async function chooseRun(id) {
+  async function chooseRun(id, session = id === state.run ? state.runSession : '') {
     state.run = id;
+    state.runSession = session;
     state.followLatest = false;
     state.content = false;
     state.detailTab = 'Metrics';
@@ -412,7 +415,7 @@
     if (!state.run) return;
     const id = state.run, sequence = state.sequence, content = state.content;
     try {
-      const data = await json('/v1/jobs/' + encodeURIComponent(id) + '/spans' + (content ? '?include_content=true' : ''));
+      const data = await json('/v1/jobs/' + encodeURIComponent(id) + '/spans' + (content ? '?include_content=true' : ''), { temporarySession: state.runSession });
       if (id !== state.run || sequence !== state.sequence || content !== state.content) return;
       const changed = JSON.stringify(state.spans) !== JSON.stringify(data.spans || []);
       state.spans = data.spans || [];
@@ -612,7 +615,7 @@
       const params = new URLSearchParams({ format: 'json', limit: '200', order: live ? 'oldest' : 'newest' });
       if (live) params.set('after', String(Math.max(0, ...state.logs.map(item => item.id))));
       else if (state.logs.length) params.set('before', String(Math.min(...state.logs.map(item => item.id))));
-      const data = await json('/v1/jobs/' + encodeURIComponent(id) + '/events?' + params);
+      const data = await json('/v1/jobs/' + encodeURIComponent(id) + '/events?' + params, { temporarySession: state.runSession });
       if (sequence !== state.sequence || id !== state.run) return;
       const known = new Set(state.logs.map(item => item.id));
       state.logs.push(...(data.events || []).filter(item => !known.has(item.id)));
@@ -725,7 +728,7 @@
     form.addEventListener('submit', async event => {
       event.preventDefault(); if (save.disabled) return; save.disabled = true;
       try {
-        await api('/v1/jobs/' + encodeURIComponent(item.job_id) + '/work-item', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ work_item: key.value.trim() || null }) });
+        await api('/v1/jobs/' + encodeURIComponent(item.job_id) + '/work-item', { temporarySession: '', method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ work_item: key.value.trim() || null }) });
         form.remove();
         await refresh();
         renderRuns();
@@ -896,7 +899,8 @@
     openAttention(filter) { void openInbox(filter); },
     attachAnswer(target, id) {
       if (!id) return;
-      const view = button('View run', async () => { syncContext(); toggle(true); setTab('Pipeline'); await chooseRun(id); });
+      const session = temporarySession;
+      const view = button('View run', async () => { syncContext(); toggle(true); setTab('Pipeline'); await chooseRun(id, session); });
       view.prepend(HarnessUI.icon('trace'));
       target.append(view);
     },

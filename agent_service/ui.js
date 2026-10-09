@@ -1593,8 +1593,10 @@ const userErrors = {
   schedule_storage_unsafe: "The schedules folder cannot be used safely. Check the harness state folder.",
 };
 async function api(path, options = {}) {
+  const { temporarySession: scope = temporarySession, ...requestOptions } = options;
+  options = requestOptions;
   const scoped = /^\/v1\/(jobs(?:[/?]|$)|files(?:[/?]|$)|conversations\/|effects(?:[/?]|$)|approvals(?:[/?]|$)|approval-rules(?:[/?]|$)|project-files\/attach|assess(?:[/?]|$))/.test(path);
-  if (temporarySession && scoped) options = { ...options, headers: { ...options.headers, "X-KeepHarness-Temporary": temporarySession } };
+  if (scope && scoped) options = { ...options, headers: { ...options.headers, "X-KeepHarness-Temporary": scope } };
   let r;
   try {
     r = await fetch(path, {
@@ -1651,7 +1653,7 @@ async function api(path, options = {}) {
   return r;
 }
 async function json(path, options) {
-  const session = temporarySession;
+  const session = options?.temporarySession ?? temporarySession;
   const r = await api(path, options);
   let data;
   try {
@@ -6183,11 +6185,15 @@ async function renewTemporaryChat() {
   }
 }
 async function startTemporaryChat() {
-  if (temporaryStarting || submitting || cancelling || loading || uploads || !leaveTemporaryChat()) return;
+  if (temporaryStarting || submitting || cancelling || loading || uploads) return;
+  const replacing = !!temporarySession;
+  if (!leaveTemporaryChat()) return;
+  if (!replacing) {
+    saveView();
+    temporaryPreviousDraft = readDraft("conversation-draft:" + (conversation || "new:" + $("project").value));
+  }
   temporaryStarting = true;
   setBusy(busy);
-  saveView();
-  temporaryPreviousDraft = readDraft("conversation-draft:" + (conversation || "new:" + $("project").value));
   try {
     const session = await post("/v1/temporary", {});
     if (!session.id) throw Error("The server did not create a temporary chat.");
@@ -6203,7 +6209,11 @@ async function startTemporaryChat() {
     window.history.replaceState(window.history.state, "", route);
     closeSidebar();
     $("prompt").focus();
-  } catch (error) { status("Couldn't start temporary chat: " + error.message); }
+  } catch (error) {
+    if (replacing && temporaryPreviousDraft) restoreView(temporaryPreviousDraft);
+    temporaryPreviousDraft = null;
+    status("Couldn't start temporary chat: " + error.message);
+  }
   finally { temporaryStarting = false; setBusy(busy); }
 }
 $("new-temporary").onclick = startTemporaryChat;
@@ -7652,7 +7662,7 @@ function readDraft(key) {
   catch { return null; }
 }
 function saveView() {
-  if (temporarySession) return true;
+  if (temporarySession || temporaryStarting) return true;
   if (loading) return true;
   try {
     const route = new URL(location.href);

@@ -7,8 +7,13 @@ const origin = process.env.HARNESS_URL;
     const page = await browser.newPage({ viewport: { width: 1280, height: 860 } });
     page.setDefaultTimeout(8000);
     let closed = 0;
+    let failNextTemporary = false;
     await page.route('**/v1/**', route => {
       const request = route.request(), url = new URL(request.url());
+      if (url.pathname === '/v1/temporary' && failNextTemporary) {
+        failNextTemporary = false;
+        return route.fulfill({ status: 500, json: { code: 'temporary_storage_unavailable' } });
+      }
       const data = url.pathname === '/v1/projects' ? { projects: ['sem-projeto'], details: {} }
         : url.pathname === '/v1/models' ? { models: [{ id: 'fixture', name: 'Fixture', backend: 'local', efforts: ['low'], permissions: { upload: true }, temporary_chat: true }], providers: { local: true }, uploads_enabled: true }
         : url.pathname === '/v1/conversations' ? { conversations: [] }
@@ -43,6 +48,30 @@ const origin = process.env.HARNESS_URL;
     await page.locator('#temporary-chat-notice').waitFor({ state: 'hidden' });
     assert.equal(closed, 1);
     assert.equal(await page.locator('#prompt').inputValue(), 'ordinary draft');
+    await page.keyboard.press('Control+Shift+N');
+    await page.locator('#temporary-chat-notice').waitFor({ state: 'visible' });
+    await page.fill('#prompt', 'PRIVATE-MARKER-60-A');
+    page.once('dialog', dialog => dialog.accept());
+    await page.keyboard.press('Control+Shift+N');
+    await page.waitForFunction(() => !temporaryStarting && temporarySession);
+    assert.equal(await page.locator('#prompt').inputValue(), '');
+    assert.equal(await page.evaluate(() => JSON.parse(sessionStorage.getItem('conversation-draft:new:sem-projeto')).draft), 'ordinary draft');
+    page.once('dialog', dialog => dialog.accept());
+    await page.locator('#close-temporary-chat').click();
+    assert.equal(await page.locator('#prompt').inputValue(), 'ordinary draft');
+    assert.equal(await page.evaluate(() => JSON.parse(sessionStorage.getItem('conversation-draft:new:sem-projeto')).draft), 'ordinary draft');
+    console.log('PASS temporary replacement preserves original ordinary draft in composer and storage');
+    await page.keyboard.press('Control+Shift+N');
+    await page.locator('#temporary-chat-notice').waitFor({ state: 'visible' });
+    await page.fill('#prompt', 'PRIVATE-MARKER-60-A');
+    failNextTemporary = true;
+    page.once('dialog', dialog => dialog.accept());
+    await page.keyboard.press('Control+Shift+N');
+    await page.waitForFunction(() => !temporaryStarting && !temporarySession);
+    assert.equal(await page.locator('#prompt').inputValue(), 'ordinary draft');
+    await page.evaluate(() => saveView());
+    assert.equal(await page.evaluate(() => JSON.parse(sessionStorage.getItem('conversation-draft:new:sem-projeto')).draft), 'ordinary draft');
+    console.log('PASS failed temporary replacement restores ordinary draft before autosave resumes');
     await page.keyboard.press('Control+,');
     await page.locator('#settings-dialog').waitFor({ state: 'visible' });
     await page.locator('#settings-close').click();
