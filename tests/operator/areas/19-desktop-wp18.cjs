@@ -443,7 +443,8 @@ module.exports = {
       // A returning user has seen the tour for this release.
       await page.evaluate(async () => {
         const { version } = await fetch("/v1/version").then((r) => r.json());
-        localStorage.setItem("keepharness-tour-seen", version);
+        HarnessPrefs.set("tour_seen", version);
+        await HarnessPrefs.flush();
       });
       await sleep(1500);
       await dismissTour(page);

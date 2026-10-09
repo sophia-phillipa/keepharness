@@ -2,6 +2,15 @@
 "use strict";
 const { dismissTour } = require("../lib/app.cjs");
 
+// The tour's seen flag is a backend UI pref (tour_seen), not localStorage: write it through
+// HarnessPrefs and flush so the next reload reads the server value.
+async function resetTourSeen(page) {
+  await page.evaluate(async () => {
+    HarnessPrefs.set("tour_seen", "");
+    await HarnessPrefs.flush();
+  });
+}
+
 module.exports = {
   id: "shell",
   title: "App shell, rail and tour",
@@ -10,7 +19,7 @@ module.exports = {
 
     await op.step("first-load", "Open KeepHarness and wait for it to be ready", async () => {
       await page.goto(op.session.base + "/");
-      await page.evaluate(() => localStorage.removeItem("keepharness-tour-seen"));
+      await resetTourSeen(page);
       await page.reload();
       await page.locator("#startup-gate").waitFor({ state: "hidden", timeout: 30000 });
       op.check(/KeepHarness/.test(await page.title()), "the page title names KeepHarness");
@@ -25,7 +34,7 @@ module.exports = {
     const counter = async () => Number((await page.locator("#tour-counter").innerText()).split(" of ")[0]);
     const tourOpen = async () => {
       if (await page.locator("#tour-root").isVisible().catch(() => false)) return;
-      await page.evaluate(() => localStorage.removeItem("keepharness-tour-seen"));
+      await resetTourSeen(page);
       await page.reload();
       await op.see(page.locator("#tour-root"), 30000);
     };

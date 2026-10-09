@@ -366,7 +366,9 @@ runPersona("H37", [
       // The Settings button opens the section menu; it must fit at 400% too.
       await page.click("#settings");
       // Hidden until positioned (one toggle event): wait for it rather than sampling once.
-      await page.locator("#settings-menu").waitFor({ state: "visible", timeout: 5000 });
+      await page
+        .locator("#settings-menu")
+        .waitFor({ state: "visible", timeout: 5000 });
       await fits(page, "#settings-menu");
       await page.keyboard.press("Escape");
       await page.keyboard.press("Control+,");

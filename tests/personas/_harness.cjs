@@ -96,7 +96,9 @@ const HARNESS_STATIC = {
 
 // Fake origin http://harness.test, mirroring agent_service's /v1 API.
 async function mockHarness(page, over = {}) {
-  await page.addInitScript(() => localStorage.setItem("keepharness-tour-seen", "0.16.0"));
+  await page.addInitScript(() =>
+    localStorage.setItem("keepharness-tour-seen", "0.16.0"),
+  );
   const s = {
     turns: [],
     posts: [],
@@ -183,7 +185,14 @@ async function signIn(context) {
   const split = cookie.indexOf("=");
   if (split < 1) return;
   await context.addCookies([
-    { name: cookie.slice(0, split), value: cookie.slice(split + 1), domain: "127.0.0.1", path: "/", httpOnly: true, sameSite: "Strict" },
+    {
+      name: cookie.slice(0, split),
+      value: cookie.slice(split + 1),
+      domain: "127.0.0.1",
+      path: "/",
+      httpOnly: true,
+      sameSite: "Strict",
+    },
   ]);
 }
 

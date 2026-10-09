@@ -47,7 +47,7 @@ jobs:
           ruff check .
       - name: Check JS/CSS formatting
         # HTML is excluded on purpose: reflowing text nodes changes textContent.
-        run: npx --yes prettier@3.9.9 --check "control/*.{js,css}" "agent_service/*.{js,css}" "tests/*.cjs" "scripts/*.cjs"
+        run: npx --yes prettier@3.9.9 --check "control/*.{js,css}" "agent_service/*.{js,css}" "tests/*.cjs" "tests/personas/*.cjs" "scripts/*.cjs"
 
   unit:
     if: github.event_name != 'schedule'
