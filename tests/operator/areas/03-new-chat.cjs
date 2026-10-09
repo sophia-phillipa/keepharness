@@ -76,16 +76,26 @@ module.exports = {
       op.check(count <= 1, `a single-effort model offers ${count} effort options`);
     }, { fixtureOnly: true });
 
-    await op.step("access-menu", "The access menu explains its four modes", async () => {
+    // Full access is offered only when the owner turned it on (serve_fixture.py sets full_access;
+    // ui.js offerFullAccess unhides data-access="full"); otherwise the option stays hidden.
+    const fullAccessOption = page.locator('#access-menu [data-access="full"]');
+    const fullAccessOffered = () => fullAccessOption.evaluate((el) => !el.hidden);
+    const fullAccessSkip = "Full access not enabled by the owner (Control › Allow Full access)";
+
+    await op.step("access-menu", "The access menu explains its modes", async () => {
       await op.click(page.locator("#access-trigger"));
       const access = page.locator("#access-menu");
       await op.see(access);
-      for (const label of ["Ask for approval", "Automatic", "Full access", "Read only"]) await op.seeText(access, label);
+      const labels = ["Ask for approval", "Automatic", "Read only"];
+      if (await fullAccessOffered()) labels.splice(2, 0, "Full access");
+      else op.check(await fullAccessOption.isHidden(), "Full access is hidden but still shown in the menu");
+      for (const label of labels) await op.seeText(access, label);
       await op.press("Escape");
     });
 
     for (const label of ["Automatic", "Read only", "Full access", "Ask for approval"])
       await op.step("access-" + label.toLowerCase().replace(/ /g, "-"), `Choose access mode "${label}"`, async () => {
+        if (label === "Full access" && !(await fullAccessOffered())) op.skip(fullAccessSkip);
         await chooseAccess(op, label);
       });
 
