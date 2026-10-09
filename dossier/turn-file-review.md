@@ -106,6 +106,7 @@ Rules:
   "files": [
     {"path": "src/a.py", "op": "modified",
      "edits": [{"op": "modified", "diff_state": "diff", "diff": "--- a/src/a.py\n...", "tool": "fileChange", "source": "codex"}]}
+    # an edit from a Codex move also carries "moved_from": "<old project-relative path>"
   ]
 }
 ```

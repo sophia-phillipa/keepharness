@@ -361,6 +361,11 @@ async def job(request, service, identity):
     )
 
 
+async def file_changes(request, service, identity):
+    view = service.file_changes(identity, request.path_params["job"])
+    return JSONResponse(view, headers={"Cache-Control": "no-store"})
+
+
 async def job_events(request, service, identity):
     job = request.path_params["job"]
     service.job(identity, job)
@@ -502,6 +507,7 @@ ROUTES = [
     api_route("/v1/jobs/{job}/retry", retry_turn, methods=["POST"]),
     api_route("/v1/jobs/{job}/save-workflow", save_workflow, methods=["POST"]),
     api_route("/v1/jobs/{job}/events", job_events),
+    api_route("/v1/jobs/{job}/file-changes", file_changes),
     api_route("/v1/jobs/{job}/cancel", cancel_job, methods=["POST"]),
     api_route("/v1/jobs/{job}/run-queued", run_queued, methods=["POST"]),
     api_route("/v1/jobs/{job}/artifacts/result.json", job_result),

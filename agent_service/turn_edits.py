@@ -144,3 +144,46 @@ class Budget:
                 else:
                     self.size += len(diff.encode("utf-8"))
             event("turn_edit", item)
+
+
+DIFF_STATES_WITH_TEXT = frozenset({"diff", "partial"})
+
+
+def changes_view(job, job_state, stored, ran_shell):
+    """One job's file changes as the review endpoint shows them (D-053, section 2.5); no disk access."""
+    marker = any("truncated" in item for item in stored)
+    files = group_by_path([item for item in stored if "truncated" not in item])
+    return {
+        "job": job,
+        "job_state": job_state,
+        "state": "captured" if files else "none",
+        "truncated": marker,
+        "shell_unattributed": ran_shell,
+        "files": files,
+    }
+
+
+def group_by_path(stored):
+    """Edits grouped by path in order of first appearance; a file is deleted if its last edit deleted it."""
+    grouped = {}
+    for item in stored:
+        grouped.setdefault(item.get("path"), []).append(shown_edit(item))
+    return [{"path": path, "op": file_op(edits), "edits": edits} for path, edits in grouped.items()]
+
+
+def shown_edit(item):
+    diff_state = item.get("diff_state")
+    return {
+        "op": item.get("op"),
+        "diff_state": diff_state,
+        "diff": item.get("diff") if diff_state in DIFF_STATES_WITH_TEXT else None,
+        "tool": item.get("tool"),
+        "source": item.get("source"),
+        **({"moved_from": item["moved_from"]} if item.get("moved_from") else {}),
+    }
+
+
+def file_op(edits):
+    if edits[-1]["op"] == "deleted":
+        return "deleted"
+    return edits[0]["op"]
