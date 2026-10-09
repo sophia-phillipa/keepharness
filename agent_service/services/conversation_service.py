@@ -680,6 +680,17 @@ class ConversationService:
             raise APIError("job_not_found", 404)
         return dict(row)
 
+    def file_changes(self, identity, job):
+        from agent_service import turn_edits
+
+        row = self.job(identity, job)
+        return turn_edits.changes_view(
+            job,
+            row["state"],
+            self.message_repository.turn_edits(job),
+            self.message_repository.ran_shell(job),
+        )
+
     def file(self, project, file_id, owner):
         row = self.message_repository.file(file_id, project, owner)
         if not row:

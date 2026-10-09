@@ -68,6 +68,7 @@ class StateItem:
     content_digest: str = (
         ""  # server-side change detection over the raw hook; never sent out (D-049)
     )
+    plugin: str = ""  # id of the plugin that owns this item ("tool@mk"); "" when none
 
 
 @dataclass(frozen=True)

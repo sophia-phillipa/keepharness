@@ -10,7 +10,7 @@ def test_native_tools_are_not_filtered_by_delegate_grant(tmp_path, monkeypatch, 
     monkeypatch.setattr("control.integrations.configurations", lambda: {"claude": {}})
     monkeypatch.setattr("control.integrations.inventory", lambda: {"claude": []})
     command = build_command(
-        {"binary": "claude"}, "haiku", tmp_path, {"read": True, "delegate": delegate}, [], "ask", []
+        {"binary": "claude"}, "haiku", tmp_path, {"read": True, "delegate": delegate}, "ask", []
     )
     assert "--tools" not in command
     assert ("--forward-subagent-text" in command) is delegate

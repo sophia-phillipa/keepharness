@@ -200,7 +200,6 @@ def test_claude_native_approval_wait_exceeds_idle_and_cancellation_works(tmp_pat
                 "fake",
                 tmp_path,
                 {},
-                [],
                 approve,
             )
         )

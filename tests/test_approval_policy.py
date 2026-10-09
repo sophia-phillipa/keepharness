@@ -72,7 +72,6 @@ def test_codex_file_change_approval_follows_the_write_grant():
 
 ALL_GRANTS = {"read": True, "write": True, "shell": True, "internet": True}
 HOST_SERVERS = {"node_repl": {"command": "node"}, "github": {"url": "https://example.invalid/mcp"}}
-SELECTED = ["mcp:node_repl", "mcp:github", "plugin:notes@market"]
 
 
 def run_codex_route(tmp_path, provider, project, backend_config=None):
@@ -176,7 +175,6 @@ def test_claude_presets_leave_owner_connectors_and_plugins_to_cli(tmp_path, mode
             "fixture",
             tmp_path,
             effective_permissions(ALL_GRANTS, mode),
-            SELECTED,
             mode,
             [],
         )

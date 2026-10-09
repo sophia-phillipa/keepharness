@@ -124,6 +124,13 @@ const snapshot = (provider, project, items) => ({
           source: "settings.json",
           writable: false,
           reason: "Part of plugin tool@mk",
+          plugin: "tool@mk",
+        }),
+        item("skill:tool:bundled", "skill", "bundled", {
+          source: "settings.json",
+          writable: false,
+          reason: "Shipped inside the tool@mk package",
+          plugin: "tool@mk",
         }),
         item(
           "skill:/fake-home/.claude/skills/notes/SKILL.md",
@@ -263,6 +270,12 @@ const snapshot = (provider, project, items) => ({
     await row("review").waitFor();
     assert.match(await row("review").innerText(), /Part of plugin tool@mk/);
     assert.equal(await row("review").getByRole("switch").count(), 0);
+    await row("bundled").waitFor();
+    assert.match(
+      await row("bundled").innerText(),
+      /Shipped inside the tool@mk package/,
+    );
+    assert.equal(await row("bundled").getByRole("switch").count(), 0);
     assert.match(
       await row("shared").innerText(),
       /Content changes affect other providers using this root/,

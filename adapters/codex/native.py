@@ -16,6 +16,7 @@ from agent_service.reader_mcp import SERVER_NAME as READER
 from agent_service.reader_mcp import server_spec as reader_spec
 from agent_service.tool_metadata import event_metadata, item_markers, item_target
 from agent_service.tools import ToolError
+from agent_service.turn_edits import Budget, normalize_codex
 
 from .rpc import (
     RPCError,
@@ -325,6 +326,7 @@ async def run_turn(
     seen_answer = False
     answer_item = None
     file_changes = {}
+    edits = Budget()  # turn_edit records of this run: caps shared by every fileChange item
     markers = {}  # skill/agent names from each tool start, kept for its end
     async with connection(
         command,
@@ -519,6 +521,16 @@ async def run_turn(
                             **extra,
                         },
                     )
+                    if typ == "fileChange" and not started and content.get("status") == "completed":
+                        # Only completed patches changed files; declined and failed ones are never listed.
+                        changes = content.get("changes")
+                        edits.emit(
+                            event,
+                            [
+                                {**normalize_codex(change, cwd), "tool_id": tool_id}
+                                for change in (changes if isinstance(changes, list) else [])
+                            ],
+                        )
                 elif typ == "contextCompaction":
                     event(
                         ("context_compacting" if kind.endswith("started") else "context_compacted"),

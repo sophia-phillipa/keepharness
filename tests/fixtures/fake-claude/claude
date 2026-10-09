@@ -2,7 +2,9 @@
 """Fake `claude` CLI for provider-state tests; mirrors Claude Code 2.1.292 (observed 2026-10-07).
 
 Commands: `--version` and `plugin enable|disable <id> [-s user|project|local] [--json]`.
-Nothing else is faked; any other command exits 2.
+A stream-json turn (`--input-format stream-json`) whose prompt contains `FAKE-EDITS` plays a
+stream: Edit, MultiEdit, a failed Edit, Write and Bash tool calls, then a text answer. Any other
+prompt, and any other command, exits 2.
 
 Control files (the adapter strips the environment, so the fake reads files, not variables), both
 inside the config directory ($CLAUDE_CONFIG_DIR, else ~/.claude):
@@ -88,6 +90,158 @@ def toggle(command: str, plugin: str, scope: str, as_json: bool) -> None:
     finish(base | {"outcome": "ok", "pluginId": plugin, "message": message}, as_json, 0)
 
 
+SESSION = "fake-claude-session"
+ANSWER = "Done: the edits are in place."
+# (tool_use id, tool name, input, is_error); the input is what the assistant message carries.
+EDIT_CALLS = (
+    ("tool-edit", "Edit", {"old_string": "a = 1", "new_string": "a = 2"}, False),
+    (
+        "tool-multi",
+        "MultiEdit",
+        {
+            "edits": [
+                {"old_string": "def f():", "new_string": "def g():"},
+                {"old_string": "return 1", "new_string": "return 2"},
+            ]
+        },
+        False,
+    ),
+    ("tool-failed", "Edit", {"old_string": "b = 1", "new_string": "b = 2"}, True),
+    ("tool-write", "Write", {"content": "# Todo\n- ship it\n"}, False),
+    ("tool-bash", "Bash", {"command": "sed -i 's/a = 1/a = 2/' src/app.py"}, False),
+)
+EDIT_PATHS = {
+    "tool-edit": "src/app.py",
+    "tool-multi": "src/util.py",
+    "tool-failed": "src/app.py",
+    "tool-write": "notes/todo.md",
+}
+
+
+def emit(item: dict) -> None:
+    print(json.dumps(item), flush=True)
+
+
+def stream_event(event: dict) -> None:
+    emit({"type": "stream_event", "event": event, "session_id": SESSION})
+
+
+def message_events(message_id: str, blocks: list[dict], stop_reason: str, output: int) -> None:
+    """One streamed assistant message: its deltas, then the complete assistant message.
+
+    A tool_use block starts with an empty input, as in a real stream; its input arrives as
+    input_json_delta fragments and in full only on the assistant message.
+    """
+    usage = {"input_tokens": 12, "cache_read_input_tokens": 0, "output_tokens": 0}
+    stream_event({"type": "message_start", "message": {"id": message_id, "usage": usage}})
+    for index, block in enumerate(blocks):
+        if block["type"] == "tool_use":
+            text = json.dumps(block["input"])
+            half = len(text) // 2
+            stream_event(
+                {
+                    "type": "content_block_start",
+                    "index": index,
+                    "content_block": {**block, "input": {}},
+                }
+            )
+            for part in (text[:half], text[half:]):
+                stream_event(
+                    {
+                        "type": "content_block_delta",
+                        "index": index,
+                        "delta": {"type": "input_json_delta", "partial_json": part},
+                    }
+                )
+        else:
+            stream_event(
+                {
+                    "type": "content_block_start",
+                    "index": index,
+                    "content_block": {**block, "text": ""},
+                }
+            )
+            stream_event(
+                {
+                    "type": "content_block_delta",
+                    "index": index,
+                    "delta": {"type": "text_delta", "text": block["text"]},
+                }
+            )
+        stream_event({"type": "content_block_stop", "index": index})
+    stream_event(
+        {
+            "type": "message_delta",
+            "delta": {"stop_reason": stop_reason},
+            "usage": {"output_tokens": output},
+        }
+    )
+    stream_event({"type": "message_stop"})
+    emit(
+        {
+            "type": "assistant",
+            "session_id": SESSION,
+            "message": {"id": message_id, "role": "assistant", "content": blocks},
+        }
+    )
+
+
+def play_turn() -> None:
+    """Plays the FAKE-EDITS stream: one tool call per message, each with its tool_result, then the answer."""
+    emit({"type": "system", "subtype": "init", "session_id": SESSION})
+    root = os.getcwd()
+    for number, (tool_id, name, args, failed) in enumerate(EDIT_CALLS):
+        if name == "Bash":
+            tool_input = args
+        else:
+            path = EDIT_PATHS[tool_id]
+            tool_input = {"file_path": str(Path(root) / path), **args}
+        block = {"type": "tool_use", "id": tool_id, "name": name, "input": tool_input}
+        message_events(f"msg-tool-{number}", [block], "tool_use", 30)
+        content = "String to replace not found in file." if failed else "ok"
+        result = {
+            "type": "tool_result",
+            "tool_use_id": tool_id,
+            "content": content,
+            "is_error": failed,
+        }
+        emit(
+            {
+                "type": "user",
+                "session_id": SESSION,
+                "message": {"role": "user", "content": [result]},
+            }
+        )
+    text = {"type": "text", "text": ANSWER}
+    message_events("msg-answer", [text], "end_turn", 20)
+    usage = {
+        "input_tokens": 12,
+        "cache_read_input_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "output_tokens": 20,
+    }
+    emit(
+        {
+            "type": "result",
+            "subtype": "success",
+            "is_error": False,
+            "result": ANSWER,
+            "session_id": SESSION,
+            "usage": usage,
+        }
+    )
+
+
+def prompt_of(line: str) -> str:
+    """The text of the first stream-json user message; empty when the line is not one."""
+    try:
+        message = json.loads(line)
+    except ValueError:
+        return ""
+    content = message.get("message", {}).get("content", []) if isinstance(message, dict) else []
+    return "".join(b.get("text", "") for b in content if isinstance(b, dict))
+
+
 def main(arguments: list[str]) -> None:
     if arguments == ["--version"]:
         override = config_dir() / "fake-claude-version"
@@ -96,6 +250,8 @@ def main(arguments: list[str]) -> None:
     elif arguments[:1] == ["plugin"] and arguments[1:2] in (["enable"], ["disable"]):
         command, plugin, scope, as_json = parse(arguments[1:])
         toggle(command, plugin, scope, as_json)
+    elif "--input-format" in arguments and "FAKE-EDITS" in prompt_of(sys.stdin.readline()):
+        play_turn()
     else:
         print("error: the fake claude CLI does not implement this command", file=sys.stderr)
         sys.exit(2)

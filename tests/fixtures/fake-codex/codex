@@ -4,6 +4,9 @@
 It answers over stdio JSON-RPC (one JSON object per line) the way codex-cli 0.157.1 does for
 ``initialize``, ``config/read``, ``config/batchWrite``, ``skills/list``, ``skills/config/write``,
 ``plugin/list`` and ``app/list``. Error shapes are the ones observed on the real CLI.
+``thread/start`` and ``turn/start`` run a minimal turn: a prompt containing ``FAKE-EDITS`` first emits
+completed, declined and failed ``fileChange`` items (see ``edit_items``); every turn ends with an
+agent message and ``turn/completed``.
 
 The user layer is the real ``$CODEX_HOME/config.toml`` (parsed with ``tomllib``; edits are made
 line by line, so comments and unknown tables survive); a project layer is
@@ -335,6 +338,112 @@ def app_list(params):
     }
 
 
+def notify(method, **params):
+    print(json.dumps({"method": method, "params": params}), flush=True)
+
+
+def prompt_text(params):
+    return " ".join(
+        str(part.get("text", "")) for part in params.get("input") or [] if isinstance(part, dict)
+    )
+
+
+def edit_items(cwd):
+    """(item id, status, changes) for a FAKE-EDITS turn; paths are absolute as the real CLI reports them."""
+    root = Path(cwd)
+
+    def at(name):
+        return str(root / name)
+
+    return [
+        (
+            "item-add",
+            "completed",
+            [{"path": at("src/new.py"), "kind": {"type": "add"}, "diff": "+print(1)\n"}],
+        ),
+        (
+            "item-update",
+            "completed",
+            [
+                {
+                    "path": at("src/app.py"),
+                    "kind": {"type": "update"},
+                    "diff": "@@ -1 +1 @@\n-a\n+b\n",
+                }
+            ],
+        ),
+        (
+            "item-move",
+            "completed",
+            [
+                {
+                    "path": at("src/old.py"),
+                    "kind": {"type": "update", "move_path": at("src/moved.py")},
+                    "diff": "@@ -1 +1 @@\n-a\n+b\n",
+                }
+            ],
+        ),
+        (
+            "item-delete",
+            "completed",
+            [{"path": at("src/gone.py"), "kind": {"type": "delete"}, "diff": "-old\n"}],
+        ),
+        (
+            "item-binary",
+            "completed",
+            [{"path": at("src/image.bin"), "kind": {"type": "add"}, "diff": "PNG\u0000\u0001"}],
+        ),
+        (
+            "item-big",
+            "completed",
+            [{"path": at("src/big.txt"), "kind": {"type": "add"}, "diff": "a" * (64 * 1024 + 1)}],
+        ),
+        (
+            "item-outside",
+            "completed",
+            [
+                {
+                    "path": str(root.parent / "outside.txt"),
+                    "kind": {"type": "add"},
+                    "diff": "outside secret\n",
+                }
+            ],
+        ),
+        (
+            "item-declined",
+            "declined",
+            [{"path": at("src/declined.py"), "kind": {"type": "add"}, "diff": "+no\n"}],
+        ),
+        (
+            "item-failed",
+            "failed",
+            [{"path": at("src/failed.py"), "kind": {"type": "add"}, "diff": "+no\n"}],
+        ),
+    ]
+
+
+def thread_start(params):
+    return {"thread": {"id": "fake-thread"}}
+
+
+def turn_start(params):
+    turn = {"id": "fake-turn"}
+    ids = {"threadId": "fake-thread", "turnId": "fake-turn"}
+    notify("turn/started", turn={**turn, "status": "inProgress"}, **ids)
+    if "FAKE-EDITS" in prompt_text(params):
+        for item_id, status, changes in edit_items(params.get("cwd") or ""):
+            item = {"id": item_id, "type": "fileChange", "status": "inProgress", "changes": changes}
+            notify("item/started", item=item, **ids)
+            notify("item/completed", item={**item, "status": status}, **ids)
+    notify(
+        "item/completed",
+        item={"id": "fake-message", "type": "agentMessage", "text": "Done."},
+        **ids,
+    )
+    notify("turn/completed", turn={**turn, "status": "completed"}, **ids)
+    return {"turn": turn}
+
+
 HANDLERS = {
     "config/read": config_read,
     "config/batchWrite": config_batch_write,
@@ -343,6 +452,8 @@ HANDLERS = {
     "plugin/list": plugin_list,
     "app/list": app_list,
     "hooks/list": lambda params: settings().get("hooks", {"data": []}),
+    "thread/start": thread_start,
+    "turn/start": turn_start,
 }
 
 
