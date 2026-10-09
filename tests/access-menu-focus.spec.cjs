@@ -89,6 +89,10 @@ print(asyncio.run(models(SimpleNamespace(query_params={}), service, identity)).b
         await page.keyboard.press("Enter");
         await page.locator("#access-menu").waitFor({ state: "visible" });
         await page.keyboard.press("ArrowDown");
+        // Under load the options may still be rebuilding: wait until one of them owns the focus.
+        await page.waitForFunction(() =>
+          document.activeElement?.matches('#access-menu [role="option"]'),
+        );
         const result = await page.evaluate(() => {
           const item = document.activeElement;
           const parse = (css) => {
@@ -97,16 +101,19 @@ print(asyncio.run(models(SimpleNamespace(query_params={}), service, identity)).b
             c.fillRect(0, 0, 1, 1);
             return [...c.getImageData(0, 0, 1, 1).data].slice(0, 3);
           };
-          const lum = ([r, g, b]) =>
-            0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b);
-          const lin = (v) => {
+          const relativeLuminance = ([r, g, b]) =>
+            0.2126 * linearChannel(r) +
+            0.7152 * linearChannel(g) +
+            0.0722 * linearChannel(b);
+          const linearChannel = (v) => {
             v /= 255;
             return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4;
           };
           const ratio = (a, b) => {
-            const [hi, lo] = [lum(parse(a)), lum(parse(b))].sort(
-              (x, y) => y - x,
-            );
+            const [hi, lo] = [
+              relativeLuminance(parse(a)),
+              relativeLuminance(parse(b)),
+            ].sort((x, y) => y - x);
             return (hi + 0.05) / (lo + 0.05);
           };
           const style = getComputedStyle(item);
@@ -119,8 +126,8 @@ print(asyncio.run(models(SimpleNamespace(query_params={}), service, identity)).b
             style: style.outlineStyle,
             width: parseFloat(style.outlineWidth),
             color: style.outlineColor,
-            vsItem: ratio(style.outlineColor, style.backgroundColor),
-            vsMenu: ratio(style.outlineColor, menuBg),
+            contrastWithItem: ratio(style.outlineColor, style.backgroundColor),
+            contrastWithMenu: ratio(style.outlineColor, menuBg),
           };
         });
         const ok =
@@ -128,8 +135,8 @@ print(asyncio.run(models(SimpleNamespace(query_params={}), service, identity)).b
           result.visible &&
           result.style !== "none" &&
           result.width >= 2 &&
-          result.vsItem >= 3 &&
-          result.vsMenu >= 3;
+          result.contrastWithItem >= 3 &&
+          result.contrastWithMenu >= 3;
         if (!ok)
           failures.push(`${palette}@${width}: ${JSON.stringify(result)}`);
         await page.keyboard.press("Escape");
