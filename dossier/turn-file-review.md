@@ -87,7 +87,7 @@ Op mapping:
 Rules:
 
 - `binary`: the text contains a NUL byte or is not valid UTF-8; body dropped.
-- Caps, applied at capture by the adapter: 64 KiB per diff; 1 MiB of diff text per job; 200 records per job (JEV 0.88). Over the per-diff cap or the job budget the record keeps `diff_state: "oversized"` and no body. After 200 records the adapter writes one `{"truncated": true}` `turn_edit` marker and stops capturing for that job.
+- Caps, applied at capture by the adapter: 64 KiB per diff; 1 MiB of diff text per job; 200 records per job (JEV 0.88). Over the per-diff cap or the job budget the record keeps `diff_state: "oversized"` and no body. After 200 records the adapter writes one `{"truncated": true}` `turn_edit` marker and stops capturing for that job. The budget lives for one provider run: the rare in-job replay after `native_session_missing` starts a new run with a new budget, so such a job can hold up to two runs' worth of records and two truncation markers (review of 2026-10-09: accepted, since the replay fails before any edit in practice).
 - Paths: absolute paths are made relative to the job's project root lexically; a path outside the root, with a `..` segment, or not a string becomes `path: null`, `diff_state: "unavailable"`. No disk access at capture (no `stat`, no `resolve`).
 - Diff text passes through `redact_secrets` like every event; a redacted diff is shown as stored.
 - Repeated records for one path are kept in order.

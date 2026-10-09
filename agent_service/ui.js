@@ -4841,7 +4841,8 @@ function turnReviewDiffNode(file) {
     if (label) box.append(turnReviewNote(label));
     if (
       (edit.diff_state === "diff" || edit.diff_state === "partial") &&
-      typeof edit.diff === "string"
+      typeof edit.diff === "string" &&
+      edit.diff
     ) {
       const pre = document.createElement("pre");
       pre.textContent = edit.diff;
@@ -4853,7 +4854,12 @@ function turnReviewDiffNode(file) {
   return box;
 }
 
+// Ids that tie each review toggle to the region it opens (aria-controls).
+let turnReviewIds = 0;
+
 function turnReviewRow(file) {
+  // A null path is an edit outside the project: it is shown, never opened.
+  const shownPath = file.path ?? "path outside the project";
   const item = document.createElement("li");
   item.className = "turn-review-item";
   const button = document.createElement("button");
@@ -4861,10 +4867,10 @@ function turnReviewRow(file) {
   button.className = "turn-review-file";
   button.dataset.testid = "turn-review-file";
   button.setAttribute("aria-expanded", "false");
-  button.title = file.path;
+  button.title = shownPath;
   const path = document.createElement("span");
   path.className = "turn-review-path";
-  path.textContent = file.path;
+  path.textContent = shownPath;
   const op = document.createElement("span");
   op.className = "turn-review-op";
   op.dataset.testid = "turn-review-op";
@@ -4879,6 +4885,8 @@ function turnReviewRow(file) {
     button.append(moved);
   }
   const diff = turnReviewDiffNode(file);
+  diff.id = "turn-review-diff-" + ++turnReviewIds;
+  button.setAttribute("aria-controls", diff.id);
   button.addEventListener("click", () => {
     const open = button.getAttribute("aria-expanded") !== "true";
     button.setAttribute("aria-expanded", String(open));
@@ -4901,6 +4909,8 @@ function renderTurnReview(slot, data) {
   list.className = "turn-review-list";
   list.dataset.testid = "turn-review-list";
   list.hidden = true;
+  list.id = "turn-review-list-" + ++turnReviewIds;
+  toggle.setAttribute("aria-controls", list.id);
   list.append(...files.slice(0, TURN_REVIEW_MAX_ROWS).map(turnReviewRow));
   if (files.length > TURN_REVIEW_MAX_ROWS) {
     const more = document.createElement("li");
