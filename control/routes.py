@@ -424,7 +424,7 @@ async def login_provider(request, manager, data):
         if provider != "gemini":
             options["signed_in"] = lambda: manager.signed_in(provider, binary)
         # A person signs in in the browser and may paste a code back: allow 15 minutes.
-        result = manager.operations.launch(command, timeout=900, **options)
+        result = manager.operations.launch(command, timeout=900, login=True, **options)
         result.update(provider=provider, kind="provider-login")
     return result
 

@@ -30,6 +30,8 @@ LOGIN_URL = re.compile(r"https://([^\s\"'<>/?#]*)[^\s\"'<>]*")
 POLL_DELAY, POLL_FACTOR, POLL_CAP, POLL_LIMIT = 2, 1.5, 10, 600
 # Once status says signed in, the time the CLI gets to finish writing its credentials and exit.
 EXIT_GRACE = 5
+# What a one-time link leaves behind when the output cut splits the URL: its state and code.
+LINK_TAIL = re.compile(r"[?&](?:state|code)=[^\s&]+")
 
 
 def released(held):
@@ -66,7 +68,8 @@ class Operations:
         self.stdin = {}
         self.codes = {}  # the code last pasted into a job, kept in memory to redact an echo of it
         self.watched = {}  # jobs with a status check: set once the pasted code is written to the CLI
-        self.confirmed = set()  # logins the status command confirmed before the CLI exited
+        self.confirmed = set()  # logins the status confirmed, then the poller had to stop
+        self.login_urls = {}  # login jobs: the sign-in link seen so far, expired when the job ends
 
     def append_output(self, jid, fresh):
         """Add text to a job's output, redacting an echo of the pasted code."""
@@ -74,40 +77,58 @@ class Operations:
         if self.codes.get(jid):
             text = text.replace(self.codes[jid], "[redacted]")
         self.jobs[jid]["output"] = text[-12000:]
-        if jid in self.watched and (url := LOGIN_URL.search(text)):
-            self.jobs[jid]["login_url"] = url.group(0).rstrip(".,;)")
+        if jid in self.login_urls and (url := LOGIN_URL.search(text)):
+            self.login_urls[jid] = url.group(0).rstrip(".,;)")
+            if jid in self.watched:  # shown to the UI only for logins with a status check
+                self.jobs[jid]["login_url"] = self.login_urls[jid]
 
     def launch(
-        self, args, timeout=300, *, env=None, on_success=None, interactive=False, signed_in=None
+        self,
+        args,
+        timeout=300,
+        *,
+        env=None,
+        on_success=None,
+        interactive=False,
+        signed_in=None,
+        login=False,
     ):
         """Run one CLI; ``interactive`` keeps stdin open for one pasted line (login codes).
 
-        A login passes ``signed_in``, an async check of the CLI's account status: its sign-in URL
-        becomes the job's ``login_url`` while it runs, and once the status says signed in (after
-        the code is pasted, for an interactive login) the job completes without waiting for the CLI.
-        A non-interactive login skips polling when already signed in (a renewal): the CLI's own exit
-        ends it. An interactive one has no such baseline: the pasted code is what it waits for.
+        A login passes ``signed_in``, an async check returning ``{"signed_in": bool, "identity":
+        str | None}``: its sign-in URL becomes the job's ``login_url`` while it runs, and once the
+        status says signed in the job completes without waiting for the CLI. A non-interactive
+        login skips polling when already signed in (a renewal): the CLI's own exit ends it. An
+        interactive one takes its baseline identity before the code is pasted and confirms only
+        when the account is signed in with a different identity (old credentials do not count).
+        Every login job (``login=True``, implied by ``signed_in``) expires its one-time link at the end.
         """
         jid = uuid.uuid4().hex
         self.jobs[jid] = {"id": jid, "state": "running", "output": "", "accepts_input": False}
         if signed_in:
             self.watched[jid] = asyncio.Event()
+        if login or signed_in:
+            self.login_urls[jid] = None
 
         async def poll(proc):
             with contextlib.suppress(OSError, TimeoutError):
+                before = await signed_in()  # before any code is pasted: the credentials as they are
                 if interactive:
                     await self.watched[jid].wait()
-                elif await signed_in():  # signed in already: only the CLI's own exit ends it
+                elif before["signed_in"]:  # signed in already: only the CLI's own exit ends it
                     return
                 delay = POLL_DELAY
                 async with asyncio.timeout(POLL_LIMIT):
                     while True:
                         await asyncio.sleep(delay)
-                        if await signed_in():
-                            self.confirmed.add(jid)
+                        now = await signed_in()
+                        if now["signed_in"] and (
+                            not before["signed_in"] or now["identity"] != before["identity"]
+                        ):
                             with contextlib.suppress(asyncio.TimeoutError):
                                 await asyncio.wait_for(proc.wait(), EXIT_GRACE)
                             if proc.returncode is None:
+                                self.confirmed.add(jid)  # stopped by us, not a failed exit
                                 terminate(proc)
                             return
                         delay = min(delay * POLL_FACTOR, POLL_CAP)
@@ -141,7 +162,7 @@ class Operations:
                     code = await proc.wait()
                     if poller:  # a login that ended is not polled, nor its process signalled
                         poller.cancel()
-                    succeeded = code == 0 or jid in self.confirmed
+                    succeeded = code == 0 or jid in self.confirmed  # not a CLI's own failed exit
                     if succeeded and on_success:
                         await on_success()
                     self.jobs[jid].update(state="completed" if succeeded else "failed")
@@ -156,10 +177,14 @@ class Operations:
                 self.jobs[jid]["accepts_input"] = False
                 self.stdin.pop(jid, None)
                 self.codes.pop(jid, None)
-                if self.watched.pop(jid, None):  # a login job: the one-time sign-in link expires
-                    self.jobs[jid]["output"] = LOGIN_URL.sub(
-                        r"https://\1/… (link expired)", self.jobs[jid]["output"]
-                    )
+                self.watched.pop(jid, None)
+                if jid in self.login_urls:  # a login job: the one-time sign-in link expires
+                    output, link = self.jobs[jid]["output"], self.login_urls.pop(jid)
+                    if link:
+                        output = output.replace(
+                            link, f"https://{LOGIN_URL.match(link)[1]}/… (link expired)"
+                        )
+                    self.jobs[jid]["output"] = LINK_TAIL.sub("(link expired)", output)
                 self.confirmed.discard(jid)
                 self.jobs[jid].pop("login_url", None)  # one-time URL: held only while it runs
                 if poller:

@@ -505,7 +505,20 @@ def flips_on_call(number):
 
     async def status():
         calls.append(1)
-        return len(calls) >= number
+        return {"signed_in": len(calls) >= number, "identity": None}
+
+    status.calls = calls
+    return status
+
+
+def identity_flips_on_call(number, *, signed_in_before=True):
+    """An account signed in all along: only its credential identity changes (a renewal)."""
+    calls = []
+
+    async def status():
+        calls.append(1)
+        renewed = len(calls) >= number
+        return {"signed_in": signed_in_before or renewed, "identity": "new" if renewed else "old"}
 
     status.calls = calls
     return status
@@ -586,7 +599,7 @@ def test_an_interactive_login_polls_only_after_the_code_is_pasted(sleeps):
             [sys.executable, "-c", URL_THEN_WAIT], timeout=60, interactive=True, signed_in=status
         )
         await asyncio.sleep(0.3)
-        assert not status.calls and job["state"] == "running"
+        assert len(status.calls) == 1 and job["state"] == "running"  # only the baseline
         await operations.send_input(job["id"], "pasted-code-1")
         await asyncio.wait_for(asyncio.gather(*operations.tasks), 20)
         assert job["state"] == "completed"
@@ -608,12 +621,12 @@ def test_a_login_already_signed_in_is_left_to_the_cli_to_finish():
     asyncio.run(exercise())
 
 
-def test_an_interactive_renewal_completes_once_the_code_is_pasted(sleeps):
-    """Claude's CLI never exits on its own: an account signed in before must still finish."""
+def test_an_interactive_renewal_completes_once_the_credential_identity_changes(sleeps):
+    """Claude's CLI never exits on its own: an account signed in before finishes on a new identity."""
 
     async def exercise():
         operations = Operations()
-        status, finished = flips_on_call(1), AsyncMock()
+        status, finished = identity_flips_on_call(3), AsyncMock()
         job = operations.launch(
             [sys.executable, "-c", URL_THEN_WAIT],
             timeout=60,
@@ -622,11 +635,57 @@ def test_an_interactive_renewal_completes_once_the_code_is_pasted(sleeps):
             signed_in=status,
         )
         await asyncio.sleep(0.3)
-        assert not status.calls  # no baseline: signed in before is not "done"
+        assert len(status.calls) == 1  # the baseline identity, taken before the code is pasted
         await operations.send_input(job["id"], "pasted-code-1")
         await asyncio.wait_for(asyncio.gather(*operations.tasks), 20)
         assert job["state"] == "completed"
+        assert len(status.calls) == 3  # the 2nd call still reported the old credentials
         finished.assert_awaited_once()
+
+    asyncio.run(exercise())
+
+
+def test_a_renewal_whose_identity_never_changes_fails_when_the_cli_exits_non_zero(sleeps):
+    """Status reports loggedIn with the old credentials: that is not a renewal, and exit 1 fails."""
+    script = "import sys, time; sys.stdin.readline(); time.sleep(1); sys.exit(1)"
+
+    async def exercise():
+        operations = Operations()
+        status, finished = identity_flips_on_call(10**6), AsyncMock()
+        job = operations.launch(
+            [sys.executable, "-c", script],
+            timeout=60,
+            interactive=True,
+            on_success=finished,
+            signed_in=status,
+        )
+        await asyncio.sleep(0.2)
+        await operations.send_input(job["id"], "pasted-code-1")
+        await asyncio.wait_for(asyncio.gather(*operations.tasks), 20)
+        assert job["state"] == "failed"
+        finished.assert_not_awaited()
+
+    asyncio.run(exercise())
+
+
+def test_a_cli_that_exits_non_zero_on_its_own_after_the_status_confirmed_still_fails(
+    sleeps, monkeypatch
+):
+    monkeypatch.setattr("control.operations.EXIT_GRACE", 5)
+    script = "import sys, time; time.sleep(0.3); sys.exit(1)"
+
+    async def exercise():
+        operations = Operations()
+        finished = AsyncMock()
+        job = operations.launch(
+            [sys.executable, "-c", script],
+            timeout=60,
+            on_success=finished,
+            signed_in=flips_on_call(2),
+        )
+        await asyncio.wait_for(asyncio.gather(*operations.tasks), 20)
+        assert job["state"] == "failed"
+        finished.assert_not_awaited()
 
     asyncio.run(exercise())
 
@@ -664,6 +723,84 @@ def test_the_sign_in_link_is_expired_in_the_output_once_the_login_ends(sleeps):
         assert job["state"] == "completed"
         assert "one-time-secret" not in job["output"] and "oauth" not in job["output"]
         assert "https://claude.ai/… (link expired)" in job["output"]
+
+    asyncio.run(exercise())
+
+
+def test_only_the_captured_link_and_its_cut_off_query_tail_are_expired(sleeps):
+    """Other URLs in the output stay; a link split by the 12000-char cut loses its state/code."""
+    script = (
+        f"print({LOGIN_URL!r}, flush=True); print('docs: https://example.com/help', flush=True); "
+        "print('x' * 12000, flush=True); "
+        "print('rest&state=cut-off-secret&code=other-secret', flush=True); "
+        "import time; time.sleep(0.3)"
+    )
+
+    async def exercise():
+        operations = Operations()
+        job = operations.launch(
+            [sys.executable, "-c", script], timeout=60, signed_in=flips_on_call(99)
+        )
+        await asyncio.wait_for(asyncio.gather(*operations.tasks), 20)
+        assert job["state"] == "completed"
+        assert "cut-off-secret" not in job["output"] and "other-secret" not in job["output"]
+
+    asyncio.run(exercise())
+
+
+def test_other_urls_in_the_output_are_kept_when_the_login_link_expires(sleeps):
+    script = f"print({LOGIN_URL!r}, flush=True); print('docs: https://example.com/help', flush=True); import time; time.sleep(0.3)"
+
+    async def exercise():
+        operations = Operations()
+        job = operations.launch(
+            [sys.executable, "-c", script], timeout=60, signed_in=flips_on_call(99)
+        )
+        await asyncio.wait_for(asyncio.gather(*operations.tasks), 20)
+        assert "one-time-secret" not in job["output"]
+        assert "https://example.com/help" in job["output"]
+
+    asyncio.run(exercise())
+
+
+def test_a_login_without_a_status_check_expires_its_link_too():
+    """Gemini has no status command, yet its one-time sign-in URL must not outlive the job."""
+
+    async def exercise():
+        operations = Operations()
+        job = operations.launch([sys.executable, "-c", f"print({LOGIN_URL!r})"], login=True)
+        await asyncio.gather(*operations.tasks)
+        assert job["state"] == "completed"
+        assert "login_url" not in job
+        assert "one-time-secret" not in job["output"]
+        assert "https://claude.ai/… (link expired)" in job["output"]
+
+    asyncio.run(exercise())
+
+
+def test_the_status_check_reports_the_credential_identity(tmp_path):
+    async def exercise():
+        manager = Manager(tmp_path / "state")
+        shown = '{"loggedIn": true, "expiresAt": 1900000000000, "email": "a@b.c"}'
+        with patch("control.discovery.command", AsyncMock(return_value=(0, shown))):
+            assert await manager.signed_in("claude", "claude") == {
+                "signed_in": True,
+                "identity": "1900000000000",
+            }
+        # Without expiresAt the credential file's mtime and size stand in for it.
+        from adapters.shared.provider_setup import credential_file
+
+        file = credential_file(manager.state, "claude")
+        file.parent.mkdir(parents=True)
+        file.write_text("12345")
+        with patch("control.discovery.command", AsyncMock(return_value=(0, '{"loggedIn": true}'))):
+            first = await manager.signed_in("claude", "claude")
+            file.write_text("123456")
+            second = await manager.signed_in("claude", "claude")
+        assert first["signed_in"] and first["identity"] and first["identity"] != second["identity"]
+        out = (1, '{"loggedIn": false}')
+        with patch("control.discovery.command", AsyncMock(return_value=out)):
+            assert (await manager.signed_in("claude", "claude"))["signed_in"] is False
 
     asyncio.run(exercise())
 
