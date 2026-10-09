@@ -416,7 +416,7 @@ class ProviderStateService:
 
     def resolve(self, provider: str, project_id: str) -> Path | None:
         """The project's folder (``None`` for "No project"); 404 for an unknown provider or project."""
-        if provider not in (*PROVIDERS, "deepseek"):
+        if provider not in PROVIDERS:
             raise APIError("provider_unknown", 404)
         if project_id == NO_PROJECT:
             return None
