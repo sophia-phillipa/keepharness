@@ -81,6 +81,16 @@ shrinks as fixes land. Lint findings are labeled with a ledger id when a `lint` 
 matches, `noise` for measured-but-intended cases, and `new` otherwise; new lint findings are
 reported, not failed.
 
+## Areas
+
+One file per area in `tests/operator/areas/`; run a few with `--areas <id>`.
+
+- `hooks-rules` (`22-hooks-rules.cjs`): the admin Hooks and Rules sections (#61). Seeds a hook
+  with secrets, an env entry, an http hook with headers and a long rule file in the fixture's
+  Claude home, then checks masking (page text and provider-state JSON), names-only env and
+  headers, the capped rule preview, no switches, the source path and the changed marker. Codex
+  and DeepSeek steps are skipped: the fixture has only Claude and Gemini stand-ins.
+
 ## Add a step
 
 Areas live in `tests/operator/areas/NN-name.cjs` and export `{ id, title, run(op) }`:
