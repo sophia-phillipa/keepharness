@@ -54,7 +54,7 @@ def test_native_presets_keep_real_home_and_orchestration(tmp_path, provider, mod
             "never" if mode in ("full", "read_only") else "on-request"
         )
     else:
-        command = claude_command(config, "model", tmp_path, permissions, [], mode, [])
+        command = claude_command(config, "model", tmp_path, permissions, mode, [])
         assert "--strict-mcp-config" not in command
         assert "--setting-sources" not in command
         settings = json.loads(command[command.index("--settings") + 1])
