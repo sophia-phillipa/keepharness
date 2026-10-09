@@ -4,7 +4,10 @@ import hashlib
 import json
 import os
 import stat
+import subprocess
+import sys
 import threading
+import time
 from pathlib import Path
 
 import pytest
@@ -41,6 +44,7 @@ SAMPLES = {
         {},
     ],
     "last_section": ["appearance", ""],
+    "always_on_top": [True, False],
 }
 OVER = {
     "theme": "x" * 41,
@@ -48,6 +52,7 @@ OVER = {
     "panel_order": "up",
     "sidebar_collapsed": 1,
     "visual_markers": "on",
+    "always_on_top": "yes",
     "chat_selection": {"model": "m" * 201},
     "project_expanded": {f"p{i}": True for i in range(201)},
     "project_list_preferences": {f"p{i}": {} for i in range(201)},
@@ -235,7 +240,10 @@ def test_write_is_atomic_private_and_leaves_no_temp_file(api, cfg):
     path = stored_file(cfg)
     assert stat.S_IMODE(path.stat().st_mode) == 0o600
     assert stat.S_IMODE(path.parent.stat().st_mode) == 0o700
-    assert sorted(p.name for p in path.parent.iterdir()) == ["preferences.json"]
+    assert sorted(p.name for p in path.parent.iterdir()) == [
+        "preferences.json",
+        "preferences.json.lock",  # the cross-process lock (issue #69)
+    ]
     assert json.loads(path.read_text())["values"] == {"theme": "paper"}
 
 
@@ -310,7 +318,10 @@ def test_read_only_store_is_reported_and_patch_has_a_specific_error(api, cfg):
         response = patch(api, theme="graphite")
         assert (response.status_code, response.json()["code"]) == (409, "ui_state_read_only")
         assert response.json()["retryable"] is False
-        assert [p.name for p in folder.iterdir()] == ["preferences.json"]
+        assert sorted(p.name for p in folder.iterdir()) == [
+            "preferences.json",
+            "preferences.json.lock",
+        ]
     finally:
         folder.chmod(0o700)
 
@@ -414,3 +425,45 @@ def test_preference_read_survives_an_exhausted_read_budget(api):
     assert [api.get("/v1/conversations").status_code for _ in range(240)] == [200] * 240
     assert api.get("/v1/conversations").status_code == 429
     assert api.get("/v1/ui-state").status_code == 200
+
+
+CHILD = (
+    "import sys; from agent_service import ui_state; "
+    "print('ready', flush=True); "
+    "ui_state.update({'state_dir': sys.argv[1]}, 'local', {'tour_seen': '1'})"
+)
+
+
+def test_a_second_process_waits_for_the_lock_and_keeps_both_keys(cfg):
+    """Control and the harness are separate processes: the lock must hold across them."""
+    store = ui_state.repository(cfg, "local")
+    # A fresh interpreter, not a fork: a forked child would inherit the held descriptor.
+    with store.lock(ui_state.ENTRY):
+        child = subprocess.Popen(
+            [sys.executable, "-c", CHILD, cfg["state_dir"]],
+            cwd=Path(__file__).resolve().parent.parent,
+            stdout=subprocess.PIPE,
+            text=True,
+        )
+        try:
+            assert child.stdout.readline().strip() == "ready"
+            time.sleep(0.5)
+            assert child.poll() is None  # blocked on the lock, not finished
+            document = json.dumps({"version": ui_state.VERSION, "values": {"theme": "graphite"}})
+            store.replace(ui_state.ENTRY, document)
+        except BaseException:
+            child.kill()
+            raise
+    assert child.wait(30) == 0
+    assert ui_state.read(cfg, "local")["values"] == {"theme": "graphite", "tour_seen": "1"}
+
+
+def test_the_lock_is_a_private_sibling_file_that_survives_the_atomic_replace(cfg):
+    ui_state.update(cfg, "local", {"theme": "graphite"})
+    store = stored_file(cfg)
+    lock = store.with_name(store.name + ".lock")
+    assert stat.S_IMODE(lock.stat().st_mode) == 0o600
+    inode = lock.stat().st_ino
+    ui_state.update(cfg, "local", {"theme": "paper"})
+    assert lock.stat().st_ino == inode
+    assert ui_state.read(cfg, "local")["values"] == {"theme": "paper"}
