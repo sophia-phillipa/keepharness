@@ -12,8 +12,8 @@
     ["apps", "Apps", "app", "world"],
     ["mcps", "MCPs", "mcp", "plug"],
     ["skills", "Skills", "skill", "list-check"],
-    ["hooks", "Hooks", "hook", "list-check"],
-    ["instructions", "Instructions", "instructions", "list-check"],
+    ["hooks", "Hooks", "hook", "plug"],
+    ["rules", "Rules", "instructions", "list-check"],
   ];
   const NO_PROJECT = "sem-projeto";
   const view = {
@@ -927,6 +927,150 @@
     return article;
   }
 
+  const resourceKind = () =>
+    ({ hooks: "hook", rules: "instructions" })[view.chip];
+  const resourceItems = (kind) =>
+    view.clis.flatMap((info) =>
+      (states.get(info.id)?.snapshot?.items || [])
+        .filter((item) => item.kind === kind)
+        .map((item) => ({ info, item })),
+    );
+  const fieldLabel = (key) =>
+    capitalized(key.replace(/([a-z])([A-Z])/g, "$1 $2").replaceAll("_", " "));
+
+  function resourceRow(info, item) {
+    const row = node(
+      "article",
+      undefined,
+      "plugins-resource-row",
+      "provider-resource-row",
+    );
+    row.append(
+      node("h4", item.name),
+      node(
+        "p",
+        providerName(info) +
+          ": " +
+          capitalized(item.scope) +
+          " · " +
+          item.source,
+        "plugins-resource-source",
+      ),
+    );
+    row.append(
+      node(
+        "p",
+        (item.enabled ? "Enabled" : "Disabled") +
+          (item.reason ? " · " + item.reason : ""),
+        "plugins-resource-status",
+      ),
+    );
+    if (
+      providerNotices.get(info.id)?.some((notice) => notice.item_id === item.id)
+    )
+      row.append(
+        node(
+          "span",
+          "Changed outside KeepHarness",
+          "pill plugins-changed",
+          "resource-changed",
+        ),
+      );
+    const fields = node("dl", undefined, "plugins-resource-fields");
+    for (const [key, value] of Object.entries(item.details || {})) {
+      if (["preview", "content_sha256"].includes(key) || value === null)
+        continue;
+      const text =
+        key === "size_bytes"
+          ? value + " bytes"
+          : typeof value === "object"
+            ? JSON.stringify(value, null, 2)
+            : String(value);
+      fields.append(node("dt", fieldLabel(key)), node("dd", text));
+    }
+    row.append(fields);
+    if (typeof item.details?.preview === "string") {
+      const preview = node("details", undefined, "plugins-resource-preview");
+      preview.append(
+        node("summary", "Preview " + item.name),
+        node("pre", item.details.preview),
+      );
+      row.append(preview);
+    }
+    return row;
+  }
+
+  function renderResources(kind) {
+    const query = view.query.trim().toLocaleLowerCase();
+    const sections = view.clis.map((info) => {
+      const section = node("section", undefined, "plugins-resources");
+      section.setAttribute(
+        "aria-label",
+        providerName(info) + (kind === "hook" ? " hooks" : " rules"),
+      );
+      section.append(node("h2", providerName(info)));
+      const data = states.get(info.id);
+      if (data?.error) {
+        section.append(node("p", data.error, "hint"));
+        return section;
+      }
+      for (const warning of data?.snapshot?.warnings || [])
+        section.append(node("p", warning, "hint"));
+      if (kind === "instructions")
+        section.append(
+          node(
+            "p",
+            "Previews are best effort; open the source file for the full text.",
+            "hint",
+          ),
+        );
+      const items = (data?.snapshot?.items || []).filter(
+        (item) =>
+          item.kind === kind &&
+          [
+            item.name,
+            item.scope,
+            item.source,
+            JSON.stringify(item.details || {}),
+          ]
+            .join(" ")
+            .toLocaleLowerCase()
+            .includes(query),
+      );
+      if (!items.length) {
+        section.append(
+          node(
+            "p",
+            query
+              ? "No matches for “" + view.query.trim() + "”."
+              : kind === "hook"
+                ? "No hooks found"
+                : "No rules found",
+            "hint",
+          ),
+        );
+        if (!query && kind === "hook")
+          section.append(
+            node("p", "Configured hooks will appear here", "hint"),
+          );
+      }
+      for (const scope of [...new Set(items.map((item) => item.scope))]) {
+        section.append(node("h3", capitalized(scope)));
+        section.append(
+          ...items
+            .filter((item) => item.scope === scope)
+            .map((item) => resourceRow(info, item)),
+        );
+      }
+      return section;
+    });
+    list.replaceChildren(...sections);
+    if (!sections.length)
+      list.append(
+        node("p", "No provider CLI was found. Check AI Providers.", "hint"),
+      );
+  }
+
   function renderList() {
     list.setAttribute("aria-busy", String(view.loading));
     if (view.loading) {
@@ -942,6 +1086,7 @@
     const [, label] = CHIPS.find(([id]) => id === view.chip);
     const empty = (message) =>
       list.replaceChildren(node("p", message, "hint", "plugins-empty"));
+    if (resourceKind()) return renderResources(resourceKind());
     if (view.chip !== "plugins") {
       const kind = CHIPS.find(([id]) => id === view.chip)[2];
       const query = view.query.trim().toLocaleLowerCase();
@@ -1031,9 +1176,11 @@
           node(
             "span",
             String(
-              kind === "plugin" && view.mode === "directory"
-                ? pluginGroups().length
-                : installed(kind).length,
+              ["hook", "instructions"].includes(kind)
+                ? resourceItems(kind).length
+                : kind === "plugin" && view.mode === "directory"
+                  ? pluginGroups().length
+                  : installed(kind).length,
             ),
             "plugins-count",
           ),
@@ -1048,6 +1195,10 @@
         view.mode === "directory" ? "Manage" : "Browse directory",
       ),
     );
+    modeButton.hidden = view.chip !== "plugins";
+    const search = panel.querySelector(".plugins-search");
+    search.placeholder = "Search " + (resourceKind() ? view.chip : "plugins");
+    search.setAttribute("aria-label", search.placeholder);
     renderList();
   }
 

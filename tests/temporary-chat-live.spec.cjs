@@ -79,24 +79,20 @@ async function scan(root, active = false) {
       .last()
       .click();
     await page.locator("#temporary-chat-notice").waitFor({ state: "visible" });
-    await page
-      .locator("#file")
-      .setInputFiles({
-        name: "temporary-reference.txt",
-        mimeType: "text/plain",
-        buffer: Buffer.from(markers[1]),
-      });
+    await page.locator("#file").setInputFiles({
+      name: "temporary-reference.txt",
+      mimeType: "text/plain",
+      buffer: Buffer.from(markers[1]),
+    });
     await page.waitForFunction(() => files.length === 1 && uploads === 0);
-    await page
-      .locator("#file")
-      .setInputFiles({
-        name: "temporary-image.png",
-        mimeType: "image/png",
-        buffer: Buffer.from(
-          "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a1X8AAAAASUVORK5CYII=",
-          "base64",
-        ),
-      });
+    await page.locator("#file").setInputFiles({
+      name: "temporary-image.png",
+      mimeType: "image/png",
+      buffer: Buffer.from(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a1X8AAAAASUVORK5CYII=",
+        "base64",
+      ),
+    });
     await page.waitForFunction(() => files.length === 2 && uploads === 0);
     assert(
       await page.locator("#attachments img").count(),

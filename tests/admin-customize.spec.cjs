@@ -222,14 +222,7 @@ const contrast = (a, b) => {
     );
     assert.deepEqual(
       await panel.locator('[data-testid^="plugins-chip-"]').allInnerTexts(),
-      [
-        "Plugins 3",
-        "Apps 1",
-        "MCPs 1",
-        "Skills 0",
-        "Hooks 0",
-        "Instructions 0",
-      ],
+      ["Plugins 3", "Apps 1", "MCPs 1", "Skills 0", "Hooks 0", "Rules 0"],
     );
     assert.equal(
       await panel

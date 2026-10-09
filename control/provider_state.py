@@ -152,7 +152,13 @@ def _restore_security_writes(rollback):
 
 
 def snapshot_json(snapshot: StateSnapshot) -> dict:
-    return dataclasses.asdict(snapshot)  # tuples become JSON arrays when serialized
+    result = dataclasses.asdict(snapshot)
+    for item in result["items"]:
+        item.pop("content_digest")  # server-side only; a weak secret could be checked against it
+        item["details"].pop("content_sha256", None)  # same weak-secret concern as the digest
+        if not item["details"]:
+            item.pop("details")
+    return result  # preserve the existing item wire shape when no details apply
 
 
 def error_response(exc: _ProviderStateError, **extra) -> JSONResponse:
@@ -219,6 +225,14 @@ def _items_of(snapshot: StateSnapshot) -> dict[str, dict]:
             "source": item.source.rsplit("/", 1)[-1],
             "name": item.name,
             "scope": item.scope,  # the layer that decides the value
+            **(
+                {
+                    "content_digest": item.content_digest
+                    or hashlib.sha256(json.dumps(item.details, sort_keys=True).encode()).hexdigest()
+                }
+                if item.kind in ("hook", "instructions")
+                else {}
+            ),
         }
         for item in snapshot.items
     }
@@ -238,7 +252,12 @@ def diff_items(
     found = []
     for item_id in sorted(old.keys() | new.keys()):
         before, after = old.get(item_id), new.get(item_id)
-        if item_id == exclude or (before and after and before["enabled"] == after["enabled"]):
+        if item_id == exclude or (
+            before
+            and after
+            and before["enabled"] == after["enabled"]
+            and before.get("content_digest") == after.get("content_digest")
+        ):
             continue
         shown = after or before
         notice = {
@@ -248,6 +267,11 @@ def diff_items(
             "before": before and before["enabled"],
             "after": after and after["enabled"],
             "source": shown.get("source", ""),
+            **(
+                {"content_changed": True}
+                if before and after and before.get("content_digest") != after.get("content_digest")
+                else {}
+            ),
         }
         written = writes.get(item_id) or {}
         if (
@@ -268,7 +292,7 @@ def _merge(
     for change in found:
         earlier = pending.pop(change["item_id"], None)
         before = earlier["before"] if earlier else change["before"]
-        if change["after"] == before:
+        if change["after"] == before and not change.get("content_changed"):
             continue  # the item came back to what the owner last saw
         kind = (
             "added"
@@ -306,7 +330,14 @@ def _watch(adapter: ProviderStateAdapter, root: Path | None) -> str:
 
 def _source_identity(adapter: ProviderStateAdapter, root: Path | None) -> str:
     """Locations only: changing source homes requires a baseline, editing their files does not."""
-    locations = "\0".join(str(path) for path in adapter.watch_paths(root))
+    locations = "\0".join(
+        str(path)
+        for path in (
+            adapter.source_identity_paths(root)
+            if hasattr(adapter, "source_identity_paths")
+            else adapter.watch_paths(root)
+        )
+    )
     return hashlib.sha256(locations.encode()).hexdigest()
 
 
@@ -337,11 +368,16 @@ def run_start_check(
             if provider == "codex"
             else ClaudeStateAdapter(control_state, environment=environment)
         )
-        stat = _watch(adapter, project_root)
         key = _key(provider, project_id)
         seen = _read_entries(Path(control_state) / SEEN_FILE).get(key)
         if seen is None or seen.get("source_identity") != _source_identity(adapter, project_root):
             return
+        paths = seen.get("watch_paths")
+        stat = (
+            fingerprint(Path(path) for path in paths)
+            if isinstance(paths, list) and all(isinstance(path, str) for path in paths)
+            else _watch(adapter, project_root)
+        )
         with _runs_lock:  # read-modify-write of the one runs file
             runs = _read_entries(Path(control_state) / RUNS_FILE)
             if stat in (seen.get("stat"), runs.get(key, {}).get("stat")):
@@ -453,8 +489,8 @@ class ProviderStateService:
 
         ``written`` is KeepHarness's own write, ``(item_id, enabled, scope)``: that item makes no
         notice and is remembered so a later change back shows as ``reverted``; a user-scope write
-        also moves the item in the provider's other keys, which see the same file. A read with an
-        unchanged stat fingerprint is not diffed.
+        also moves the item in the provider's other keys, which see the same file. A read with
+        unchanged file statistics and items is not diffed.
         """
         key, items = _key(provider, project_id), _items_of(snapshot)
         entry = self._entries().get(key)
@@ -465,6 +501,7 @@ class ProviderStateService:
             self._entries()[key] = {
                 "source_identity": source_identity,
                 "stat": stat,
+                "watch_paths": [str(path) for path in self._adapter(provider).watch_paths(root)],
                 "items": items,
                 "writes": {},
                 "notices": [],
@@ -475,6 +512,7 @@ class ProviderStateService:
         if (
             written is None
             and entry["stat"] == stat
+            and entry["items"] == items
             and receipt.get("id") == entry.get("receipt_id")
         ):
             return
@@ -525,6 +563,7 @@ class ProviderStateService:
                     _note_write(seen, item_id, held["enabled"], after, at)
                     held["enabled"] = after
         entry["items"], entry["stat"] = items, stat
+        entry["watch_paths"] = [str(path) for path in self._adapter(provider).watch_paths(root)]
         self._save()
 
     # --- adapter calls (threads)
@@ -532,7 +571,8 @@ class ProviderStateService:
     def _read_with_stat(self, provider: str, root: Path | None) -> tuple[str, StateSnapshot]:
         adapter = self._adapter(provider)
         try:
-            return _watch(adapter, root), adapter.read_state(root)
+            snapshot = adapter.read_state(root)
+            return _watch(adapter, root), snapshot
         except OSError:
             raise ProviderStateSchemaError("The provider state is unreadable.") from None
 

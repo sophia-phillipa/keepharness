@@ -23,7 +23,7 @@ import time
 from collections.abc import Callable, Iterable, Sequence
 from contextlib import contextmanager
 from contextvars import ContextVar
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal, NamedTuple, Protocol, TypedDict, runtime_checkable
 
@@ -64,6 +64,10 @@ class StateItem:
     writable: bool
     reason: str = ""  # why not writable, shown under the switch
     affects: tuple[str, ...] = ()  # other provider ids that read the same source
+    details: dict = field(default_factory=dict)  # bounded, redacted hook/rule display metadata
+    content_digest: str = (
+        ""  # server-side change detection over the raw hook; never sent out (D-049)
+    )
 
 
 @dataclass(frozen=True)

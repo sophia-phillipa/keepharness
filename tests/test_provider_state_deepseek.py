@@ -46,7 +46,11 @@ def test_deepseek_snapshot_and_writer_stay_in_private_home(facade):
     assert not next(item for item in fresh.items if item.id == private.id).enabled
     assert "enabled = false" in (home / "config.toml").read_text()
     assert adapter.environment["HOME"] == str(home.parent / "home")
-    assert all(str(home.parent) in str(path) for path in adapter.watch_paths(None))
+    # The engine also reads the system-managed rules; nothing else may leave the private homes.
+    assert all(
+        str(home.parent) in str(path) or path.is_relative_to("/etc/codex")
+        for path in adapter.watch_paths(None)
+    )
 
 
 def test_deepseek_profile_layer_remains_read_only_without_fabricated_kinds(facade):

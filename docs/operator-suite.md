@@ -110,6 +110,9 @@ Each file in `tests/operator/areas/` is one area; the id is what `--areas` takes
 - `19-desktop-wp18.cjs` (`desktop-wp18`): desktop WP-18 journeys.
 - `20-chat-real-providers.cjs` (`chat-real`): chat with real providers; a self-run area.
 - `21-temporary-chat.cjs` (`temporary-chat`): temporary chat; nothing saved, discard and return. Providers the fixture lacks (Codex, DeepSeek) are skipped.
+- `22-hooks-rules.cjs` (`hooks-rules`): the admin Hooks and Rules sections (#61): secret
+  masking in page text and provider-state JSON, names-only env and headers, capped rule
+  preview, no switches, source path and the changed marker. Codex and DeepSeek skip (no stand-in).
 
 ## Add a step
 

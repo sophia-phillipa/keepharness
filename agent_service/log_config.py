@@ -24,6 +24,7 @@ REDACTIONS = (
     (re.compile(r"(\"token\"\s*:\s*\")[^\"]*(\")"), r"\1[redacted]\2"),
     (re.compile(r"\bsk-[A-Za-z0-9_\-]+"), "sk-[redacted]"),
     (re.compile(r"\b(?:gh[pousr]_|github_pat_)[A-Za-z0-9_]{16,}"), "gh-[redacted]"),
+    (re.compile(r"AKIA[0-9A-Z]{16}"), "AKIA[redacted]"),
     (re.compile(r"(://)[^\s/@:]+:[^\s/]*@"), r"\1[redacted]@"),
 )
 

@@ -514,9 +514,11 @@ def test_reading_is_read_only_and_asks_the_right_cwds(adapter, codex_home, tmp_p
         "skills/list",
         "plugin/list",
         "app/list",
+        "hooks/list",
     }
     skill_cwds = [c["params"]["cwds"] for c in made if c["method"] == "skills/list"]
     assert skill_cwds == [[str(Path.home())], [str(tmp_path)]]
+    assert [c["params"]["cwds"] for c in made if c["method"] == "hooks/list"] == skill_cwds
     reads = [c["params"] for c in made if c["method"] == "config/read"]
     assert "cwd" not in reads[0] and reads[1]["cwd"] == str(tmp_path)
     assert all(read["includeLayers"] is True for read in reads)
@@ -540,17 +542,28 @@ def test_a_home_reached_through_a_symlink(adapter, isolated_provider_homes, monk
 
 
 def test_watch_paths(adapter, codex_home, tmp_path):
+    from adapters.shared.orchestration_state import codex_instructions
+
+    user_instructions = codex_instructions(Path.home(), codex_home, None, read_content=False).paths
+    project_instructions = codex_instructions(
+        Path.home(), codex_home, tmp_path, read_content=False
+    ).paths
     assert adapter.watch_paths(None) == (
         codex_home / "config.toml",
         codex_home / "skills",
         adapter.shared_skills_root(),
+        codex_home / "hooks.json",
+        *user_instructions,
     )
     assert adapter.watch_paths(tmp_path) == (
         codex_home / "config.toml",
         codex_home / "skills",
         adapter.shared_skills_root(),
+        codex_home / "hooks.json",
+        *project_instructions,
         tmp_path / ".codex" / "config.toml",
         tmp_path / ".agents" / "skills",
+        tmp_path / ".codex/hooks.json",
     )
     assert not any("auth" in path.name for path in adapter.watch_paths(tmp_path))
     assert calls(codex_home) == []  # pure: no app-server involved

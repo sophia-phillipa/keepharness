@@ -601,17 +601,17 @@ const snapshot = (provider, items, fingerprint) => ({
     await page.locator('[data-testid="plugins-chip-apps"]').click();
     assert.match(await row("Private Mail").innerText(), /Profile/);
     assert.equal(await sw("Private Mail", "DeepSeek").isEnabled(), false);
+    // Hooks and Rules are read-only resource sections (#61), never switch rows.
+    const resources = page.locator('[data-testid="plugins-list"]');
     await page.locator('[data-testid="plugins-chip-hooks"]').click();
-    assert.match(await row("Check Hook").innerText(), /Profile/);
-    assert.equal(await sw("Check Hook", "DeepSeek").isEnabled(), false);
-    await page.locator('[data-testid="plugins-chip-instructions"]').click();
-    assert.equal(await sw("Project Guide", "DeepSeek").isEnabled(), false);
-    assert.equal(
-      await row("Project Guide")
-        .getByRole("button", { name: "Project Guide actions" })
-        .isEnabled(),
-      false,
-    );
+    assert.match(await resources.innerText(), /DeepSeek: Profile/);
+    assert.match(await resources.innerText(), /Check Hook/);
+    assert.match(await resources.innerText(), /Read-only hook\./);
+    assert.equal(await resources.getByRole("switch").count(), 0);
+    await page.locator('[data-testid="plugins-chip-rules"]').click();
+    assert.match(await resources.innerText(), /Project Guide/);
+    assert.match(await resources.innerText(), /Read-only instructions\./);
+    assert.equal(await resources.getByRole("switch").count(), 0);
     assert.deepEqual(errors, []);
     console.log("PASS admin plugins switches");
   } finally {
