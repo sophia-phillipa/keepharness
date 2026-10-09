@@ -121,8 +121,14 @@ runPersona("H30", [
         /DeepSeek API · uses your DeepSeek credits/,
       );
       assert.equal(await text(page, "#model-trigger-icon"), "🐋");
-      assert.equal(await text(page, "#execution-mode-label"), "Native conversation");
-      assert.equal(await page.locator("#execution-mode-unavailable").isVisible(), false);
+      assert.equal(
+        await text(page, "#execution-mode-label"),
+        "Native conversation",
+      );
+      assert.equal(
+        await page.locator("#execution-mode-unavailable").isVisible(),
+        false,
+      );
       assert.equal(await page.locator("#isolation-toggle").isVisible(), false);
       // DeepSeek is text-only and this fixture denies uploads.
       assert.equal(await page.locator("#attach").isDisabled(), true);
@@ -158,29 +164,70 @@ runPersona("H30", [
       assert.equal(s.posts[0].execution_mode, "native");
       // Only Codex sends pre-flight a quota snapshot.
       assert.equal(usage, before);
-      await page.locator("#header-execution-mode").waitFor({ state: "visible" });
-      assert.equal(await text(page, "#header-execution-mode"), "Native conversation");
-      assert.equal(await page.locator("#execution-mode-indicator").isVisible(), false);
+      await page
+        .locator("#header-execution-mode")
+        .waitFor({ state: "visible" });
+      assert.equal(
+        await text(page, "#header-execution-mode"),
+        "Native conversation",
+      );
+      assert.equal(
+        await page.locator("#execution-mode-indicator").isVisible(),
+        false,
+      );
     },
   },
   {
     title: "H30-S2b retained Local isolation blocks a DeepSeek send",
     async run(page) {
-      const s = await open(page, { "GET /v1/models": { json: {
-        models: [...MODELS, { id: "local-fixture", backend: "local", efforts: ["configured"],
-          execution_modes: ["scoped"], permissions: { upload: false } }],
-        providers: { codex: true, gemini: true, deepseek: true, local: true },
-        uploads_enabled: true,
-      } } });
+      const s = await open(page, {
+        "GET /v1/models": {
+          json: {
+            models: [
+              ...MODELS,
+              {
+                id: "local-fixture",
+                backend: "local",
+                efforts: ["configured"],
+                execution_modes: ["scoped"],
+                permissions: { upload: false },
+              },
+            ],
+            providers: {
+              codex: true,
+              gemini: true,
+              deepseek: true,
+              local: true,
+            },
+            uploads_enabled: true,
+          },
+        },
+      });
       assert.equal(await page.locator("#model").inputValue(), "gpt-5.6-luna");
-      await page.evaluate(() => sessionStorage.setItem("remote-view", JSON.stringify({
-        project: "sem-projeto", composer_selection: { model: "local-fixture", effort: "configured" },
-        draft_mode: { mode: "scoped", modeChosen: true, retiredLock: false },
-      })));
+      await page.evaluate(() =>
+        sessionStorage.setItem(
+          "remote-view",
+          JSON.stringify({
+            project: "sem-projeto",
+            composer_selection: {
+              model: "local-fixture",
+              effort: "configured",
+            },
+            draft_mode: {
+              mode: "scoped",
+              modeChosen: true,
+              retiredLock: false,
+            },
+          }),
+        ),
+      );
       await page.reload();
       await page.locator("#startup-gate").waitFor({ state: "hidden" });
       assert.equal(await page.locator("#model").inputValue(), "local-fixture");
-      assert.equal(await page.locator("#isolation-toggle").getAttribute("aria-checked"), "true");
+      assert.equal(
+        await page.locator("#isolation-toggle").getAttribute("aria-checked"),
+        "true",
+      );
       await chooseModel(page, "deepseek-flash");
       await visible(page, "#execution-mode-unavailable");
       assert.match(
@@ -204,8 +251,14 @@ runPersona("H30", [
       assert.equal(await page.locator("#send").isDisabled(), true);
       await page.click("#new");
       assert.equal(await page.locator("#model").inputValue(), "deepseek-flash");
-      assert.equal(await text(page, "#execution-mode-label"), "Native conversation");
-      assert.equal(await page.locator("#execution-mode-unavailable").isVisible(), false);
+      assert.equal(
+        await text(page, "#execution-mode-label"),
+        "Native conversation",
+      );
+      assert.equal(
+        await page.locator("#execution-mode-unavailable").isVisible(),
+        false,
+      );
       assert.equal(s.posts.length, 0);
       assert.equal(
         await page.locator("#prompt").inputValue(),

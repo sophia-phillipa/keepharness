@@ -109,9 +109,16 @@ runPersona("h16", [
         await page.locator("#draft-limit").innerText(),
         /bytes over the 150,000-byte limit\. Shorten it or attach it as a file\./,
       );
-      assert(await page.locator("#send").isDisabled(), "over the limit blocks Send");
+      assert(
+        await page.locator("#send").isDisabled(),
+        "over the limit blocks Send",
+      );
       assert.equal(posts, 0, "nothing posted over the limit");
-      assert.equal(await page.locator("#prompt").inputValue(), log, "draft kept");
+      assert.equal(
+        await page.locator("#prompt").inputValue(),
+        log,
+        "draft kept",
+      );
       // Shorten it to just under the limit: the server's payload_limit refusal (413) is
       // still handled, as a sentence with a next step and a kept draft.
       const shorter = log.slice(0, 140 * 1024);
