@@ -8,12 +8,14 @@ const origin = process.env.HARNESS_URL;
     page.setDefaultTimeout(8000);
     let closed = 0;
     let failNextTemporary = false;
+    let originDeleted = false;
     await page.route('**/v1/**', route => {
       const request = route.request(), url = new URL(request.url());
       if (url.pathname === '/v1/temporary' && failNextTemporary) {
         failNextTemporary = false;
         return route.fulfill({ status: 500, json: { code: 'temporary_storage_unavailable' } });
       }
+      if (originDeleted && url.pathname === '/v1/conversations/cx') return route.fulfill({ status: 404, json: { code: 'conversation_not_found', error: 'Conversation not found' } });
       const data = url.pathname === '/v1/projects' ? { projects: ['sem-projeto'], details: {} }
         : url.pathname === '/v1/models' ? { models: [{ id: 'fixture', name: 'Fixture', backend: 'local', efforts: ['low'], permissions: { upload: true }, temporary_chat: true }], providers: { local: true }, uploads_enabled: true }
         : url.pathname === '/v1/conversations' ? { conversations: ['cx', 'cy'].map(id => ({ id, title: 'Conversation ' + id, project: 'sem-projeto', state: 'completed', last_job_id: 't-' + id, execution: { backend: 'local', model: 'fixture' } })) }
@@ -102,6 +104,21 @@ const origin = process.env.HARNESS_URL;
     assert.equal(await draftOf('conversation-draft:new:sem-projeto'), 'HOME-DRAFT');
     assert.equal(await page.evaluate(() => JSON.stringify({ ...sessionStorage, ...localStorage }).includes('PRIVATE-MARKER-60')), false);
     console.log('PASS leaving a temporary chat for another conversation keeps every draft and stores nothing private');
+    await openConversation('cx');
+    originDeleted = true;
+    await page.keyboard.press('Control+Shift+N');
+    await page.locator('#temporary-chat-notice').waitFor({ state: 'visible' });
+    await page.fill('#prompt', 'PRIVATE-MARKER-60-D');
+    page.once('dialog', dialog => dialog.accept());
+    await page.locator('#close-temporary-chat').click();
+    await page.locator('#temporary-chat-notice').waitFor({ state: 'hidden' });
+    await page.waitForFunction(() => !loading);
+    assert.match(await page.locator('#status').innerText(), /Couldn't open the conversation/);
+    assert.equal(await draftOf('conversation-draft:new:sem-projeto'), 'HOME-DRAFT');
+    assert.equal(await page.locator('#prompt').inputValue(), 'HOME-DRAFT');
+    assert.equal(await page.evaluate(() => JSON.stringify({ ...sessionStorage, ...localStorage }).includes('PRIVATE-MARKER-60')), false);
+    originDeleted = false;
+    console.log('PASS closing a temporary chat whose origin conversation was deleted keeps the Home draft and the error');
     await page.keyboard.press('Control+,');
     await page.locator('#settings-dialog').waitFor({ state: 'visible' });
     await page.locator('#settings-close').click();

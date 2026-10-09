@@ -6225,7 +6225,12 @@ async function returnFromTemporaryChat() {
   const origin = temporaryPreviousDraft;
   temporaryPreviousDraft = null;
   if (origin?.conversation && await navigate({ kind: "conversation", id: origin.conversation }, { record: false }) !== false) return;
-  newConversation();
+  // A failed load already consumed the discard mark and left its error: re-arm the mark so the
+  // leftover temporary view is not saved over the Home draft, and keep the error visible.
+  const message = $("status").textContent;
+  viewDiscarded = true;
+  newConversation("New Conversation", $("project").value, { restoreHomeDraft: true });
+  status(message);
 }
 $("close-temporary-chat").onclick = async () => {
   if (!leaveTemporaryChat()) return;
