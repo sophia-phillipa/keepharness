@@ -636,6 +636,7 @@
         return section;
       }
       for (const warning of data?.snapshot?.warnings || []) section.append(node("p", warning, "hint"));
+      if (kind === "instructions") section.append(node("p", "Previews are best effort; open the source file for the full text.", "hint"));
       const items = (data?.snapshot?.items || []).filter((item) => item.kind === kind &&
         [item.name, item.scope, item.source, JSON.stringify(item.details || {})].join(" ").toLocaleLowerCase().includes(query));
       if (!items.length) {

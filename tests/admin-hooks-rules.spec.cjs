@@ -69,6 +69,7 @@ function items(provider) {
     assert.match(await preview.innerText(), /Treat <script>/);
     assert.equal(await list.locator("script").count(), 0);
     assert.match(await list.innerText(), /42 bytes/);
+    assert.match(await list.innerText(), /Previews are best effort/);
     console.log("PASS professional-rule-source-size-preview-text");
     assert.equal(await preview.locator("summary").evaluate(e => e === document.activeElement), true);
     await page.keyboard.press("Enter");
