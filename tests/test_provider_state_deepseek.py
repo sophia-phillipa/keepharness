@@ -7,7 +7,11 @@ from pathlib import Path
 
 import pytest
 
-from adapters.shared.provider_state import ProviderStateUnsupportedError, SecretStr
+from adapters.shared.provider_state import (
+    ProviderStateConflictError,
+    ProviderStateUnsupportedError,
+    SecretStr,
+)
 from control.provider_state import ProviderStateService
 
 
@@ -216,3 +220,45 @@ def test_deepseek_config_inspection_fails_closed(facade, monkeypatch, kind):
     monkeypatch.setattr(codex_state, "_ask", forbidden)
     with pytest.raises(ProviderStateSchemaError):
         service._adapter("deepseek").read_state(None)
+
+
+def test_deepseek_stale_fingerprint_is_a_conflict_and_leaves_the_private_home(facade):
+    service, home = facade
+    adapter = service._adapter("deepseek")
+    stale = adapter.read_state(None).fingerprint
+    (home / "config.toml").write_text("[plugins.private]\nenabled = false\n")
+    before = (home / "config.toml").read_text()
+    with pytest.raises(ProviderStateConflictError):
+        adapter.set_enabled("plugin:private", "user", True, stale)
+    assert (home / "config.toml").read_text() == before
+
+
+def test_same_native_id_in_codex_and_deepseek_homes_stays_distinct(facade, monkeypatch):
+    service, home = facade
+    owner = Path(os.environ["CODEX_HOME"])
+    (owner / "config.toml").write_text("[plugins.private]\nenabled = true\n")
+    (owner / "fake-app-server.json").write_text(
+        json.dumps({"plugins": [{"id": "private", "name": "Owner"}]})
+    )
+    now = [0.0]
+
+    def tick() -> float:
+        return now[0]
+
+    tracked = ProviderStateService(home.parents[1], lambda: [], clock=tick, track_notices=True)
+    owner_before = asyncio.run(tracked.read("codex", "sem-projeto"))
+    deepseek_before = asyncio.run(tracked.read("deepseek", "sem-projeto"))
+    assert owner_before["snapshot"]["provider"] == "codex"
+    assert deepseek_before["snapshot"]["provider"] == "deepseek"
+    owner_item = next(i for i in owner_before["snapshot"]["items"] if i["id"] == "plugin:private")
+    private_item = next(
+        i for i in deepseek_before["snapshot"]["items"] if i["id"] == "plugin:private"
+    )
+    assert owner_item["name"] == "Owner" and private_item["name"] == "Private"
+    (home / "config.toml").write_text("[plugins.private]\nenabled = false\n")
+    now[0] = 60.0
+    owner_after = asyncio.run(tracked.read("codex", "sem-projeto"))
+    deepseek_after = asyncio.run(tracked.read("deepseek", "sem-projeto"))
+    assert owner_after["external_changes"] == []
+    assert [n["item_id"] for n in deepseek_after["external_changes"]] == ["plugin:private"]
+    assert deepseek_after["snapshot"]["provider"] == "deepseek"

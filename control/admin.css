@@ -1918,9 +1918,16 @@ html[data-embedded] #main {
 .plugins-chip:hover {
   background: color-mix(in srgb, var(--th-text) 13%, transparent);
 }
-.plugins-chip[aria-pressed="true"] {
+.plugins-chip[aria-pressed="true"],
+.plugins-scope-tab[aria-selected="true"] {
   background: var(--th-action);
   color: var(--th-on-action);
+}
+.plugins-scope-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 12px;
 }
 .plugins-chip .th-icon {
   flex: none;

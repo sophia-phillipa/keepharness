@@ -18,6 +18,14 @@ def key_file(state):
     return Path(state) / "deepseek.key"
 
 
+def ensure_private_home(state):
+    """Create the private home for a saved key; never chmod or repair an existing folder."""
+    if not key_file(state).is_file():
+        return
+    with scoped_home_directory(Path(state) / "providers" / "deepseek"):
+        pass
+
+
 def store_key(state, token):
     if not isinstance(token, str) or not 16 <= len(token) <= 512 or any(c.isspace() for c in token):
         raise UserMessageError("Invalid API token.")
