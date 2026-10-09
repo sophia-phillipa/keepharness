@@ -598,7 +598,11 @@ runPersona("H38", [
               (e) =>
                 e &&
                 (e.getAttribute("title") || e.getAttribute("aria-label") || "")
-                  .length >= Math.min(100, el.textContent.replace(/\s+/g, " ").trim().length),
+                  .length >=
+                  Math.min(
+                    100,
+                    el.textContent.replace(/\s+/g, " ").trim().length,
+                  ),
             );
             if (cut && !(ellipsis && full))
               out.push(

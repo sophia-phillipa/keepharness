@@ -71,7 +71,11 @@ runPersona("H23", [
                 json: { code: "conversation_not_found" },
               })
             : route.fulfill({
-                json: { title: "Budget review", execution_mode: "native", turns: [turn] },
+                json: {
+                  title: "Budget review",
+                  execution_mode: "native",
+                  turns: [turn],
+                },
               }),
         "POST /v1/jobs": (route) => {
           s.posts.push(route.request().postDataJSON());

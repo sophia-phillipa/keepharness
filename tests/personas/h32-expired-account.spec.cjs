@@ -114,7 +114,9 @@ runPersona("H32", [
       const bubble = await answer.locator(".chat-bubble").innerText();
       assert(bubble.indexOf(PARTIAL) >= 0, "partial answer kept");
       assert.doesNotMatch(bubble, /Your Claude access/);
-      assert(await page.locator(".composer-area #model-availability").isVisible());
+      assert(
+        await page.locator(".composer-area #model-availability").isVisible(),
+      );
       assert(await page.locator("#prompt").isDisabled());
       assert(await page.locator("#send").isDisabled());
       assert.equal(await page.inputValue("#prompt"), PROMPT);
@@ -129,7 +131,9 @@ runPersona("H32", [
       s.renew();
       assert.equal(await page.inputValue("#prompt"), PROMPT);
       await page.locator("#models-retry").click();
-      await page.waitForFunction(() => !document.querySelector("#prompt").disabled);
+      await page.waitForFunction(
+        () => !document.querySelector("#prompt").disabled,
+      );
       assert.equal(await page.inputValue("#prompt"), PROMPT);
       await page.click("#send");
       await page.getByText("Plan ready: venue, budget, agenda.").waitFor();

@@ -107,7 +107,8 @@ runPersona("H15", [
       // The spoken count is debounced (250 ms after typing pauses), so wait for it to settle.
       const counted = Array.from(PROMPT).length + " characters";
       await page.waitForFunction(
-        (text) => document.getElementById("character-count").textContent === text,
+        (text) =>
+          document.getElementById("character-count").textContent === text,
         counted,
       );
       assert.equal(

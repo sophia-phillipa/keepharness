@@ -252,10 +252,10 @@ async function scanHarness(page, theme) {
     await page.keyboard.press("Escape");
   }
   await page.keyboard.press("Control+,");
-      await page.click("#settings-quota");
+  await page.click("#settings-quota");
   await scan("quota panel");
   await page.keyboard.press("Escape");
-      await page.keyboard.press("Escape");
+  await page.keyboard.press("Escape");
   // The side panel remembers its view: "Activity" toggles the panel closed when
   // it already shows Activity, so open and switch only as needed.
   if ((await page.getAttribute("#panel-toggle", "aria-expanded")) !== "true")
@@ -384,8 +384,11 @@ runPersona("H36", [
       const mode = page.locator("#header-execution-mode");
       await mode.waitFor({ state: "visible" });
       assert.equal(await mode.innerText(), "Native conversation");
-      assert.equal(await mode.evaluate(el => el.tagName), "SPAN");
-      assert.equal(await page.locator("#execution-mode-indicator").isVisible(), false);
+      assert.equal(await mode.evaluate((el) => el.tagName), "SPAN");
+      assert.equal(
+        await page.locator("#execution-mode-indicator").isVisible(),
+        false,
+      );
     },
   },
   {
