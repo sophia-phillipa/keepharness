@@ -585,7 +585,7 @@ def test_shared_skill_notice_survives_aliased_root(adapter, codex_home, tmp_path
     assert item.writable
     assert f"Shared skills root: {root}." in item.reason
     assert "other providers using this root" in item.reason
-    assert item.affects == ()
+    assert item.affects == ("gemini",)
 
 
 def test_watch_paths_default_to_the_dot_codex_folder_of_the_home(

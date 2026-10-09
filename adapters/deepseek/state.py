@@ -14,6 +14,8 @@ from .account import store_key
 class DeepSeekStateAdapter(CodexStateAdapter):
     provider = "deepseek"
     extra_args = ("-c", 'cli_auth_credentials_store="file"')
+    # Its HOME is private, so its shared root is DeepSeek-only: no other provider reads it.
+    shared_root_readers: tuple[str, ...] = ()
 
     def __init__(self, state):
         self.state = Path(state)
