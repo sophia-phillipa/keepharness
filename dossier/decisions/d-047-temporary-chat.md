@@ -34,6 +34,17 @@ converts the temporary conversation into a saved one. The lease expires after
 120 seconds without renewal; the next 15-second sweep cancels and awaits active
 work before removing artifacts. Server shutdown awaits cleanup directly.
 
+Correction round #60-R1 tightens the boundaries of that design: backups must
+exclude the temporary artifact tree even when secrets are included. Session
+creation and crash sweeping must hold a common cross-process lock so a sweep
+cannot delete a newly created session before its lifetime lock is acquired.
+Project deletion must consider active jobs from every saved and temporary
+repository and share the project's deletion lock across those services.
+
+The browser preserves the original ordinary-chat draft across replacement
+temporary sessions. Console requests use the storage scope of the selected run;
+opening a temporary conversation does not change the scope of saved Activity runs.
+
 ## Provider evidence
 
 - **Claude Code 2.1.294:** installed `claude --help`, run with disposable `HOME`,
@@ -80,6 +91,11 @@ All design consultations used risk `medium`.
 
 The initial JEV abstentions are not approval or evidence of correctness.
 Tests and independent artifact review determine acceptance.
+
+For correction round #60-R1, the JEV tool refused the consultation because it
+requires approval and the resumed environment has approval policy `never`. No
+retry was made. The local fallback keeps the in-memory architecture and applies
+the explicit review requirements above; it adds no persistence fallback.
 
 ## Validation
 
