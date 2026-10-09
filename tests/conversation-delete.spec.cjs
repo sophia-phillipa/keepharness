@@ -63,7 +63,12 @@ const assert = require("node:assert/strict"),
           const [from, to] = body.archived
             ? [conversations, archived]
             : [archived, conversations];
-          to.unshift(...from.splice(from.findIndex((c) => c.id === id), 1));
+          to.unshift(
+            ...from.splice(
+              from.findIndex((c) => c.id === id),
+              1,
+            ),
+          );
           return route.fulfill({ json: { id, archived: body.archived } });
         }
         if (p === "/v1/storage")
@@ -220,7 +225,9 @@ const assert = require("node:assert/strict"),
       });
     });
     await page.emulateMedia({ reducedMotion: "reduce" });
-    await page.addInitScript(() => localStorage.setItem("keepharness-tour-seen", "0.16.0"));
+    await page.addInitScript(() =>
+      localStorage.setItem("keepharness-tour-seen", "0.16.0"),
+    );
     await page.goto(origin);
     await page.locator("#startup-gate").waitFor({ state: "hidden" });
 
@@ -305,7 +312,9 @@ const assert = require("node:assert/strict"),
         [],
         theme + " must use the existing theme tokens",
       );
-      await page.screenshot({ path: "/tmp/keepharness-delete-" + theme + ".png" });
+      await page.screenshot({
+        path: "/tmp/keepharness-delete-" + theme + ".png",
+      });
     }
 
     await page.setViewportSize({ width: 390, height: 844 });
@@ -332,8 +341,14 @@ const assert = require("node:assert/strict"),
 
     // Archive is one reversible click; the Archived chats list restores or deletes.
     await page.setViewportSize({ width: 1280, height: 900 });
-    const first = await page.locator("#history .conversation-row .conversation-title").first().innerText();
-    await page.locator("#history .conversation-actions summary").first().click();
+    const first = await page
+      .locator("#history .conversation-row .conversation-title")
+      .first()
+      .innerText();
+    await page
+      .locator("#history .conversation-actions summary")
+      .first()
+      .click();
     const menu = page.locator("#history .conversation-actions[open] button");
     assert.deepEqual(await menu.allInnerTexts(), [
       "Rename conversation",
@@ -355,21 +370,36 @@ const assert = require("node:assert/strict"),
     await row.first().waitFor();
     assert.equal(await row.locator("span").innerText(), "Conversation 1");
     const usage = page.locator("#storage-usage");
-    assert.match(await usage.innerText(), /^Storage: 900 of 1,000 runs · 512 MB of 2\.0 GB of files in this project\. Almost full/);
-    assert(await usage.evaluate((e) => e.classList.contains("storage-warning")));
+    assert.match(
+      await usage.innerText(),
+      /^Storage: 900 of 1,000 runs · 512 MB of 2\.0 GB of files in this project\. Almost full/,
+    );
+    assert(
+      await usage.evaluate((e) => e.classList.contains("storage-warning")),
+    );
     await row.getByRole("button", { name: "Unarchive Conversation 1" }).click();
     await page.locator("#archived-empty").waitFor({ state: "visible" });
     assert.deepEqual(archiveRequests.at(-1), ["c1", false]);
     await restoredRow.waitFor();
 
     // Delete permanently from the list takes a second, explicit step in the dialog.
-    archived.push(...conversations.splice(conversations.findIndex((c) => c.id === "c2"), 1));
+    archived.push(
+      ...conversations.splice(
+        conversations.findIndex((c) => c.id === "c2"),
+        1,
+      ),
+    );
     await page.click('[data-settings="appearance"]');
     await page.click('[data-settings="archived"]');
     await row.first().waitFor();
-    await row.getByRole("button", { name: "Delete permanently Conversation 2" }).click();
+    await row
+      .getByRole("button", { name: "Delete permanently Conversation 2" })
+      .click();
     await modal.waitFor({ state: "visible" });
-    assert.equal(await page.locator("#delete-conversation-name").innerText(), "Conversation 2");
+    assert.equal(
+      await page.locator("#delete-conversation-name").innerText(),
+      "Conversation 2",
+    );
     assert.equal(deletions, 2);
     await page.click("#delete-conversation-confirm");
     await modal.waitFor({ state: "hidden" });

@@ -141,9 +141,7 @@ def test_a_retired_codex_model_quarantines_only_its_route(tmp_path):
     runtime_config.build_cli_provider(cfg, "codex", spec, checked, cli_info(tmp_path), tmp_path)
     assert cfg["codex_models"] == {"current-model": ["low"]}
     assert cfg["services"]["codex"]["models"] == ["current-model"]
-    assert cfg["unavailable_models"] == {
-        "codex": {"retired-model": runtime_config.CATALOG_MISSING}
-    }
+    assert cfg["unavailable_models"] == {"codex": {"retired-model": runtime_config.CATALOG_MISSING}}
     # The saved selection stays for the admin to repair; only this run's routes change.
     assert spec["models"] == ["retired-model", "current-model"]
 

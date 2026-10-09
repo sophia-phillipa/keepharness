@@ -52,7 +52,9 @@ def test_declared_plan_requires_enforced(tmp_path, requires):
     with pytest.raises(ToolError, match="workflow_requirement_denied"):
         workflows.validate_workflow(plan, maestro.candidates(service.config, "p"), [])
     try:
-        with patch.object(service, "infer", AsyncMock(return_value={"answer": "executed"})) as infer:
+        with patch.object(
+            service, "infer", AsyncMock(return_value={"answer": "executed"})
+        ) as infer:
             with pytest.raises(ToolError, match="workflow_requirement_denied"):
                 asyncio.run(maestro.execute_plan(service, row, data, plan))
         assert infer.await_count == 0, "step executed despite unsatisfied declared requires"

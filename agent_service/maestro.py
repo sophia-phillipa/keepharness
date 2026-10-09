@@ -216,7 +216,8 @@ def retain_resources(service, row, data, plan):
         if not step.get("resource_selections"):
             continue
         selected = service.selected_resources(
-            {**data, **step, "prompt": step["task"]}, owner=service.resource_scope(row["owner"], data)[1]
+            {**data, **step, "prompt": step["task"]},
+            owner=service.resource_scope(row["owner"], data)[1],
         )
         step["resource_snapshots"] = [
             {

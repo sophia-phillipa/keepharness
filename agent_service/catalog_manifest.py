@@ -127,9 +127,7 @@ def hooks_digest(root, read=Path.read_bytes):
         (value, hashlib.sha256(read(_inside(root, value))).hexdigest())
         for value in manifest.get("allowed_hooks", [])
     )
-    return hashlib.sha256(
-        json.dumps([hashlib.sha256(raw).hexdigest(), hooks]).encode()
-    ).hexdigest()
+    return hashlib.sha256(json.dumps([hashlib.sha256(raw).hexdigest(), hooks]).encode()).hexdigest()
 
 
 def hooks_trusted(catalog, read=Path.read_bytes):

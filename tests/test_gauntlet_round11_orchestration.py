@@ -61,7 +61,7 @@ def test_gate_terminal_write_survives_contention(tmp_path, mode, busy_timeout):
             timer.start()
             if mode in ("cancel", "expire_cancel"):
                 if mode == "expire_cancel":
-                    await asyncio.sleep(.08)
+                    await asyncio.sleep(0.08)
                 instance.cancel(identity, "job")
             async with asyncio.timeout(9):
                 while instance.conversation_repository.get("job")["state"] in ("queued", "running"):

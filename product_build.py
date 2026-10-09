@@ -1,4 +1,5 @@
 """Setuptools backend with deterministic product metadata generation."""
+
 from setuptools import build_meta
 
 from control.product import generate

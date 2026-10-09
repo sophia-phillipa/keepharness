@@ -47,7 +47,9 @@ class FakeNetwork:
         if isinstance(answer, Exception):
             raise answer
         if request.url.path == "/v1/responses":
-            return httpx.Response(400, json={"error": {"message": "Missing required parameter: model"}})
+            return httpx.Response(
+                400, json={"error": {"message": "Missing required parameter: model"}}
+            )
         result = answer(request)
         return await result if inspect.isawaitable(result) else result
 

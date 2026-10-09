@@ -108,7 +108,9 @@ const assert = require("node:assert/strict"),
     };
     const idle = () => page.waitForFunction(() => !busy && !submitting);
 
-    await page.addInitScript(() => localStorage.setItem("keepharness-tour-seen", "0.16.0"));
+    await page.addInitScript(() =>
+      localStorage.setItem("keepharness-tour-seen", "0.16.0"),
+    );
 
     await page.goto("http://panel.test/");
     await page.locator("#startup-gate").waitFor({ state: "hidden" });
@@ -128,10 +130,23 @@ const assert = require("node:assert/strict"),
     await idle();
     assert.equal(sent.at(-1).execution_mode, "scoped");
     assert.equal(sent.at(-1).access_mode, "full");
-    assert.equal(await notice.isVisible(), true, "Local isolation requirement remains visible");
-    assert.equal(await page.locator("#header-execution-mode").isVisible(), true);
-    assert.equal(await page.locator("#header-execution-mode").innerText(), "Isolated conversation");
-    assert.equal(await page.locator("#header-access").innerText(), "Full access");
+    assert.equal(
+      await notice.isVisible(),
+      true,
+      "Local isolation requirement remains visible",
+    );
+    assert.equal(
+      await page.locator("#header-execution-mode").isVisible(),
+      true,
+    );
+    assert.equal(
+      await page.locator("#header-execution-mode").innerText(),
+      "Isolated conversation",
+    );
+    assert.equal(
+      await page.locator("#header-access").innerText(),
+      "Full access",
+    );
     assert.equal(
       await toggle.isVisible(),
       false,
@@ -156,15 +171,16 @@ const assert = require("node:assert/strict"),
       .locator("#model")
       .selectOption("gemini-fixture", { force: true });
     await page.locator("#prompt").fill("Blocked draft");
-    assert.equal(await page.locator("#execution-mode-unavailable").isVisible(), true);
+    assert.equal(
+      await page.locator("#execution-mode-unavailable").isVisible(),
+      true,
+    );
     assert.match(
       await page.locator("#execution-mode-unavailable").innerText(),
       /Choose a different model or start a new conversation\./,
     );
     assert.equal(await page.locator("#send").isDisabled(), true);
-    await page
-      .locator("#model")
-      .selectOption("local-fixture", { force: true });
+    await page.locator("#model").selectOption("local-fixture", { force: true });
     assert.equal(await page.locator("#send").isEnabled(), true);
     await page.locator("#prompt").fill("");
 
@@ -177,8 +193,14 @@ const assert = require("node:assert/strict"),
         "Isolated conversation",
     );
     assert.equal(await toggle.isVisible(), false);
-    assert.equal(await page.locator("#header-execution-mode").isVisible(), true);
-    assert.equal(await page.locator("#header-execution-mode").innerText(), "Isolated conversation");
+    assert.equal(
+      await page.locator("#header-execution-mode").isVisible(),
+      true,
+    );
+    assert.equal(
+      await page.locator("#header-execution-mode").innerText(),
+      "Isolated conversation",
+    );
     assert.equal(await page.locator("#header-access").innerText(), "Read only");
     assert.equal(await access.innerText(), "Access: Read only");
 
@@ -219,11 +241,16 @@ const assert = require("node:assert/strict"),
     await page.reload();
     await page.locator("#startup-gate").waitFor({ state: "hidden" });
     await page.click("#access-trigger");
-    assert.equal(await page.locator('#access-menu [data-access="full"]').isVisible(), false);
+    assert.equal(
+      await page.locator('#access-menu [data-access="full"]').isVisible(),
+      false,
+    );
     const reachable = [];
     for (let step = 0; step < 4; step++) {
       await page.keyboard.press("ArrowDown");
-      reachable.push(await page.evaluate(() => document.activeElement.dataset.access));
+      reachable.push(
+        await page.evaluate(() => document.activeElement.dataset.access),
+      );
     }
     assert.equal(reachable.includes("full"), false, reachable.join());
     await page.keyboard.press("Escape");

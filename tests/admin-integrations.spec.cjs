@@ -76,7 +76,11 @@ const assert = require("node:assert/strict");
         codex: [
           { id: "mcp:drive", name: "Drive", kind: "mcp" },
           { id: "plugin:github@openai", name: "github@openai", kind: "plugin" },
-          { id: "plugin:gmail@openai-remote", name: "gmail@openai-remote", kind: "plugin" },
+          {
+            id: "plugin:gmail@openai-remote",
+            name: "gmail@openai-remote",
+            kind: "plugin",
+          },
         ],
         claude: [
           { id: "mcp:linear", name: "Linear", kind: "mcp" },
@@ -258,7 +262,10 @@ const assert = require("node:assert/strict");
     const remote = page.getByRole("checkbox", { name: /gmail/i });
     assert(!(await remote.isChecked()), "remote plugin is not preselected");
     assert(await remote.isDisabled(), "remote plugin cannot be allowed");
-    assert.match(await page.locator("#integration-selection").innerText(), /Not available in KeepHarness runs/);
+    assert.match(
+      await page.locator("#integration-selection").innerText(),
+      /Not available in KeepHarness runs/,
+    );
     await page
       .locator("#inspector-tabs")
       .getByText("Plugins", { exact: true })
@@ -342,9 +349,7 @@ const assert = require("node:assert/strict");
       );
     }
     await page.setViewportSize({ width: 1440, height: 1000 });
-    await page
-      .getByRole("button", { name: "Edit Codex", exact: true })
-      .click();
+    await page.getByRole("button", { name: "Edit Codex", exact: true }).click();
     assert.equal(
       await page.locator("#provider-dialog .provider-enabled").count(),
       0,

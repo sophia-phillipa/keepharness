@@ -7,7 +7,9 @@ const path = require("node:path");
 (async () => {
   const browser = await chromium.launch();
   try {
-    const page = await browser.newPage({ viewport: { width: 1280, height: 860 } });
+    const page = await browser.newPage({
+      viewport: { width: 1280, height: 860 },
+    });
     const attached = [];
     let noAgents = false;
     page.on("pageerror", (e) => console.error("PAGEERROR", e.message));
@@ -25,34 +27,51 @@ const path = require("node:path");
         });
       let data = {};
       if (pathname === "/v1/projects")
-        data = { projects: ["sem-projeto", "project-a"], details: { "project-a": { label: "Project Alpha" } } };
+        data = {
+          projects: ["sem-projeto", "project-a"],
+          details: { "project-a": { label: "Project Alpha" } },
+        };
       else if (pathname === "/v1/models")
         data = {
-          models: [{ id: "fixture", name: "Fixture", backend: "local", efforts: ["low"], permissions: { upload: true } }],
+          models: [
+            {
+              id: "fixture",
+              name: "Fixture",
+              backend: "local",
+              efforts: ["low"],
+              permissions: { upload: true },
+            },
+          ],
           providers: { local: true },
           uploads_enabled: true,
         };
       else if (pathname === "/v1/conversations") data = { conversations: [] };
-      else if (pathname === "/v1/version") data = { version: "fixture", build: "files-agents" };
+      else if (pathname === "/v1/version")
+        data = { version: "fixture", build: "files-agents" };
       else if (pathname === "/v1/resources")
         data = {
-          items: noAgents ? [] : [
-            {
-              id: "catalog/demo/agents/reviewer.toml",
-              resource_id: "catalog/demo/agents/reviewer.toml",
-              revision: "a1",
-              kind: "agent",
-              name: "reviewer",
-              description: "Review implementation evidence",
-              scope: "catalog",
-              origin: "demo",
-              group: "Agents",
-              selectable: true,
-            },
-          ],
+          items: noAgents
+            ? []
+            : [
+                {
+                  id: "catalog/demo/agents/reviewer.toml",
+                  resource_id: "catalog/demo/agents/reviewer.toml",
+                  revision: "a1",
+                  kind: "agent",
+                  name: "reviewer",
+                  description: "Review implementation evidence",
+                  scope: "catalog",
+                  origin: "demo",
+                  group: "Agents",
+                  selectable: true,
+                },
+              ],
           warnings: [],
         };
-      else if (pathname === "/v1/project-files" && route.request().method() === "GET") {
+      else if (
+        pathname === "/v1/project-files" &&
+        route.request().method() === "GET"
+      ) {
         const roots = [{ id: "home", label: "Personal folder" }];
         data = url.searchParams.get("root_id")
           ? {
@@ -67,17 +86,25 @@ const path = require("node:path");
               limited: false,
             }
           : { state: "ready", roots, entries: [] };
-      } else if (pathname === "/v1/project-files/attach" && route.request().method() === "POST") {
+      } else if (
+        pathname === "/v1/project-files/attach" &&
+        route.request().method() === "POST"
+      ) {
         const body = route.request().postDataJSON();
         attached.push(body.paths);
         data = {
-          attachments: body.paths.map((name, i) => ({ file_id: "selected-" + attached.length + "-" + i, name })),
+          attachments: body.paths.map((name, i) => ({
+            file_id: "selected-" + attached.length + "-" + i,
+            name,
+          })),
           skipped: [],
         };
       }
       return route.fulfill({ json: data });
     });
-    await page.addInitScript(() => localStorage.setItem("keepharness-tour-seen", "0.16.0"));
+    await page.addInitScript(() =>
+      localStorage.setItem("keepharness-tour-seen", "0.16.0"),
+    );
     await page.goto("http://panel.test/");
     await page.locator("#startup-gate").waitFor({ state: "hidden" });
 
@@ -91,7 +118,9 @@ const path = require("node:path");
     await page.fill("#prompt", "Review this");
     await bar.getByRole("button", { name: "Agents" }).click();
     assert.equal(await page.locator("#prompt").inputValue(), "Review this");
-    const reviewer = page.locator("#resource-menu").getByRole("option", { name: /reviewer/ });
+    const reviewer = page
+      .locator("#resource-menu")
+      .getByRole("option", { name: /reviewer/ });
     await reviewer.waitFor();
     await page.keyboard.press("Escape");
     assert.equal(await page.locator("#resource-menu").isVisible(), false);
@@ -99,7 +128,10 @@ const path = require("node:path");
     // Choosing an agent adds its token after the draft.
     await bar.getByRole("button", { name: "Agents" }).click();
     await reviewer.click();
-    assert.equal(await page.locator("#prompt").inputValue(), "Review this @reviewer ");
+    assert.equal(
+      await page.locator("#prompt").inputValue(),
+      "Review this @reviewer ",
+    );
     await page.fill("#prompt", "");
     // With no agent for the model the list offers to create one, in plain words.
     noAgents = true;
@@ -118,14 +150,29 @@ const path = require("node:path");
     await bar.getByRole("button", { name: "Files" }).click();
     const filesMenu = page.locator("#files-menu");
     await filesMenu.waitFor({ state: "visible" });
-    assert.equal(await page.locator("#activity-panel").isHidden(), true, "the chip does not open the panel");
-    assert.equal(await page.locator("#view-chat").getAttribute("aria-selected"), "true");
+    assert.equal(
+      await page.locator("#activity-panel").isHidden(),
+      true,
+      "the chip does not open the panel",
+    );
+    assert.equal(
+      await page.locator("#view-chat").getAttribute("aria-selected"),
+      "true",
+    );
     for (const name of ["Upload…", "Browse project files…"])
       assert(await filesMenu.getByRole("button", { name }).isVisible(), name);
-    assert.match(await filesMenu.innerText(), /Recent uploads[\s\S]*Space pages/);
+    assert.match(
+      await filesMenu.innerText(),
+      /Recent uploads[\s\S]*Space pages/,
+    );
     await page.keyboard.press("Escape");
     assert.equal(await filesMenu.isHidden(), true);
-    assert(await page.locator("#files-chip").evaluate((el) => el === document.activeElement), "focus returns to the chip");
+    assert(
+      await page
+        .locator("#files-chip")
+        .evaluate((el) => el === document.activeElement),
+      "focus returns to the chip",
+    );
     // A selection of project files offers attach and a new chat.
     await bar.getByRole("button", { name: "Files" }).click();
     await filesMenu.getByTestId("files-menu-browse").click();
@@ -134,24 +181,55 @@ const path = require("node:path");
       photo = page.locator('#files-tree [data-path="photo.png"]');
     await brief.waitFor({ state: "visible" });
     const actions = page.getByRole("group", { name: "Selected files" });
-    assert.equal(await actions.isVisible(), false, "no actions without a selection");
+    assert.equal(
+      await actions.isVisible(),
+      false,
+      "no actions without a selection",
+    );
     await brief.focus();
     await brief.press("Space");
-    assert.equal(await actions.getByRole("button", { name: "New chat with this file" }).isVisible(), true);
+    assert.equal(
+      await actions
+        .getByRole("button", { name: "New chat with this file" })
+        .isVisible(),
+      true,
+    );
     await photo.focus();
     await photo.press("Space");
-    const newChat = actions.getByRole("button", { name: "New chat with these files" });
+    const newChat = actions.getByRole("button", {
+      name: "New chat with these files",
+    });
     assert.equal(await newChat.isVisible(), true);
-    assert.equal(await actions.getByRole("button", { name: "Attach to message" }).isVisible(), true);
+    assert.equal(
+      await actions
+        .getByRole("button", { name: "Attach to message" })
+        .isVisible(),
+      true,
+    );
 
     await page.fill("#prompt", "Summarize these files");
     await newChat.click();
-    await page.waitForFunction(() => document.querySelectorAll(".attachment").length === 2);
+    await page.waitForFunction(
+      () => document.querySelectorAll(".attachment").length === 2,
+    );
     assert.deepEqual(attached, [["brief.md", "photo.png"]]);
-    assert.equal(await page.locator("#conversation-title").innerText(), "New Conversation");
-    assert.equal(await page.locator("#prompt").inputValue(), "Summarize these files", "the draft is kept");
-    assert(await page.locator("#prompt").evaluate((el) => el === document.activeElement));
-    console.log("PASS composer Files and Agents chips; new chat from selected files");
+    assert.equal(
+      await page.locator("#conversation-title").innerText(),
+      "New Conversation",
+    );
+    assert.equal(
+      await page.locator("#prompt").inputValue(),
+      "Summarize these files",
+      "the draft is kept",
+    );
+    assert(
+      await page
+        .locator("#prompt")
+        .evaluate((el) => el === document.activeElement),
+    );
+    console.log(
+      "PASS composer Files and Agents chips; new chat from selected files",
+    );
   } finally {
     await browser.close();
   }

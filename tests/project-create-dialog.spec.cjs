@@ -47,7 +47,11 @@ const assert = require("node:assert/strict"),
                   },
                   { name: "hidden.txt", path: "hidden.txt", type: "file" },
                 ]
-              : ["Work A", "Work B", ...Array.from({ length: 12 }, (_, i) => "Folder " + i)].map((name) => ({
+              : [
+                  "Work A",
+                  "Work B",
+                  ...Array.from({ length: 12 }, (_, i) => "Folder " + i),
+                ].map((name) => ({
                   name,
                   path: name,
                   absolute_path: "/home/test-user/" + name,
@@ -86,7 +90,9 @@ const assert = require("node:assert/strict"),
               : "text/html",
       });
     });
-    await page.addInitScript(() => localStorage.setItem("keepharness-tour-seen", "0.16.0"));
+    await page.addInitScript(() =>
+      localStorage.setItem("keepharness-tour-seen", "0.16.0"),
+    );
     await page.goto(origin);
     await page.locator("#startup-gate").waitFor({ state: "hidden" });
     if (!(await page.locator("#project-tree").evaluate((el) => el.open)))
@@ -121,11 +127,15 @@ const assert = require("node:assert/strict"),
       .locator("#project-directory-list")
       .evaluate((list) => ({
         height: list.clientHeight,
-        row: list.querySelector(".project-file-row").getBoundingClientRect().height,
+        row: list.querySelector(".project-file-row").getBoundingClientRect()
+          .height,
         scroll: list.scrollHeight,
       }));
     assert(tree.scroll > tree.height, "the fixture has more folders than fit");
-    assert(tree.height >= 8 * tree.row, "the folder tree shows 8+ rows: " + JSON.stringify(tree));
+    assert(
+      tree.height >= 8 * tree.row,
+      "the folder tree shows 8+ rows: " + JSON.stringify(tree),
+    );
     // A chevron is a 24 px target.
     const chevron = await page
       .locator("#project-directory-list .file-chevron")

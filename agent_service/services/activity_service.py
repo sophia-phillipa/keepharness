@@ -10,7 +10,6 @@ from ..resources import conversation_title
 from ..spans import queue_wait_reason
 from ..work_items import validate_reference
 
-
 # What the rail may carry per provider; anything else a source adds never leaves the server.
 QUOTA_KEYS = frozenset(
     {

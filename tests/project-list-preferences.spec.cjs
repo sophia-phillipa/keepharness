@@ -63,12 +63,14 @@ const path = require("node:path");
       return route.fulfill({ json: data });
     });
     const ready = async () => {
-      await page.addInitScript(() => localStorage.setItem("keepharness-tour-seen", "0.16.0"));
+      await page.addInitScript(() =>
+        localStorage.setItem("keepharness-tour-seen", "0.16.0"),
+      );
       await page.goto("http://panel.test");
       await page.locator("#startup-gate").waitFor({ state: "hidden" });
-    // Projects are listed open by default in the Codex-style sidebar.
-    if (!(await page.locator("#project-tree").evaluate((el) => el.open)))
-      await page.locator("#project-tree > summary").click();
+      // Projects are listed open by default in the Codex-style sidebar.
+      if (!(await page.locator("#project-tree").evaluate((el) => el.open)))
+        await page.locator("#project-tree > summary").click();
     };
     const action = async (name, label) => {
       await page
@@ -161,7 +163,9 @@ const path = require("node:path");
         .locator('[data-project-id="alpha"] > summary > button')
         .click();
     await page
-      .locator(".conversation-title").filter({ hasText: /^Preserved conversation$/ }).first()
+      .locator(".conversation-title")
+      .filter({ hasText: /^Preserved conversation$/ })
+      .first()
       .waitFor();
     console.log("PASS P3: reload, polling and restored conversation history");
     // P4: keyboard activation and focus after replacing menu DOM; Escape remains supported.
@@ -178,7 +182,10 @@ const path = require("node:path");
     assert(await trigger.evaluate((el) => el === document.activeElement));
     await page.keyboard.press("Enter");
     await page.keyboard.press("Escape");
-    await page.waitForFunction((el) => el.getAttribute("aria-expanded") === "false", await trigger.elementHandle());
+    await page.waitForFunction(
+      (el) => el.getAttribute("aria-expanded") === "false",
+      await trigger.elementHandle(),
+    );
     assert.equal(await trigger.getAttribute("aria-expanded"), "false");
     console.log(
       "PASS P4: keyboard, accessible favorite label, focus and Escape",
@@ -191,7 +198,7 @@ const path = require("node:path");
       .locator(".project-actions-menu:popover-open")
       .boundingBox();
     assert(box.x >= 0 && box.x + box.width <= 390 && box.y + box.height <= 844);
-    const offline = route => route.abort();
+    const offline = (route) => route.abort();
     await page.route("**/v1/**", offline);
     await page
       .getByRole("button", { name: "Add to favorites", exact: true })

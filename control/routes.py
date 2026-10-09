@@ -710,7 +710,8 @@ async def trust_provider_project(request, manager, data):
 
 async def approve_provider_mcp(request, manager, data):
     provider, project_id, server, approved, expected_root = (
-        data.get(key) for key in ("provider", "project_id", "server", "approved", "expected_project_root")
+        data.get(key)
+        for key in ("provider", "project_id", "server", "approved", "expected_project_root")
     )
     if not (
         isinstance(provider, str)

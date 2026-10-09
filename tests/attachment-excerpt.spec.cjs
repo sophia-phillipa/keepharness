@@ -45,7 +45,9 @@ const path = require("node:path");
               : {};
       return route.fulfill({ json: data });
     });
-    await page.addInitScript(() => localStorage.setItem("keepharness-tour-seen", "0.16.0"));
+    await page.addInitScript(() =>
+      localStorage.setItem("keepharness-tour-seen", "0.16.0"),
+    );
     await page.goto("http://panel.test/");
     await page.locator("#startup-gate").waitFor({ state: "hidden" });
     await page.evaluate(() =>
@@ -63,7 +65,10 @@ const path = require("node:path");
     });
     const sent = page.locator(".message-file");
     assert.equal(await sent.count(), 2);
-    assert.equal(await page.locator(".message-file .attachment-excerpt").count(), 1);
+    assert.equal(
+      await page.locator(".message-file .attachment-excerpt").count(),
+      1,
+    );
     assert.match(
       await sent.first().locator(".attachment-excerpt").getAttribute("title"),
       /report\.pdf.*sent inline/,

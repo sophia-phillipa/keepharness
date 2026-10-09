@@ -188,7 +188,10 @@ const assert = require("node:assert/strict");
           bounds,
         );
         await page.screenshot({
-          path: require("node:path").join(require("node:os").tmpdir(), `tester-a11y-${width}-${section === "Permissions" ? "permissions" : "integrations"}.png`),
+          path: require("node:path").join(
+            require("node:os").tmpdir(),
+            `tester-a11y-${width}-${section === "Permissions" ? "permissions" : "integrations"}.png`,
+          ),
           fullPage: true,
         });
       }
@@ -250,7 +253,12 @@ const assert = require("node:assert/strict");
       focused: document.activeElement === e,
     }));
     check("P4-skip-unfocused", skip.bottom <= 0 && !skip.focused, skip);
-    await page.screenshot({ path: require("node:path").join(require("node:os").tmpdir(), "tester-a11y-skip.png") });
+    await page.screenshot({
+      path: require("node:path").join(
+        require("node:os").tmpdir(),
+        "tester-a11y-skip.png",
+      ),
+    });
     const tabStates = await tabs.locator("button").evaluateAll((es) =>
       es.map((e) => ({
         text: e.textContent,
@@ -276,7 +284,10 @@ const assert = require("node:assert/strict");
     await page.evaluate(() => HarnessTheme.apply("arizona", false));
     await page.waitForTimeout(250);
     await page.screenshot({
-      path: require("node:path").join(require("node:os").tmpdir(), "tester-a11y-arizona-mobile.png"),
+      path: require("node:path").join(
+        require("node:os").tmpdir(),
+        "tester-a11y-arizona-mobile.png",
+      ),
       fullPage: true,
     });
 
@@ -311,7 +322,10 @@ const assert = require("node:assert/strict");
       .waitFor();
     await page.waitForTimeout(250);
     await page.screenshot({
-      path: require("node:path").join(require("node:os").tmpdir(), "tester-a11y-mobile-error.png"),
+      path: require("node:path").join(
+        require("node:os").tmpdir(),
+        "tester-a11y-mobile-error.png",
+      ),
       fullPage: true,
     });
     const skipError = await page.locator(".skip").evaluate((e) => ({
@@ -325,7 +339,12 @@ const assert = require("node:assert/strict");
       skipError.bottom <= 0 && !skipError.focused,
       skipError,
     );
-    await page.screenshot({ path: require("node:path").join(require("node:os").tmpdir(), "tester-a11y-error-viewport.png") });
+    await page.screenshot({
+      path: require("node:path").join(
+        require("node:os").tmpdir(),
+        "tester-a11y-error-viewport.png",
+      ),
+    });
     check(
       "P5-error-layout",
       await page.evaluate(
@@ -397,7 +416,10 @@ const assert = require("node:assert/strict");
     }
     check("runtime", errors.length === 0, errors);
     await fs.writeFile(
-      require("node:path").join(require("node:os").tmpdir(), "tester-accessibility.json"),
+      require("node:path").join(
+        require("node:os").tmpdir(),
+        "tester-accessibility.json",
+      ),
       JSON.stringify(results, null, 2),
     );
     console.log(JSON.stringify(results, null, 2));

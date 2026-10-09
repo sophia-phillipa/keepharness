@@ -151,9 +151,7 @@ def config_batch_write(params):
         incomplete = during_rollback or landed == "external"
         assert response.status_code == (409 if incomplete else 504), response.body
         assert json.loads(response.body)["error"] == (
-            "provider_trust_rollback_incomplete"
-            if incomplete
-            else "provider_state_timeout"
+            "provider_trust_rollback_incomplete" if incomplete else "provider_state_timeout"
         )
         writer, child = map(int, (codex_home / "writer-pids").read_text().split())
         with pytest.raises(ProcessLookupError):
