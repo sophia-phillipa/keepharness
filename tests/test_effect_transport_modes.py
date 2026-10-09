@@ -91,11 +91,9 @@ def test_native_configs_use_owned_server_and_disable_host_impersonation(tmp_path
     monkeypatch.setattr("control.integrations.configurations", lambda: {"claude": host})
     monkeypatch.setattr("control.integrations.inventory", lambda: {"claude": []})
     config = {"binary": "fixture", "_effect_capability": capability}
-    build_command(config, "fixture", tmp_path, {}, ["mcp:harness_effects"], "full", [])
+    build_command(config, "fixture", tmp_path, {}, "full", [])
     assert json.loads((tmp_path / "mcp.json").read_text())["mcpServers"]["harness_effects"] == owned
-    build_command(
-        {"binary": "fixture"}, "fixture", tmp_path, {}, ["mcp:harness_effects"], "full", []
-    )
+    build_command({"binary": "fixture"}, "fixture", tmp_path, {}, "full", [])
     assert "harness_effects" not in json.loads((tmp_path / "mcp.json").read_text())["mcpServers"]
     workspace = SimpleNamespace(cwd=tmp_path, permissions={})
     params = thread_parameters(

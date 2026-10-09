@@ -27,7 +27,6 @@ def test_hook_setting_sources(tmp_path, monkeypatch, hooks, personal_setup, sour
         "haiku",
         tmp_path,
         {"hooks": hooks},
-        [],
         "ask",
         [],
     )

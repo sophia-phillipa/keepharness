@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 from test_approval_authority import ceiling_config, client_for
-from test_approval_policy import ALL_GRANTS, HOST_SERVERS, SELECTED, run_codex_route
+from test_approval_policy import ALL_GRANTS, HOST_SERVERS, run_codex_route
 
 from adapters.claude.native import build_command as claude_command
 from agent_service.app import create_app
@@ -65,7 +65,6 @@ def claude_build(tmp_path, mode, roots=()):
             "fixture",
             tmp_path,
             effective_permissions(ALL_GRANTS, mode),
-            SELECTED,
             mode,
             list(roots),
         )
@@ -218,7 +217,6 @@ def test_access_menu_metadata_matches_actual_native_commands(tmp_path, mode, she
         "fixture",
         tmp_path,
         effective_permissions(grants, mode),
-        [],
         mode,
         [],
     )

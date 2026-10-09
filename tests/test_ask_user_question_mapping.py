@@ -110,7 +110,6 @@ print(json.dumps({"type":"result", "subtype":"success", "result":"done"}), flush
             "haiku",
             tmp_path,
             {},
-            [],
             approve,
         )
     )

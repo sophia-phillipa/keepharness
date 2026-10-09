@@ -167,7 +167,6 @@ print(json.dumps({'type':'result', 'subtype':'success', 'result':'ok', 'usage':{
                 "fixture",
                 home,
                 {"hooks": True},
-                [],
                 approve,
             )
         )
@@ -463,7 +462,7 @@ def test_project_mcp_cannot_replace_harness_effects(tmp_path, monkeypatch):
             "disabled_servers": [],
         },
     }
-    build_command(config, "fixture", tmp_path, {}, [], "ask", [])
+    build_command(config, "fixture", tmp_path, {}, "ask", [])
     assert (
         json.loads((tmp_path / "mcp.json").read_text())["mcpServers"]["harness_effects"]["command"]
         == "trusted-harness"

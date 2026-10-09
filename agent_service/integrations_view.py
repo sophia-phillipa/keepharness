@@ -36,25 +36,10 @@ GEMINI_READ_ONLY = "Read-only access turns connectors off for Gemini."
 READ_ONLY = "Read-only access turns connectors and plugins off."
 NATIVE = "Availability and approvals follow the native CLI configuration and selected access mode."
 NATIVE_BACKENDS = frozenset({"codex", "claude"})
-GEMINI_INTERNET = "Gemini connectors need the internet permission."
 ASKS = "Each connector call asks for your approval."
 UNATTENDED = "Connector calls run without asking (full access)."
 INVENTORY_UNREADABLE = "Could not read the connector and plugin inventory."
 DEEPSEEK_OWN_HOME = "DeepSeek runs in its own home and sees none of your Codex or Claude Code connectors or plugins."
-# Separate-home DeepSeek runs disable apps; native Codex inherits the CLI configuration.
-REMOTE_PLUGIN = (
-    "Remote ChatGPT plugins bring their tools as Codex apps, which harness runs turn off."
-)
-APPS_OFF_BACKENDS = frozenset({"deepseek"})
-
-
-def app_based(item: Item, backend: str) -> bool:
-    marketplace = item["id"].rsplit("@", 1)[-1] if "@" in item["id"] else ""
-    return (
-        backend in APPS_OFF_BACKENDS
-        and item["kind"] == "plugin"
-        and marketplace.endswith("-remote")
-    )
 
 
 class Route(NamedTuple):
@@ -67,44 +52,37 @@ class Route(NamedTuple):
 
 class Limits(NamedTuple):
     blocked: str  # why no item is effective on this route
-    blocked_if_allowed: str  # why an allowed item is still not effective
     note: str  # one sentence about approvals for this route
 
 
 def route_limits(config: Settings, route: Route) -> Limits:
     """What the adapters do with allowed integrations on this route (adapters/*/native.py)."""
     if route.execution_mode == "scoped":
-        return Limits(ISOLATED, "", ISOLATED)
+        return Limits(ISOLATED, ISOLATED)
     if route.backend in NATIVE_BACKENDS:
-        return Limits("", "", NATIVE)
+        return Limits("", NATIVE)
     permissions = approval_policy.effective_permissions(
         maestro.model_permissions(config, route.backend, route.model, route.project_id),
         route.access_mode,
     )
     if route.backend == "gemini":
-        return Limits(
-            GEMINI_READ_ONLY if route.access_mode == "read_only" else "",
-            "" if permissions.get("internet") else GEMINI_INTERNET,
-            "",
-        )
+        return Limits(GEMINI_READ_ONLY if route.access_mode == "read_only" else "", "")
     if route.access_mode == "read_only":
-        return Limits(READ_ONLY, "", "")
+        return Limits(READ_ONLY, "")
     # Automatic is bounded to the project, so a connector call asks there too (D11).
     if route.access_mode in ("ask", "auto"):
-        return Limits("", "", ASKS)
+        return Limits("", ASKS)
     unattended = (
         config.get(route.backend, {}).get("unrestricted") is True
         and route.access_mode == "full"
         and bool(permissions.get("shell"))
     )
-    return Limits("", "", UNATTENDED if unattended else "")
+    return Limits("", UNATTENDED if unattended else "")
 
 
-def item_reason(allowed: bool, limits: Limits) -> str:
+def item_reason(limits: Limits) -> str:
     """Why an item is not effective on the route; empty when it is."""
-    if limits.blocked:
-        return limits.blocked
-    return limits.blocked_if_allowed if allowed else NOT_ALLOWED
+    return limits.blocked or NOT_ALLOWED
 
 
 def read_catalog() -> dict[str, list[Item]] | None:
@@ -214,9 +192,7 @@ def build(
     used, other_tools = attribute_usage(items, usage_rows)
     for item in items:
         item["allowed"] = False  # no harness allow list: native CLIs follow their own config
-        item["reason"] = item_reason(item["allowed"], limits) or (
-            REMOTE_PLUGIN if app_based(item, route.backend) else ""
-        )
+        item["reason"] = item_reason(limits)
         item["effective"] = not item["reason"]
         if route.backend in NATIVE_BACKENDS and route.execution_mode == "native":
             item.update(allowed=None, effective=None, reason=NATIVE)

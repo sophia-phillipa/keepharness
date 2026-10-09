@@ -128,7 +128,6 @@ print(json.dumps({{'type':'result','subtype':'success','result':'ok'}}),flush=Tr
                 "opus",
                 tmp_path,
                 {},
-                [],
                 AsyncMock(),
                 effort=effort,
             )

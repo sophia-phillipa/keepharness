@@ -187,7 +187,6 @@ def test_native_run_uses_the_selected_auth_source(tmp_path, monkeypatch, use_cli
             "sonnet",
             home,
             {},
-            [],
             AsyncMock(),
         )
     )

@@ -321,13 +321,12 @@ def test_codex_native_skill_reload_and_structured_input(tmp_path):
 def test_claude_native_tools_are_not_filtered_by_resource_selection(tmp_path):
     from adapters.claude.native import build_command
 
-    basic = build_command({"binary": "claude"}, "sonnet", tmp_path, {"read": True}, [], "ask", [])
+    basic = build_command({"binary": "claude"}, "sonnet", tmp_path, {"read": True}, "ask", [])
     selected = build_command(
         {"binary": "claude", "resource_skills": ["review"]},
         "sonnet",
         tmp_path,
         {"read": True},
-        [],
         "ask",
         [],
     )
