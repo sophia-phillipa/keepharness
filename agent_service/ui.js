@@ -8173,33 +8173,6 @@ $("project-menu").addEventListener("keydown", (event) => {
           options.length;
   options[next].focus();
 });
-// Chat | Code view switch (D45): the same conversation, with files and run activity beside it.
-function syncViewSwitch() {
-  const code = $("panel-toggle").getAttribute("aria-expanded") === "true";
-  $("view-chat").setAttribute("aria-selected", String(!code));
-  $("view-code").setAttribute("aria-selected", String(code));
-  $("view-chat").tabIndex = code ? -1 : 0;
-  $("view-code").tabIndex = code ? 0 : -1;
-  document.body.dataset.view = code ? "code" : "chat";
-}
-function showView(view) {
-  const code = $("panel-toggle").getAttribute("aria-expanded") === "true";
-  if ((view === "code") !== code) $("panel-toggle").click();
-  syncViewSwitch();
-  $(view === "code" ? "view-code" : "view-chat").focus();
-}
-$("view-chat").onclick = () => showView("chat");
-$("view-code").onclick = () => showView("code");
-$("view-switch").addEventListener("keydown", (event) => {
-  if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
-  event.preventDefault();
-  showView(event.key === "ArrowRight" || event.key === "End" ? "code" : "chat");
-});
-new MutationObserver(syncViewSwitch).observe($("panel-toggle"), {
-  attributes: true,
-  attributeFilter: ["aria-expanded"],
-});
-syncViewSwitch();
 function positionAttentionPopover() {
   const popover = $("attention-popover");
   if (popover.hidden) return;
@@ -11756,7 +11729,6 @@ function updateComposer() {
   if (projectTrustContext && !currentProjectTrust(projectTrustContext))
     void refreshProjectTrust();
   syncComposerProjectButton();
-  syncViewSwitch();
   syncComposerPickers();
   syncRouteCarryover();
   void refreshElsewhere();

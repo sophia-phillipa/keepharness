@@ -200,15 +200,13 @@ const RAIL = [
     );
     await page.click("#settings-close");
 
-    // Chat | Code is the same conversation: a tooltip says so and the greeting does not change.
+    // The side-panel toggle shows files and run activity beside the chat; the conversation does not change.
     const greeting = await page.locator("#welcome h1").innerText();
-    assert.equal(
-      await page.locator("#view-code").getAttribute("title"),
-      "Shows files and run activity beside the chat",
-    );
-    await page.click("#view-code");
+    await page.click("#panel-toggle");
+    await page.locator("#activity-panel").waitFor({ state: "visible" });
     assert.equal(await page.locator("#welcome h1").innerText(), greeting);
-    await page.click("#view-chat");
+    await page.click("#panel-toggle");
+    await page.locator("#activity-panel").waitFor({ state: "hidden" });
 
     // Phone: the rail hides Space and Scheduled, so the drawer lists them (UX-R1-2).
     for (const width of [620, 390]) {
@@ -239,7 +237,7 @@ const RAIL = [
       "the drawer entries are phone-only",
     );
     console.log(
-      "PASS: rail labels on focus, Settings structure, Theme/About/Admin in Settings, Chat|Code, Space and Scheduled on a phone",
+      "PASS: rail labels on focus, Settings structure, Theme/About/Admin in Settings, side-panel toggle, Space and Scheduled on a phone",
     );
   } finally {
     await browser.close();

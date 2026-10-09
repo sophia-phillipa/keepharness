@@ -39,3 +39,4 @@ Spec: [Codex-app parity design](../codex-parity-design.md).
 | [D-050](d-050-desktop-tray-and-window-menu.md) | Desktop tray (SNI) and window-menu items, Always on top in the WP6 store (#18) | accepted |
 | [D-051](d-051-scripted-install-with-desktop-package.md) | `install.sh` installs the desktop package through the existing desktop installer | accepted |
 | [D-052](d-052-first-run-wizard-in-admin.md) | First-run wizard in the admin with a status-only provider scan | accepted |
+| [D-054](d-054-remove-chat-code-switch.md) | Remove the Chat \| Code switch; the side-panel toggle stays; D-037 superseded | accepted |
