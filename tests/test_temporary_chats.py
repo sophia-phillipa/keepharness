@@ -351,3 +351,87 @@ def test_cancelled_close_still_finishes_artifact_cleanup(tmp_path):
         parent.db.close()
 
     asyncio.run(scenario())
+
+
+def test_temporary_upload_is_never_in_backup_even_with_secrets(tmp_path):
+    import tarfile
+
+    from control import backup
+
+    state = tmp_path / "state"
+    app = create_app(config(state / "runs"))
+    marker = b"temporary-backup-private-marker"
+    archives = []
+    with TestClient(app, headers={"Authorization": "Bearer a"}) as client:
+        sid = client.post("/v1/temporary").json()["id"]
+        uploaded = client.post(
+            "/v1/files?project_id=p",
+            headers={"X-KeepHarness-Temporary": sid, "X-Filename": "private.txt"},
+            content=marker,
+        )
+        assert uploaded.status_code == 201, uploaded.text
+        for with_secrets in (False, True):
+            archive = tmp_path / f"backup-{with_secrets}.tar.gz"
+            backup.create(state, archive, with_secrets=with_secrets)
+            archives.append(archive)
+        assert client.delete("/v1/temporary/" + sid).status_code == 200
+    for archive in archives:
+        with tarfile.open(archive) as saved:
+            assert not any("temporary-chats" in member.name.split("/") for member in saved)
+            for member in saved:
+                if member.isfile():
+                    assert marker not in saved.extractfile(member).read()
+
+
+def test_temporary_creation_is_atomic_with_another_startup_sweep(tmp_path, monkeypatch):
+    import fcntl
+    import threading
+    from concurrent.futures import ThreadPoolExecutor
+    from pathlib import Path
+
+    from agent_service.services.temporary_chat_service import TemporaryChatService
+
+    async def scenario(pool):
+        parent = ConversationService(config(tmp_path))
+        identity = ("a", parent.config["clients"]["a"])
+        original_mkdir, original_flock = Path.mkdir, fcntl.flock
+        sweep_reached_boundary = threading.Event()
+        sweeper = None
+        sweeper_thread = None
+
+        def sweep():
+            nonlocal sweeper_thread
+            sweeper_thread = threading.get_ident()
+            try:
+                TemporaryChatService(parent)
+            finally:
+                sweep_reached_boundary.set()
+
+        def flock(fd, operation):
+            if threading.get_ident() == sweeper_thread and operation == fcntl.LOCK_EX:
+                # The shared lock is reached before attempting per-session cleanup.
+                sweep_reached_boundary.set()
+            return original_flock(fd, operation)
+
+        def mkdir(path, *args, **kwargs):
+            nonlocal sweeper
+            result = original_mkdir(path, *args, **kwargs)
+            if sweeper is None and path.parent == parent.temporary.root and len(path.name) == 32:
+                sweeper = pool.submit(sweep)
+                assert sweep_reached_boundary.wait(5), "startup sweep did not start"
+            return result
+
+        monkeypatch.setattr(Path, "mkdir", mkdir)
+        monkeypatch.setattr(fcntl, "flock", flock)
+        try:
+            sid = parent.temporary.open(identity)
+            sweeper.result(timeout=5)
+            session = parent.temporary.get(identity, sid)
+            assert session.service.root.is_dir()
+            assert (session.service.root / ".lock").is_file()
+        finally:
+            await parent.temporary.close_all()
+            parent.db.close()
+
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        asyncio.run(scenario(pool))

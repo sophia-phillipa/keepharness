@@ -20,6 +20,7 @@ class ProjectService:
         self.config, self.root, self.db = config, root, db
         self.project_repository = project_repository
         self.conversation_repository = conversation_repository
+        self.conversation_repositories = {conversation_repository}
         # ConversationService aliases both sets: mutate them in place, never rebind.
         self.deleted_project_folders = project_repository.deleted_folders()
         self.deleting_project_folders = set()
@@ -202,7 +203,9 @@ class ProjectService:
                 ):
                     raise APIError("project_directory_shared", 409)
         if aliases & self.deleting_project_folders or any(
-            self.conversation_repository.project_busy(pid) for pid in aliases
+            repository.project_busy(pid)
+            for repository in self.conversation_repositories
+            for pid in aliases
         ):
             raise APIError("project_folder_busy", 409)
         info = root.stat() if root.exists() else None

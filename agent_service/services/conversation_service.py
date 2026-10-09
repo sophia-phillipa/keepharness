@@ -263,6 +263,13 @@ class ConversationService:
         self.project_service = ProjectService(
             config, self.root, self.db, self.project_repository, self.conversation_repository
         )
+        if temporary_parent is not None:
+            for name in (
+                "conversation_repositories",
+                "deleted_project_folders",
+                "deleting_project_folders",
+            ):
+                setattr(self.project_service, name, getattr(temporary_parent.project_service, name))
         self.deleted_project_folders = self.project_service.deleted_project_folders
         self.deleting_project_folders = self.project_service.deleting_project_folders
         if config.get("local_access") and not config.get("local_secret_sha256"):

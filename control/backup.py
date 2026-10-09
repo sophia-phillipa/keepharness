@@ -64,6 +64,8 @@ def is_secret(relative: Path) -> bool:
 
 
 def wanted(relative: Path, with_secrets: bool) -> bool:
+    if "temporary-chats" in relative.parts:
+        return False  # disposable chat artifacts must never become durable backups
     if relative.parts[0] in KEPT or relative.name.endswith(VOLATILE_SUFFIXES):
         return False
     if relative.parts[: len(CLAUDE_JSON_BACKUP_PARTS)] == CLAUDE_JSON_BACKUP_PARTS:
