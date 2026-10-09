@@ -702,6 +702,7 @@ class ClaudeStateAdapter:
                             source=plugin.source if plugin else reading.shown(path),
                             writable=False,
                             reason=f"Part of plugin {plugin_id}",
+                            plugin=plugin_id,
                         )
                     )
         return items

@@ -169,7 +169,6 @@ class AskModeTest(unittest.IsolatedAsyncioTestCase):
                     "fixture",
                     Path(d),
                     ALL_GRANTS,
-                    [],
                     "ask",
                     [],
                 )
@@ -196,7 +195,6 @@ class AskModeTest(unittest.IsolatedAsyncioTestCase):
                         "fixture",
                         Path(d),
                         ALL_GRANTS,
-                        [],
                         mode,
                         [],
                     )

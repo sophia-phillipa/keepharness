@@ -233,6 +233,9 @@ def test_plugin_skills_are_locked_to_their_plugin(adapter, config_dir):
     skill = items["skill:tool:pskill"]
     assert (skill.enabled, skill.writable, skill.scope) == (True, False, "user")
     assert skill.reason == "Part of plugin tool@mk"
+    assert skill.plugin == "tool@mk"
+    make_skill(config_dir / "skills", "own")
+    assert by_id(adapter.read_state(None))["skill:own"].plugin == ""
     write_json(config_dir / "settings.json", {"enabledPlugins": {"tool@mk": False}})
     assert by_id(adapter.read_state(None))["skill:tool:pskill"].enabled is False
 

@@ -147,7 +147,6 @@ print(json.dumps({'type':'result','subtype':'success','result':'ok'}), flush=Tru
                 "fixture",
                 session,
                 {},
-                [],
                 approve,
             )
         )

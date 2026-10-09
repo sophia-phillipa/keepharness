@@ -158,6 +158,8 @@ def snapshot_json(snapshot: StateSnapshot) -> dict:
         item["details"].pop("content_sha256", None)  # same weak-secret concern as the digest
         if not item["details"]:
             item.pop("details")
+        if not item["plugin"]:
+            item.pop("plugin")  # only plugin-owned items carry the field
     return result  # preserve the existing item wire shape when no details apply
 
 

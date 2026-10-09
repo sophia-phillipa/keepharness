@@ -137,6 +137,25 @@ def test_get_claude_snapshot_shape(client, claude_dir):
     assert isinstance(item["affects"], list) and body["external_changes"] == []
 
 
+def test_get_claude_plugin_skill_carries_its_plugin_id(client, claude_dir):
+    install = claude_dir / "plugins" / "cache" / "mk" / "tool" / "1.0.0"
+    skill = install / "skills" / "pskill"
+    skill.mkdir(parents=True)
+    (skill / "SKILL.md").write_text("---\nname: pskill\n---\nBody.\n")
+    (claude_dir / "plugins").mkdir(exist_ok=True)
+    (claude_dir / "plugins" / "installed_plugins.json").write_text(
+        json.dumps(
+            {"version": 2, "plugins": {"tool@mk": [{"scope": "user", "installPath": str(install)}]}}
+        )
+    )
+    (claude_dir / "settings.json").write_text(json.dumps({"enabledPlugins": {"tool@mk": True}}))
+    body = get(client, "claude").json()
+    plugin_skill = row(body, "skill:tool:pskill")
+    assert (plugin_skill["plugin"], plugin_skill["writable"]) == ("tool@mk", False)
+    assert "Part of plugin" in plugin_skill["reason"]
+    assert "plugin" not in row(body, "plugin:tool@mk")
+
+
 @pytest.mark.parametrize("provider", ["dsh", "x", ""])
 def test_get_unknown_provider_404(client, provider):
     response = get(client, provider)

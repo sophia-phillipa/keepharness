@@ -51,7 +51,6 @@ def run_claude(executable, home, cwd):
             "sonnet",
             home,
             {"read": True},
-            [],
             approve,
         )
     )

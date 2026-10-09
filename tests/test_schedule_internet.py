@@ -128,7 +128,6 @@ def test_claude_scheduled_runs_keep_owner_web_tools(api, tmp_path, allow_interne
             "sonnet",
             tmp_path,
             project["permissions"],
-            [],
             project["access_mode"],
             [],
         )

@@ -183,7 +183,7 @@ class AcpConnection:
             }.get(kind, False)
             # Automatic stays inside the project: a shell command or connector asks the owner (D11).
             owner_asked = self.access_mode == "ask" or (
-                self.access_mode == "auto" and kind in ("execute", "other")
+                self.access_mode == "auto" and kind == "execute"
             )
             if self.access_mode == "read_only" and kind in ("read", "search", "fetch") and allowed:
                 approved = True

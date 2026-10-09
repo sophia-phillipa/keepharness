@@ -680,10 +680,7 @@
     hint.id = "plugin-note-" + ++noteCount;
     hint.dataset.provider = info.id;
     // A plugin skill is managed by its plugin: the reason text stays on the row, with no switch.
-    const partOfPlugin =
-      stateItem?.kind === "skill" &&
-      !stateItem.writable &&
-      String(stateItem.reason || "").startsWith("Part of plugin");
+    const partOfPlugin = Boolean(stateItem?.plugin);
     if (stateItem && !partOfPlugin) {
       const input = node(
         "button",
