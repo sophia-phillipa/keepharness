@@ -2133,7 +2133,10 @@ body[data-connection-ready="false"] > #activity-panel {
 .composer-menu [role="option"]:focus-visible {
   background: var(--th-soft);
   border-color: var(--th-border);
-  outline: none;
+}
+.composer-menu [role="option"]:focus-visible {
+  outline: 2px solid var(--th-accent);
+  outline-offset: -2px;
 }
 .composer-menu [aria-selected="true"],
 .composer-menu [aria-selected="true"] small {
