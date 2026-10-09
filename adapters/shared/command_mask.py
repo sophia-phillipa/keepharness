@@ -1,9 +1,9 @@
 """Fail-closed masking of hook commands, environment maps, header maps and URLs (D-048).
 
-Nothing is guessed to be secret. Only the executable, option names and plain
-path-like or short literal words that come before any option survive; every
-other argument value is replaced by a placeholder. Inputs are scanned once,
-left to right.
+Nothing is guessed to be secret. Only the executable, option names, explicit
+paths and lowercase subcommands that come before any option survive (D-049);
+every other argument value is replaced by a placeholder. Inputs are scanned
+once, left to right.
 """
 
 import re
@@ -11,11 +11,16 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 
 PLACEHOLDER = "‹value›"
-_OPTION = re.compile(r"(--[A-Za-z0-9][A-Za-z0-9-]{0,39}|-[A-Za-z0-9])")
+_OPTION = re.compile(r"(--[a-z][a-z0-9-]{0,30}|-[A-Za-z0-9])")
 _ENV_PREFIX = re.compile(r"[A-Za-z_][A-Za-z0-9_]{0,63}=")
-_NAMED = re.compile(r"([A-Za-z0-9_-]{1,64})\s*([=:])")
-_LITERAL = re.compile(r"[A-Za-z0-9._~/-]{1,40}")
-_PATH = re.compile(r"[A-Za-z0-9._~/-]{1,120}")
+_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_-]{0,63}")
+_NAMED = re.compile(r"([A-Za-z_][A-Za-z0-9_-]{0,63})\s*([=:])")
+_SUBCOMMAND = re.compile(r"[a-z][a-z-]{0,19}")
+_EXECUTABLE = re.compile(r"[A-Za-z][A-Za-z0-9._+-]{0,31}")
+_SEGMENT = re.compile(r"[A-Za-z0-9._-]{0,32}")
+_PATH_PREFIXES = ("/", "./", "../", "~/")
+_TOKEN_PREFIX = re.compile(r"(?i)(sk|ghp|gho|ghu|ghs|github_pat|xox.|akia|eyj)[-_.A-Za-z0-9]")
+_HEX_RUN = re.compile(r"[0-9a-fA-F]{16,}")
 _URL = re.compile(r"(https?://[A-Za-z0-9.-]+(?::\d{1,5})?)(.*)", re.S)
 _MAX_ITEMS = 100
 
@@ -98,20 +103,43 @@ def _mask_option(word: _Word) -> str:
     return name if not tail and not word.quoted else name + PLACEHOLDER
 
 
-def _is_literal(value: str) -> bool:
-    return bool(_LITERAL.fullmatch(value) or ("/" in value and _PATH.fullmatch(value)))
+def _opaque(text: str) -> bool:
+    """True for text that looks like a token: a known prefix, a long hex run or mixed base64."""
+    mixed = len(text) >= 20 and (
+        all(re.search(p, text) for p in ("[0-9]", "[A-Z]", "[a-z]"))
+        or len(re.findall("[a-z][A-Z]", text)) >= 3
+    )
+    return bool(_TOKEN_PREFIX.match(text) or _HEX_RUN.search(text) or mixed)
+
+
+def _is_path(value: str) -> bool:
+    if not value.startswith(_PATH_PREFIXES):
+        return False
+    segments = value.split("/")
+    # A secret can itself contain slashes, so the whole path is checked as well as each segment.
+    return not _opaque("".join(segments)) and all(
+        _SEGMENT.fullmatch(seg) and not _opaque(seg) for seg in segments
+    )
+
+
+def _is_literal(value: str, *, executable: bool) -> bool:
+    if _is_path(value):
+        return True
+    if executable:
+        return bool(_EXECUTABLE.fullmatch(value)) and not _opaque(value)
+    return bool(_SUBCOMMAND.fullmatch(value))
 
 
 def _mask_words(words: Iterable[_Word]) -> list[str]:
     out: list[str] = []
     masked = False  # once an option or a masked word is seen, every later value is masked
-    for word in words:
+    for position, word in enumerate(words):
         if word.head.startswith("-"):
             out.append(_mask_option(word))
             masked = True
         elif not masked and _ENV_PREFIX.match(word.head):
             out.append(word.head.split("=", 1)[0] + "=" + PLACEHOLDER)
-        elif not masked and not word.quoted and _is_literal(word.value):
+        elif not masked and not word.quoted and _is_literal(word.value, executable=position == 0):
             out.append(word.value)
         else:
             out.append(PLACEHOLDER)
@@ -136,7 +164,8 @@ def mask_argv(argv: Iterable[object]) -> list[str]:
 def mask_named_values(value: object) -> object:
     """Keep the keys of an env or header mapping and mask every value."""
     if isinstance(value, dict):
-        return {str(key)[:200]: PLACEHOLDER for key in list(value)[:80]}
+        names = (str(key) for key in list(value)[:80])
+        return {name if _NAME.fullmatch(name) else PLACEHOLDER: PLACEHOLDER for name in names}
     if isinstance(value, list):
         result = []
         for item in value[:_MAX_ITEMS]:

@@ -1,4 +1,6 @@
 import random
+import re
+import string
 
 import pytest
 
@@ -120,21 +122,66 @@ def test_urls_keep_only_scheme_and_host(url, expected):
     assert V not in safe_details({"url": url})["url"]
 
 
-def test_random_argv_never_shows_a_non_allowlisted_word():
+SUBCOMMAND = re.compile(r"[a-z][a-z-]{0,19}")
+PREFIXES = ("/", "./", "../", "~/")
+
+REVIEWED_LEAKS = [
+    ("deploy-hook 0123456789abcdef0123456789abcdef01234567", "0123456789abcdef"),
+    ("aws-login wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY", "wJalrXUtnFEMI"),
+    ("sk-0123456789abcdef0123456789abcdef", "sk-0123456789abcdef"),
+    ("notify eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOjF9.c2ln", "eyJhbGciOiJIUzI1NiJ9"),
+    ("/opt/x/run ghp-ABCD1234efgh5678/more", "ghp-ABCD1234efgh5678"),
+    ("/opt/ghp_ABCD1234efgh5678ijkl/run go", "ghp_ABCD1234efgh5678ijkl"),
+]
+
+
+@pytest.mark.parametrize(("command", "secret"), REVIEWED_LEAKS)
+def test_reviewed_literal_leaks_are_masked(command, secret):
+    assert secret not in mask_command(command)
+    assert secret not in " ".join(mask_argv(command.split()))
+    assert secret not in repr(safe_details({"command": command}))
+
+
+def test_first_word_that_looks_like_a_token_is_masked():
+    assert mask_command("sk-0123456789abcdef0123456789abcdef") == PLACEHOLDER
+    assert mask_command("deploy-hook status") == "deploy-hook status"
+
+
+def test_option_and_name_shapes_are_bounded():
+    long_option = "--" + "a" * 32
+    assert mask_command(f"cmd {long_option}") == f"cmd {PLACEHOLDER}"
+    assert mask_command(f"cmd --{'a' * 32}=x") == f"cmd {PLACEHOLDER}"
+    assert mask_named_values(["9lives=x", "a" * 3 + "=x"]) == [PLACEHOLDER, f"aaa={PLACEHOLDER}"]
+    assert mask_named_values({"1bad key": V, "GOOD": V}) == {
+        PLACEHOLDER: PLACEHOLDER,
+        "GOOD": PLACEHOLDER,
+    }
+
+
+def test_random_argv_shows_only_executable_options_subcommands_and_prefixed_paths():
     rng = random.Random(61)
     alphabet = "abcXYZ019-_=:@/.\"' $\\;"
     for _ in range(2000):
         words = ["".join(rng.choices(alphabet, k=rng.randint(1, 12))) for _ in range(5)]
         shown = mask_argv(words)
-        allowed = {PLACEHOLDER}
-        for word in words:
-            plain = word.isascii() and all(c.isalnum() or c in "._/-~" for c in word)
-            if plain and len(word) <= 40:
-                allowed.add(word)
-        for word in words:
-            if word not in allowed and not word.startswith("-"):
-                assert word not in shown, (words, shown)
-        # option names may appear, but never the text after a short option or an equals sign
+        for word, out in zip(words[1:], shown[1:], strict=True):
+            if word.startswith("-") or PLACEHOLDER in out:
+                continue
+            assert SUBCOMMAND.fullmatch(word) or word.startswith(PREFIXES), (words, shown)
+        # a short option never carries its attached text; an equals sign never carries a value
         for word in words:
             if word.startswith("-") and len(word) > 2 and not word.startswith("--"):
                 assert word not in shown, (words, shown)
+
+
+def test_random_token_shaped_words_are_never_shown():
+    rng = random.Random(49)
+    hexa, b64 = "0123456789abcdef", string.ascii_letters + string.digits + "+/_-"
+    for _ in range(1000):
+        secret = "".join(rng.choices(rng.choice([hexa, b64]), k=rng.randint(20, 60)))
+        for prefix in ("", "/opt/", "x/"):
+            command = f"tool run {prefix}{secret}"
+            if prefix == "/opt/" and "/" not in secret:
+                continue  # a prefixed path made of one short opaque segment is checked below
+            assert secret not in mask_command(command), command
+    assert "ghp_ABCD1234efgh5678ijkl" not in mask_command("run /a/ghp_ABCD1234efgh5678ijkl")
