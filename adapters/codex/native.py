@@ -558,7 +558,9 @@ async def run_turn(
                     usage[key] = usage.get(key, 0) + value
                 previous_usage = total
                 if not temporary:
-                    marker.write_text(json.dumps({"id": thread_id, **isolation, "usage_total": total}))
+                    marker.write_text(
+                        json.dumps({"id": thread_id, **isolation, "usage_total": total})
+                    )
                 event(
                     "context_usage",
                     {

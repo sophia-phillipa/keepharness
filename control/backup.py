@@ -69,10 +69,9 @@ def is_secret(relative: Path) -> bool:
 
 def is_temporary_chat(parts):
     """The volatile temporary-chat folders (run folders sit in the sessions folder or beside it)."""
-    return (
-        parts[:2] in (("runs", "temporary-chats"), ("runs", "temporary-chats.lock"))
-        or parts[:3] == ("runs", "sessions", "temporary-chats")
-    )
+    return parts[:2] in (("runs", "temporary-chats"), ("runs", "temporary-chats.lock")) or parts[
+        :3
+    ] == ("runs", "sessions", "temporary-chats")
 
 
 def wanted(relative: Path, with_secrets: bool) -> bool:

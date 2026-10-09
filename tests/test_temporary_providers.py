@@ -38,11 +38,20 @@ def test_temporary_provider_starts_ephemeral_without_history_marker(tmp_path, pr
     marker = workspace.home / "native-thread.json"
     marker.write_text(json.dumps({"id": "saved-thread"}))
     with patch("adapters.codex.native.connection", connection):
-        asyncio.run(run_turn(
-            {"temporary_chat": True}, lambda *args: None, project, "fixture",
-            "configured", workspace.home, AsyncMock(), workspace,
-            RuntimeOptions(["fixture"], isolated=provider == "local"), provider,
-        ))
+        asyncio.run(
+            run_turn(
+                {"temporary_chat": True},
+                lambda *args: None,
+                project,
+                "fixture",
+                "configured",
+                workspace.home,
+                AsyncMock(),
+                workspace,
+                RuntimeOptions(["fixture"], isolated=provider == "local"),
+                provider,
+            )
+        )
     threads = [(method, params) for method, params in calls if method.startswith("thread/")]
     assert threads[0][0] == "thread/start"
     assert threads[0][1]["ephemeral"] is True
@@ -54,9 +63,13 @@ def test_temporary_claude_spawn_disables_persistence_and_resume(tmp_path):
     marker.write_text('{"id":"saved-thread"}')
     proc = SimpleNamespace(
         stdin=SimpleNamespace(write=lambda value: None, drain=AsyncMock()),
-        stdout=SimpleNamespace(readline=AsyncMock(side_effect=[
-            b'{"type":"result","subtype":"success","result":"private-marker","session_id":"temporary-thread"}\n',
-        ])),
+        stdout=SimpleNamespace(
+            readline=AsyncMock(
+                side_effect=[
+                    b'{"type":"result","subtype":"success","result":"private-marker","session_id":"temporary-thread"}\n',
+                ]
+            )
+        ),
     )
 
     @asynccontextmanager
@@ -66,12 +79,23 @@ def test_temporary_claude_spawn_disables_persistence_and_resume(tmp_path):
     with (
         patch.object(claude, "project_security", return_value={}),
         patch.object(claude, "process_diagnostics", diagnostics),
-        patch.object(claude.asyncio, "create_subprocess_exec", AsyncMock(return_value=proc)) as spawn,
+        patch.object(
+            claude.asyncio, "create_subprocess_exec", AsyncMock(return_value=proc)
+        ) as spawn,
     ):
-        asyncio.run(claude.run(
-            {"binary": "fixture", "temporary_chat": True}, "private-marker",
-            lambda *args: None, tmp_path, "fixture", tmp_path, {}, [], AsyncMock(),
-        ))
+        asyncio.run(
+            claude.run(
+                {"binary": "fixture", "temporary_chat": True},
+                "private-marker",
+                lambda *args: None,
+                tmp_path,
+                "fixture",
+                tmp_path,
+                {},
+                [],
+                AsyncMock(),
+            )
+        )
     argv = spawn.call_args.args
     assert "--print" in argv
     assert "--no-session-persistence" in argv

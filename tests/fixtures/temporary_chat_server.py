@@ -28,8 +28,9 @@ def main():
     os.environ["XDG_CACHE_HOME"] = str(home / ".cache")
     os.environ["CODEX_HOME"] = str(home / ".codex")
     os.environ["CLAUDE_CONFIG_DIR"] = str(home / ".claude")
-    from serve_fixture import seed
     import uvicorn
+    from serve_fixture import seed
+
     from agent_service.app import create_app
 
     config, _, _ = seed(root, args.port + 1, args.port)
