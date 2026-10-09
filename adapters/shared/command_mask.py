@@ -24,6 +24,9 @@ _MATCHER = re.compile(r"[A-Za-z.*][A-Za-z_.*:-]{0,39}")
 _HEX_RUN = re.compile(r"[0-9a-fA-F]{16,}")
 _URL = re.compile(r"(https?://[A-Za-z0-9.-]+(?::\d{1,5})?)(.*)", re.S)
 _MAX_ITEMS = 100
+_MAX_SUBCOMMANDS = (
+    3  # `git push origin main`; a longer run of plain words is arguments, not a chain
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -128,20 +131,27 @@ def _is_literal(value: str, *, executable: bool) -> bool:
         return True
     if executable:
         return bool(_EXECUTABLE.fullmatch(value)) and not _opaque(value)
-    return bool(_SUBCOMMAND.fullmatch(value))
+    return bool(_SUBCOMMAND.fullmatch(value)) and not _opaque(value)
 
 
 def _mask_words(words: Iterable[_Word]) -> list[str]:
     out: list[str] = []
     masked = False  # once an option or a masked word is seen, every later value is masked
+    subcommands = 0
     for position, word in enumerate(words):
         if word.head.startswith("-"):
             out.append(_mask_option(word))
             masked = True
         elif not masked and _ENV_PREFIX.match(word.head):
             out.append(word.head.split("=", 1)[0] + "=" + PLACEHOLDER)
-        elif not masked and not word.quoted and _is_literal(word.value, executable=position == 0):
+        elif (
+            not masked
+            and not word.quoted
+            and (subcommands < _MAX_SUBCOMMANDS or _is_path(word.value))
+            and _is_literal(word.value, executable=position == 0)
+        ):
             out.append(word.value)
+            subcommands += position > 0 and not _is_path(word.value)
         else:
             out.append(PLACEHOLDER)
             masked = True

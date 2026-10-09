@@ -294,3 +294,21 @@ def test_the_raw_hook_digest_never_reaches_the_api_snapshot():
     snapshot = _snapshot("sh -c 'echo ok'")
     assert snapshot.items[0].content_digest
     assert "content_digest" not in json.dumps(snapshot_json(snapshot))
+
+
+@pytest.mark.parametrize(
+    ("command", "secret"),
+    [
+        ("mytool sk-abcdefghij", "sk-abcdefghij"),
+        ("mytool run ghp-abcdef", "ghp-abcdef"),
+        ("git push origin main now", "now"),
+    ],
+)
+def test_subcommand_literals_reject_token_prefixes_and_runs_past_the_limit(command, secret):
+    assert secret not in mask_command(command)
+    assert secret not in " ".join(mask_argv(command.split()))
+
+
+def test_subcommand_chains_stay_readable_within_the_limit():
+    assert mask_command("git push origin main") == "git push origin main"
+    assert mask_argv(["node", "sk-abc"]) == ["node", PLACEHOLDER]
