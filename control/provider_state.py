@@ -147,6 +147,7 @@ def _restore_security_writes(rollback):
 def snapshot_json(snapshot: StateSnapshot) -> dict:
     result = dataclasses.asdict(snapshot)
     for item in result["items"]:
+        item.pop("content_digest")  # server-side only; a weak secret could be checked against it
         if not item["details"]:
             item.pop("details")
     return result  # preserve the existing item wire shape when no details apply
@@ -218,9 +219,8 @@ def _items_of(snapshot: StateSnapshot) -> dict[str, dict]:
             "scope": item.scope,  # the layer that decides the value
             **(
                 {
-                    "content_digest": hashlib.sha256(
-                        json.dumps(item.details, sort_keys=True).encode()
-                    ).hexdigest()
+                    "content_digest": item.content_digest
+                    or hashlib.sha256(json.dumps(item.details, sort_keys=True).encode()).hexdigest()
                 }
                 if item.kind in ("hook", "instructions")
                 else {}

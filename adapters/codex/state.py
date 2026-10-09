@@ -45,6 +45,7 @@ from adapters.codex.rpc import RPCError, connection, provider_message
 from adapters.shared.orchestration_state import (
     codex_instructions,
     hook_items,
+    raw_digest,
     safe_details,
     safe_text,
 )
@@ -683,6 +684,7 @@ class CodexStateAdapter:
                         False,
                         "Read-only; review hooks with Codex /hooks.",
                         details=details,
+                        content_digest=raw_digest(hook),
                     )
                 )
         native_sources = {

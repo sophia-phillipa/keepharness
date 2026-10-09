@@ -65,6 +65,9 @@ class StateItem:
     reason: str = ""  # why not writable, shown under the switch
     affects: tuple[str, ...] = ()  # other provider ids that read the same source
     details: dict = field(default_factory=dict)  # bounded, redacted hook/rule display metadata
+    content_digest: str = (
+        ""  # server-side change detection over the raw hook; never sent out (D-049)
+    )
 
 
 @dataclass(frozen=True)

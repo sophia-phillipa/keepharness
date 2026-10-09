@@ -230,6 +230,11 @@ def safe_details(hook):
     }
 
 
+def raw_digest(hook):
+    """Digest of the unmasked hook, kept server-side so a changed argument is still noticed."""
+    return hashlib.sha256(json.dumps(hook, sort_keys=True).encode()).hexdigest()
+
+
 def hook_items(document, source, scope, *, enabled=True, status="configured", extra=None):
     hooks = document.get("hooks", {})
     if not isinstance(hooks, dict):
@@ -244,15 +249,14 @@ def hook_items(document, source, scope, *, enabled=True, status="configured", ex
             ):
                 if not isinstance(hook, dict):
                     continue
-                details = safe_details(
-                    {
-                        **hook,
-                        "event": event,
-                        "matcher": group.get("matcher", ""),
-                        "description": document.get("description", ""),
-                        **(extra or {}),
-                    }
-                )
+                raw = {
+                    **hook,
+                    "event": event,
+                    "matcher": group.get("matcher", ""),
+                    "description": document.get("description", ""),
+                    **(extra or {}),
+                }
+                details = safe_details(raw)
                 details["status"] = status
                 ident = hashlib.sha256(
                     f"{source}:{event}:{group_index}:{index}".encode()
@@ -268,6 +272,7 @@ def hook_items(document, source, scope, *, enabled=True, status="configured", ex
                         False,
                         "Read-only; manage hooks in the CLI.",
                         details=details,
+                        content_digest=raw_digest(raw),
                     )
                 )
     return result
