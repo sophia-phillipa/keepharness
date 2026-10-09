@@ -88,17 +88,59 @@ LEGACY_PLAN = {
 def store_legacy_conversation(prompt, gate_state, choice=None):
     """Seed a finished job whose stored backend is the removed ``maestro`` and its plan gate."""
     identity = ("local", service.config["clients"]["local"])
-    job = service.submit(identity, {"project_id": "sem-projeto", "backend": "codex", "model": "gpt-6-astra", "effort": "low", "prompt": prompt})["job_id"]
+    job = service.submit(
+        identity,
+        {
+            "project_id": "sem-projeto",
+            "backend": "codex",
+            "model": "gpt-6-astra",
+            "effort": "low",
+            "prompt": prompt,
+        },
+    )["job_id"]
     row = service.job(identity, job)
     with service.db:
-        service.conversation_repository.set_payload(job, json.dumps({**json.loads(row["payload"]), "backend": "maestro", "model": "auto", "effort": "auto"}))
-        service.conversation_repository.set_result(job, "completed", json.dumps({"answer": "Synthetic review complete"}))
-        service.gates.repository.create("legacy-" + job, job, {"gate_id": "legacy-" + job, "kind": "maestro_plan", "plan": LEGACY_PLAN, "question": "Approve plan?", "options": []})
+        service.conversation_repository.set_payload(
+            job,
+            json.dumps(
+                {
+                    **json.loads(row["payload"]),
+                    "backend": "maestro",
+                    "model": "auto",
+                    "effort": "auto",
+                }
+            ),
+        )
+        service.conversation_repository.set_result(
+            job, "completed", json.dumps({"answer": "Synthetic review complete"})
+        )
+        service.gates.repository.create(
+            "legacy-" + job,
+            job,
+            {
+                "gate_id": "legacy-" + job,
+                "kind": "maestro_plan",
+                "plan": LEGACY_PLAN,
+                "question": "Approve plan?",
+                "options": [],
+            },
+        )
         if choice:
             service.gates.repository.resolve("legacy-" + job, choice, "local", 1.0)
         else:
             service.gates.repository.close("legacy-" + job, gate_state)
-    (root / "legacy.json").write_text(json.dumps({**(json.loads((root / "legacy.json").read_text()) if (root / "legacy.json").exists() else {}), gate_state: job}))
+    (root / "legacy.json").write_text(
+        json.dumps(
+            {
+                **(
+                    json.loads((root / "legacy.json").read_text())
+                    if (root / "legacy.json").exists()
+                    else {}
+                ),
+                gate_state: job,
+            }
+        )
+    )
 
 
 if len(sys.argv) > 2 and sys.argv[2] == "legacy":
@@ -119,9 +161,17 @@ async def infer(row, data):
             if retry_attempts[marker] == 1:
                 raise RuntimeError("synthetic_execution_failure")
         if "ASK-" in prompt:
-            await service.gates.ask(row["id"], {"question": "Audience?", "options": [
-                {"id": "staff", "label": "Staff"}, {"id": "public", "label": "Public"}
-            ]}, lambda kind, value: service.event(row["id"], kind, value))
+            await service.gates.ask(
+                row["id"],
+                {
+                    "question": "Audience?",
+                    "options": [
+                        {"id": "staff", "label": "Staff"},
+                        {"id": "public", "label": "Public"},
+                    ],
+                },
+                lambda kind, value: service.event(row["id"], kind, value),
+            )
     inference_stages.append(data.get("_maestro_stage", "direct"))
     (root / "inference.json").write_text(json.dumps(inference_stages))
     return {"answer": "Synthetic review complete"}

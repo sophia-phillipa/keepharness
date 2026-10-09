@@ -125,7 +125,9 @@ def test_tool_target_shows_the_command_without_the_shell_wrapper():
 
 
 def test_tool_target_masks_secrets_in_the_command():
-    target = tool_target("Bash", {"command": "API_TOKEN=abc123 curl -H 'Authorization: Bearer xyz' u"})
+    target = tool_target(
+        "Bash", {"command": "API_TOKEN=abc123 curl -H 'Authorization: Bearer xyz' u"}
+    )
     assert "abc123" not in target and "xyz" not in target
     assert target.startswith("API_TOKEN=[redacted] curl")
 
@@ -137,10 +139,15 @@ def test_tool_target_is_bounded_to_one_short_line():
 
 def test_tool_target_paths_are_relative_to_the_project_root():
     root = "/work/project"
-    assert tool_target("read_file", {"path": "/work/project/facts/alpha.txt"}, root) == "facts/alpha.txt"
+    assert (
+        tool_target("read_file", {"path": "/work/project/facts/alpha.txt"}, root)
+        == "facts/alpha.txt"
+    )
     assert tool_target("mcp__reader__list_dir", {"path": "/work/project"}, root) == "."
     assert tool_target("Read", {"file_path": "/etc/hosts"}, root) == "/etc/hosts"
-    assert tool_target("Edit", {"file_path": "/work/project-evil/x"}, root) == "/work/project-evil/x"
+    assert (
+        tool_target("Edit", {"file_path": "/work/project-evil/x"}, root) == "/work/project-evil/x"
+    )
     assert tool_target("read_file", {"path": "facts/alpha.txt"}, root) == "facts/alpha.txt"
 
 
@@ -183,7 +190,12 @@ def test_claude_tool_target_arrives_with_the_full_message_and_the_tool_end():
             "type": "assistant",
             "message": {
                 "content": [
-                    {"type": "tool_use", "id": "r1", "name": "Read", "input": {"file_path": "/w/facts/alpha.txt"}}
+                    {
+                        "type": "tool_use",
+                        "id": "r1",
+                        "name": "Read",
+                        "input": {"file_path": "/w/facts/alpha.txt"},
+                    }
                 ]
             },
         }
@@ -272,12 +284,21 @@ def test_tool_target_masks_common_secret_shapes(command, secret):
 
 
 def test_tool_target_masks_a_whole_quoted_value():
-    assert tool_target("Bash", {"command": "GITHUB_TOKEN='ghp abc' make"}) == "GITHUB_TOKEN=[redacted] make"
+    assert (
+        tool_target("Bash", {"command": "GITHUB_TOKEN='ghp abc' make"})
+        == "GITHUB_TOKEN=[redacted] make"
+    )
 
 
 @pytest.mark.parametrize(
     "command",
-    ["MONKEY=banana run", "ls --sort-key=name", "KEYBOARD=us run", "TOKENIZERS_PARALLELISM=false run", "mysql -u root db"],
+    [
+        "MONKEY=banana run",
+        "ls --sort-key=name",
+        "KEYBOARD=us run",
+        "TOKENIZERS_PARALLELISM=false run",
+        "mysql -u root db",
+    ],
 )
 def test_tool_target_keeps_lookalike_names_visible(command):
     assert tool_target("Bash", {"command": command}) == command
@@ -304,7 +325,11 @@ def test_portable_history_does_not_forward_the_display_target_to_the_next_provid
     [
         ("Skill", {"skill": "code-review", "args": "x"}, {"skill": "code-review"}),
         ("Skill", {"skill": "plugin:deploy"}, {"skill": "plugin:deploy"}),
-        ("Task", {"subagent_type": "python-code-engineer", "prompt": "p"}, {"agent": "python-code-engineer"}),
+        (
+            "Task",
+            {"subagent_type": "python-code-engineer", "prompt": "p"},
+            {"agent": "python-code-engineer"},
+        ),
         ("Agent", {"subagent_type": "Explore"}, {"agent": "Explore"}),
         ("Read", {"file_path": "/h/.claude/skills/ponytail/SKILL.md"}, {"skill": "ponytail"}),
         ("read_file", {"path": "/h/.agents/skills/graphify/SKILL.md"}, {"skill": "graphify"}),
@@ -327,7 +352,11 @@ def test_portable_history_does_not_forward_the_display_target_to_the_next_provid
         ("Bash", {"command": "rm -rf /s/bar/SKILL.md"}, {}),
         ("Bash", {"command": "cat /s/a/SKILL.md | tee /s/b/SKILL.md"}, {}),
         ("Bash", {"command": "cat a/one/SKILL.md /b/two/SKILL.md"}, {"skill": "one"}),
-        ("Bash", {"command": "bash -lc 'sed -n 1,5p /h/skills/ponytail/SKILL.md'"}, {"skill": "ponytail"}),
+        (
+            "Bash",
+            {"command": "bash -lc 'sed -n 1,5p /h/skills/ponytail/SKILL.md'"},
+            {"skill": "ponytail"},
+        ),
         ("Bash", {"command": "cat /x/../SKILL.md"}, {}),
         ("Read", {"file_path": "/x/.hidden/SKILL.md"}, {}),
         ("mcp__jira__Task", {"subagent_type": "Explore"}, {}),
@@ -367,15 +396,28 @@ def test_claude_skill_and_agent_names_arrive_with_the_full_message_and_the_tool_
             "type": "assistant",
             "message": {
                 "content": [
-                    {"type": "tool_use", "id": "s1", "name": "Skill", "input": {"skill": "ponytail"}},
-                    {"type": "tool_use", "id": "t1", "name": "Task", "input": {"subagent_type": "Explore"}},
+                    {
+                        "type": "tool_use",
+                        "id": "s1",
+                        "name": "Skill",
+                        "input": {"skill": "ponytail"},
+                    },
+                    {
+                        "type": "tool_use",
+                        "id": "t1",
+                        "name": "Task",
+                        "input": {"subagent_type": "Explore"},
+                    },
                 ]
             },
         }
     )
     for tool_id in ("s1", "t1"):
         state.consume(
-            {"type": "user", "message": {"content": [{"type": "tool_result", "tool_use_id": tool_id}]}}
+            {
+                "type": "user",
+                "message": {"content": [{"type": "tool_result", "tool_use_id": tool_id}]},
+            }
         )
     assert "skill" not in events[0][1] and "agent" not in events[1][1]
     assert events[2][1]["skill"] == "ponytail"
@@ -427,7 +469,9 @@ def test_portable_history_does_not_forward_skill_and_agent_names():
         {"tool": "Skill", "status": "completed", "skill": "ponytail"},
         {"tool": "Task", "status": "completed", "agent": "Explore"},
     ):
-        db.execute("INSERT INTO events(job,type,data) VALUES('j','tool_end',?)", (json.dumps(data),))
+        db.execute(
+            "INSERT INTO events(job,type,data) VALUES('j','tool_end',?)", (json.dumps(data),)
+        )
     payload = {"_job_id": "j", "_state": "completed", "prompt": "hi"}
     evidence = portable_history(db, [(payload, {"answer": "ok"})])[0]["evidence"]
     assert [item["data"] for item in evidence] == [

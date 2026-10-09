@@ -17,17 +17,34 @@ from agent_service.routes import system
 def version_client(tmp_path, monkeypatch):
     package = tmp_path / "package"
     package.mkdir()
-    for name in ("ui.js", "ui-prefs.js", "run-console.js", "tour.js", "ui.css", "tour.css", "index.html",
-                 "app.py", "config.py", "maestro.py", "spans.py", "work_items.py",
-                 "workspaces.py", "mcp_bridge.py", "VERSION", "vendor/markdown-it.min.js",
-                 "services/worker.py"):
+    for name in (
+        "ui.js",
+        "ui-prefs.js",
+        "run-console.js",
+        "tour.js",
+        "ui.css",
+        "tour.css",
+        "index.html",
+        "app.py",
+        "config.py",
+        "maestro.py",
+        "spans.py",
+        "work_items.py",
+        "workspaces.py",
+        "mcp_bridge.py",
+        "VERSION",
+        "vendor/markdown-it.min.js",
+        "services/worker.py",
+    ):
         file = package / name
         file.parent.mkdir(exist_ok=True)
         file.write_text("0.16.0" if name == "VERSION" else "original")
     monkeypatch.setattr(system, "PACKAGE_DIR", package)
     monkeypatch.setattr(system, "VERSION_FILE", package / "VERSION")
     config = {
-        "state_dir": str(tmp_path / "state"), "projects": {"p": {}}, "services": {},
+        "state_dir": str(tmp_path / "state"),
+        "projects": {"p": {}},
+        "services": {},
         "clients": {"a": {"sha256": hashlib.sha256(b"a").hexdigest(), "projects": ["p"]}},
     }
     app = create_app(config)
@@ -38,16 +55,20 @@ def version_client(tmp_path, monkeypatch):
 
 
 def poll_without_reads(client):
-    with patch.object(Path, "read_bytes", side_effect=AssertionError("content read")), \
-         patch.object(Path, "read_text", side_effect=AssertionError("content read")), \
-         patch.object(builtins, "open", side_effect=AssertionError("content read")), \
-         patch.object(io, "open", side_effect=AssertionError("content read")):
+    with (
+        patch.object(Path, "read_bytes", side_effect=AssertionError("content read")),
+        patch.object(Path, "read_text", side_effect=AssertionError("content read")),
+        patch.object(builtins, "open", side_effect=AssertionError("content read")),
+        patch.object(io, "open", side_effect=AssertionError("content read")),
+    ):
         response = client.get("/v1/version")
     assert response.status_code == 200
     return response.json()
 
 
-def test_version_poll_reads_no_contents_and_keeps_runtime_identity_after_python_edit(version_client):
+def test_version_poll_reads_no_contents_and_keeps_runtime_identity_after_python_edit(
+    version_client,
+):
     client, package, _ = version_client
     initial = poll_without_reads(client)
     assert initial["disk_build"] == initial["build"]
@@ -77,7 +98,11 @@ def test_ui_edit_changes_ui_build_and_restart_adopts_disk_build(version_client):
         with TestClient(restarted, headers={"Authorization": "Bearer a"}) as second:
             current = poll_without_reads(second)
             assert current["version"] == "0.16.1"
-            assert current["source_build"] == current["disk_source_build"] == changed["disk_source_build"]
+            assert (
+                current["source_build"]
+                == current["disk_source_build"]
+                == changed["disk_source_build"]
+            )
             assert current["build"] == current["disk_build"] == changed["disk_build"]
     finally:
         restarted.state.service.db.close()

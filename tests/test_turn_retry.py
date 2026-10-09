@@ -210,8 +210,6 @@ def test_retry_of_deleted_attachment_reports_file_not_found(tmp_path):
     payload = json.loads(service.job(identity, source)["payload"])
     payload["file_ids"] = ["gone-file"]
     with service.db:
-        service.db.execute(
-            "UPDATE jobs SET payload=? WHERE id=?", (json.dumps(payload), source)
-        )
+        service.db.execute("UPDATE jobs SET payload=? WHERE id=?", (json.dumps(payload), source))
     code, _status = code_of(service, identity, source)
     assert code == "file_not_found"

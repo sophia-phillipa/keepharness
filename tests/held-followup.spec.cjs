@@ -16,7 +16,11 @@ const assert = require("node:assert/strict"),
         if (route.request().method() === "POST") posts.push(p);
         if (p === "/v1/projects") data = { projects: ["sem-projeto"] };
         if (p === "/v1/models")
-          data = { models: [{ id: "fixture", backend: "local", efforts: ["configured"] }] };
+          data = {
+            models: [
+              { id: "fixture", backend: "local", efforts: ["configured"] },
+            ],
+          };
         if (p === "/v1/conversations") data = { conversations: [] };
         if (p.includes("/events")) return; // The held turn's stream stays open.
         return route.fulfill({ json: data });
@@ -24,20 +28,34 @@ const assert = require("node:assert/strict"),
       const file = p === "/" ? "index.html" : p.slice(1);
       return route.fulfill({
         body: await fs.readFile(
-          path.join(__dirname, file.startsWith("assets/") ? "../harness_ui" : "../agent_service", file),
+          path.join(
+            __dirname,
+            file.startsWith("assets/") ? "../harness_ui" : "../agent_service",
+            file,
+          ),
         ),
-        contentType: file.endsWith(".js") ? "text/javascript" : file.endsWith(".css") ? "text/css" : "text/html",
+        contentType: file.endsWith(".js")
+          ? "text/javascript"
+          : file.endsWith(".css")
+            ? "text/css"
+            : "text/html",
       });
     });
     page.on("pageerror", (e) => errors.push(e.message));
-    await page.addInitScript(() => localStorage.setItem("keepharness-tour-seen", "0.16.0"));
+    await page.addInitScript(() =>
+      localStorage.setItem("keepharness-tour-seen", "0.16.0"),
+    );
     await page.goto("http://held.test");
     await page.locator("#startup-gate").waitFor({ state: "hidden" });
     const hold = (id) =>
       page.evaluate((eventId) => {
         job = "next";
         active ||= assistant("next");
-        event({ id: eventId, type: "queue_wait", data: { reason: "held_after_stop" } });
+        event({
+          id: eventId,
+          type: "queue_wait",
+          data: { reason: "held_after_stop" },
+        });
       }, id);
     await hold(1);
     const run = page.getByRole("button", { name: "Run queued message" }),
@@ -52,7 +70,10 @@ const assert = require("node:assert/strict"),
     await hold(2);
     await discard.click();
     await discard.waitFor({ state: "detached" });
-    assert.deepEqual(posts, ["/v1/jobs/next/run-queued", "/v1/jobs/next/cancel"]);
+    assert.deepEqual(posts, [
+      "/v1/jobs/next/run-queued",
+      "/v1/jobs/next/cancel",
+    ]);
     await hold(3);
     await run.waitFor();
     await page.evaluate(() => event({ id: 4, type: "running", data: {} }));

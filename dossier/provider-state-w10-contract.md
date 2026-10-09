@@ -10,6 +10,7 @@ Fence: no Apps/MCP/Skills chips (#22/#23), no trust or .mcp.json approval (#44),
 - Never put `.claude.json` content, MCP env/headers, or file bytes into responses, logs, or notices. Logs carry `exc.code` only, never `str(exc)`.
 - Adapter-authored messages go into a body only as `message`/`provider_message`, truncated to 300 chars.
 - Tests use fake homes only (autouse `isolated_provider_homes`, conftest.py:72-89) and the fake CLIs on PATH; Claude adapters in tests get `managed_dir=tmp_path/"managed"`.
+- Owner and provider-state directory resolution rejects symbolic-link loops, including looping ancestors of absent leaves, on every supported Python version. Valid missing directories remain allowed, and accepted custom aliases retain their configured spelling.
 - Time: `detected_at` is ISO 8601 UTC with `Z`, seconds precision. Coalescing uses an injected monotonic clock.
 
 ## P1 — #21 backend (routes + service)
@@ -155,7 +156,7 @@ Body `{"provider": "codex", "project_id": "sem-projeto", "notice_ids": ["n_3f9a0
 
 ### Run-start hook (queue_worker.py `run_job`, after `request_data = json.loads(row["payload"])`, before `service.execute`)
 ```python
-await provider_state_run_check(service, row, request_data)   # new small function in queue_worker.py
+await provider_state_run_check(service, row, request_data)  # new small function in queue_worker.py
 ```
 - Only when `request_data.get("backend") in ("codex", "claude")` and `service.config.get("control_state_dir")`.
 - Root: `service.config.get("projects", {}).get(row["project"], {}).get("root")` (None for sem-projeto).

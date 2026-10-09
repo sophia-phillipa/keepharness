@@ -14,19 +14,30 @@ const models = [
 (async () => {
   const browser = await chromium.launch();
   try {
-    const page = await browser.newPage({ viewport: { width: 1280, height: 860 } });
+    const page = await browser.newPage({
+      viewport: { width: 1280, height: 860 },
+    });
     if (!process.env.HARNESS_URL)
       await page.route("http://panel.test/**", (route) => {
         const pathname = new URL(route.request().url()).pathname;
         return route.fulfill({
-          path: path.join(__dirname, "..", pathname.startsWith("/assets/") ? "harness_ui" : "agent_service", pathname === "/" ? "index.html" : pathname),
+          path: path.join(
+            __dirname,
+            "..",
+            pathname.startsWith("/assets/") ? "harness_ui" : "agent_service",
+            pathname === "/" ? "index.html" : pathname,
+          ),
         });
       });
     await page.route("**/v1/**", (route) => {
       const pathname = new URL(route.request().url()).pathname;
       const data =
         pathname === "/v1/models"
-          ? { models, providers: { codex: true, local: true, deepseek: true }, uploads_enabled: false }
+          ? {
+              models,
+              providers: { codex: true, local: true, deepseek: true },
+              uploads_enabled: false,
+            }
           : pathname === "/v1/projects"
             ? { projects: ["sem-projeto"], details: {} }
             : pathname === "/v1/conversations"
@@ -38,14 +49,18 @@ const models = [
                   : {};
       return route.fulfill({ json: data });
     });
-    await page.addInitScript(() => localStorage.setItem("keepharness-tour-seen", "0.16.0"));
+    await page.addInitScript(() =>
+      localStorage.setItem("keepharness-tour-seen", "0.16.0"),
+    );
     await page.goto(process.env.HARNESS_URL || "http://panel.test/");
     await page.locator("#startup-gate").waitFor({ state: "hidden" });
 
     // The shared table feeds both surfaces.
     const names = await page.evaluate(() => HarnessUI.providerNames);
     assert.deepEqual(
-      ["codex", "claude", "deepseek", "local", "maestro"].map((id) => names[id]),
+      ["codex", "claude", "deepseek", "local", "maestro"].map(
+        (id) => names[id],
+      ),
       ["Codex", "Claude Code", "DeepSeek", "Local models", undefined],
     );
 
@@ -53,11 +68,17 @@ const models = [
     await page.keyboard.press("Control+,");
     await page.click('[data-settings="models"]');
     const cards = page.locator("#catalog-models");
-    await cards.getByText("DeepSeek model; runs through the Codex CLI.").waitFor();
+    await cards
+      .getByText("DeepSeek model; runs through the Codex CLI.")
+      .waitFor();
     const text = await cards.innerText();
     assert.match(text, /Local model; runs through the Codex CLI\./);
     assert.match(text, /Claude Code/);
-    assert.doesNotMatch(text, /Gemini/i, "no Gemini card in this release (D47)");
+    assert.doesNotMatch(
+      text,
+      /Gemini/i,
+      "no Gemini card in this release (D47)",
+    );
     await page.click("#settings-close");
 
     // The model note names the engine for DeepSeek and local models.
@@ -66,13 +87,23 @@ const models = [
       select.value = "deepseek-flash";
       select.dispatchEvent(new Event("change", { bubbles: true }));
     });
-    assert.match(await page.locator("#model-note").innerText(), /DeepSeek API · uses your DeepSeek credits · runs through the Codex CLI/);
+    assert.match(
+      await page.locator("#model-note").innerText(),
+      /DeepSeek API · uses your DeepSeek credits · runs through the Codex CLI/,
+    );
 
     // A Gemini condition never sends anyone to an admin card that does not exist.
-    const copy = await page.evaluate(() => executionCondition("provider_unavailable", "gemini")?.message ?? "");
-    assert.equal(copy, "Gemini is not available in this KeepHarness release. Select another provider to continue this conversation.");
+    const copy = await page.evaluate(
+      () => executionCondition("provider_unavailable", "gemini")?.message ?? "",
+    );
+    assert.equal(
+      copy,
+      "Gemini is not available in this KeepHarness release. Select another provider to continue this conversation.",
+    );
     assert.doesNotMatch(copy, /admin panel/i);
-    console.log("PASS: canonical provider names, Codex CLI note and release-independent Gemini copy");
+    console.log(
+      "PASS: canonical provider names, Codex CLI note and release-independent Gemini copy",
+    );
   } finally {
     await browser.close();
   }

@@ -74,7 +74,9 @@ const path = require("node:path");
               : "text/html",
       });
     });
-    await page.addInitScript(() => localStorage.setItem("keepharness-tour-seen", "0.16.0"));
+    await page.addInitScript(() =>
+      localStorage.setItem("keepharness-tour-seen", "0.16.0"),
+    );
     await page.goto("http://picker.test");
     await page.locator("#startup-gate").waitFor({ state: "hidden" });
     const choices = () =>
@@ -111,9 +113,16 @@ const path = require("node:path");
         .evaluateAll((els) => els.map((e) => e.dataset.value)),
       ["claude-opus-4-10", "claude-opus-4-6"],
     );
-    assert.equal(await page.locator("[data-provider=claude] .model-more > summary").textContent(), "More models");
     assert.equal(
-      await page.locator("[data-provider=claude] .model-more").getAttribute("open"),
+      await page
+        .locator("[data-provider=claude] .model-more > summary")
+        .textContent(),
+      "More models",
+    );
+    assert.equal(
+      await page
+        .locator("[data-provider=claude] .model-more")
+        .getAttribute("open"),
       "",
       "the selected model is legacy, so its list is open",
     );
@@ -122,10 +131,19 @@ const path = require("node:path");
       await page
         .locator("[data-provider=claude] [role=option] strong")
         .evaluateAll((els) => els.map((e) => e.textContent)),
-      ["Claude Haiku 4.5", "Claude Opus 5", "Claude Sonnet 4.6", "Claude Opus 4.10", "Claude Opus 4.6"],
+      [
+        "Claude Haiku 4.5",
+        "Claude Opus 5",
+        "Claude Sonnet 4.6",
+        "Claude Opus 4.10",
+        "Claude Opus 4.6",
+      ],
     );
     assert.equal(
-      await page.locator("#model-menu [data-provider=claude] > summary").first().textContent(),
+      await page
+        .locator("#model-menu [data-provider=claude] > summary")
+        .first()
+        .textContent(),
       "Claude Code",
     );
     assert.equal(

@@ -271,7 +271,9 @@ class Manager:
         out["default_backend"] = default
         catalogs = []
         catalog_ids = set()
-        saved_catalogs = {catalog.get("id"): catalog for catalog in self.settings.get("catalogs", [])}
+        saved_catalogs = {
+            catalog.get("id"): catalog for catalog in self.settings.get("catalogs", [])
+        }
         saved_catalog_roots = {key: catalog.get("root") for key, catalog in saved_catalogs.items()}
         from .catalog_admin import hooks_trust_record
 
@@ -554,7 +556,9 @@ class Manager:
         if (self.state / "tailnet.json").exists() and any(
             settings.get(k) != self.settings.get(k) for k in ("port", "tailnet_port", "vpn_bind")
         ):
-            raise UserMessageError("Remove the Tailscale route before changing the ports or the IP.")
+            raise UserMessageError(
+                "Remove the Tailscale route before changing the ports or the IP."
+            )
         self.state_repository.save_settings(settings)
         self.settings = settings
         self.audit("settings_saved")
@@ -755,7 +759,9 @@ class Manager:
             try:
                 check.bind((bind, port))
             except OSError:
-                raise UserMessageError("Port in use. Choose another; no existing service was stopped.")
+                raise UserMessageError(
+                    "Port in use. Choose another; no existing service was stopped."
+                )
         path = self.state / "runtime.json"
         self._write_runtime(cfg)
         from agent_service.log_config import open_process_log
@@ -786,7 +792,9 @@ class Manager:
         async with httpx.AsyncClient(trust_env=False, timeout=1) as client:
             for _ in range(40):
                 if proc.returncode is not None:
-                    raise UserMessageError("The service exited while starting. Check the local log.")
+                    raise UserMessageError(
+                        "The service exited while starting. Check the local log."
+                    )
                 try:
                     # The browser entry may redirect to Tailscale; readiness is local.
                     if (await client.get(f"http://{bind}:{port}/ui.css")).status_code == 200:
@@ -873,7 +881,9 @@ class Manager:
 
     async def stop(self, force=False):
         if not force and self.busy():
-            raise UserMessageError("There are tasks queued or running. Cancel or wait before stopping.")
+            raise UserMessageError(
+                "There are tasks queued or running. Cancel or wait before stopping."
+            )
         self.unwatch()
         if self.running():
             self.proc.terminate()

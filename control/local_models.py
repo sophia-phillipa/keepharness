@@ -471,7 +471,9 @@ async def runtime_details(binary):
                 await proc.wait()
             return proc.returncode, output.decode(errors="replace")
         except TimeoutError:
-            raise UserMessageError("The runtime took too long to respond to device discovery.") from None
+            raise UserMessageError(
+                "The runtime took too long to respond to device discovery."
+            ) from None
         finally:
             if proc.returncode is None:
                 proc.kill()

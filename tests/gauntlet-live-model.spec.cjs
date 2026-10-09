@@ -23,7 +23,12 @@ const assert = require("node:assert/strict"),
         if (p === "/v1/models")
           data = {
             models: [
-              { id: "codex-fixture", backend: "codex", execution_modes: executionModes("codex"), efforts: ["configured"] },
+              {
+                id: "codex-fixture",
+                backend: "codex",
+                execution_modes: executionModes("codex"),
+                efforts: ["configured"],
+              },
               {
                 id: "deepseek-flash",
                 backend: "deepseek",
@@ -70,7 +75,9 @@ const assert = require("node:assert/strict"),
               : "text/html",
       });
     });
-    await page.addInitScript(() => localStorage.setItem("keepharness-tour-seen", "0.16.0"));
+    await page.addInitScript(() =>
+      localStorage.setItem("keepharness-tour-seen", "0.16.0"),
+    );
     await page.goto("http://live-model.test");
     await page.locator("#startup-gate").waitFor({ state: "hidden" });
     await page.fill("#prompt", "First message " + round);

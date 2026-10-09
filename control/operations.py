@@ -11,7 +11,9 @@ from agent_service.errors import UserMessageError
 
 # CSI (colours, cursor), OSC (hyperlinks, titles), and ordinary terminal escape sequences.
 # An OSC never spans a line: a newline ends a bogus one so the text after it is not held back.
-ANSI_ESCAPE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]|\x1b\][^\x07\x1b\n]*(?:\x07|\x1b\\)|\x1b[ -/]*[0-~]")
+ANSI_ESCAPE = re.compile(
+    r"\x1b\[[0-?]*[ -/]*[@-~]|\x1b\][^\x07\x1b\n]*(?:\x07|\x1b\\)|\x1b[ -/]*[0-~]"
+)
 # An escape sequence cut by the end of a read: held back until the next read completes it.
 ANSI_PARTIAL = re.compile(r"\x1b(?:\[[0-?]*[ -/]*|\][^\x07\x1b\n]*\x1b?|[ -/]+)?$")
 
@@ -176,7 +178,9 @@ def operation(binary, provider, data):
                 or parsed.query
                 or parsed.fragment
             ):
-                raise UserMessageError("Use the MCP server's HTTPS URL, with no credentials in the URL.")
+                raise UserMessageError(
+                    "Use the MCP server's HTTPS URL, with no credentials in the URL."
+                )
             return (
                 [binary, "mcp", "add", name, "--url", url]
                 if provider == "codex"

@@ -124,7 +124,12 @@ const assert = require("node:assert/strict");
   assert.equal(await p.locator("#dashboard").isVisible(), true);
   assert(actions.some((x) => x[0] === "scan"));
   await p.waitForSelector("#provider-dialog:not([hidden])");
-  await p.screenshot({ path: require("node:path").join(require("node:os").tmpdir(), "keepharness-wizard-new.png") });
+  await p.screenshot({
+    path: require("node:path").join(
+      require("node:os").tmpdir(),
+      "keepharness-wizard-new.png",
+    ),
+  });
   for (const width of [390, 768]) {
     await p.setViewportSize({ width, height: 844 });
     assert.equal(
@@ -227,7 +232,10 @@ const assert = require("node:assert/strict");
     assert(gap >= 16, `Editor gap at ${width}px: ${gap}`);
   }
   await p.screenshot({
-    path: require("node:path").join(require("node:os").tmpdir(), "keepharness-provider-layout-fixed.png"),
+    path: require("node:path").join(
+      require("node:os").tmpdir(),
+      "keepharness-provider-layout-fixed.png",
+    ),
     fullPage: true,
   });
   await p.click("#wizard-cancel");
@@ -296,9 +304,14 @@ const assert = require("node:assert/strict");
   assert.equal(await fullAccess.isChecked(), false);
   await fullAccess.check();
   await p.waitForFunction(
-    () => document.getElementById("full-access").checked && !document.getElementById("full-access").disabled,
+    () =>
+      document.getElementById("full-access").checked &&
+      !document.getElementById("full-access").disabled,
   );
-  assert.equal(actions.filter((x) => x[0] === "settings").at(-1)[1].full_access, true);
+  assert.equal(
+    actions.filter((x) => x[0] === "settings").at(-1)[1].full_access,
+    true,
+  );
   assert.equal(state.settings.full_access, true);
   await p.click("#manage-network");
   for (const width of [390, 768]) {
@@ -352,7 +365,10 @@ const assert = require("node:assert/strict");
   await p.locator("[data-theme-choice=violet-bordeaux]").click();
   await p.click("#appearance-close");
   await p.screenshot({
-    path: require("node:path").join(require("node:os").tmpdir(), "keepharness-admin-test-desktop.png"),
+    path: require("node:path").join(
+      require("node:os").tmpdir(),
+      "keepharness-admin-test-desktop.png",
+    ),
     fullPage: true,
   });
   state.settings.services.local = {
@@ -386,7 +402,10 @@ const assert = require("node:assert/strict");
   assert(await p.locator("#local-model-permissions").isVisible());
   await p.locator("#inspector-tabs").getByText("Model and hardware").click();
   await p.screenshot({
-    path: require("node:path").join(require("node:os").tmpdir(), "keepharness-inspector.png"),
+    path: require("node:path").join(
+      require("node:os").tmpdir(),
+      "keepharness-inspector.png",
+    ),
     fullPage: true,
   });
   for (const width of [390, 768]) {

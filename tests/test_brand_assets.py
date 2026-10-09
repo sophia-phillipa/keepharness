@@ -69,7 +69,9 @@ def ico_entries(path):
     assert (reserved, kind) == (0, 1)
     sizes = []
     for i in range(count):
-        width, _, _, _, _, _, length, offset = struct.unpack("<BBBBHHII", data[6 + 16 * i : 22 + 16 * i])
+        width, _, _, _, _, _, length, offset = struct.unpack(
+            "<BBBBHHII", data[6 + 16 * i : 22 + 16 * i]
+        )
         assert png_size(data[offset : offset + length]) == (width or 256,) * 2
         sizes.append(width or 256)
     return sizes
@@ -121,10 +123,20 @@ def test_icon_corners_are_transparent_and_the_body_is_not(size):
     width, height, bpp, rows = decode_png((BUILD / "icons" / f"{size}x{size}.png").read_bytes())
     assert bpp == 4
     alpha = lambda x, y: rows[y][x * 4 + 3]  # noqa: E731
-    assert [alpha(0, 0), alpha(width - 1, 0), alpha(0, height - 1), alpha(width - 1, height - 1)] == [0] * 4
+    assert [
+        alpha(0, 0),
+        alpha(width - 1, 0),
+        alpha(0, height - 1),
+        alpha(width - 1, height - 1),
+    ] == [0] * 4
     # Full bleed: the squircle touches the middle of every side and fills the centre.
     middle = width // 2
-    assert [alpha(middle, 0), alpha(0, middle), alpha(width - 1, middle), alpha(middle, height - 1)] == [255] * 4
+    assert [
+        alpha(middle, 0),
+        alpha(0, middle),
+        alpha(width - 1, middle),
+        alpha(middle, height - 1),
+    ] == [255] * 4
     assert alpha(middle, middle) == 255
 
 
@@ -147,7 +159,9 @@ def test_the_in_app_mark_is_the_brand_symbol_in_the_shared_sprite():
     assert "currentColor" not in ET.tostring(symbol, encoding="unicode")
     for page in PAGES:
         assert 'href="/assets/icons.svg#keepharness"' in (ROOT / page).read_text(encoding="utf-8")
-    assert "⌘</span><span data-product-name>" not in (ROOT / "control/index.html").read_text(encoding="utf-8")
+    assert "⌘</span><span data-product-name>" not in (ROOT / "control/index.html").read_text(
+        encoding="utf-8"
+    )
 
 
 @pytest.mark.parametrize("name", ["keepharness-mark.svg", "keepharness-mark-only.svg"])

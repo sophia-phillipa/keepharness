@@ -10,7 +10,9 @@ const { spawn } = require("node:child_process");
 
 (async () => {
   const root = path.resolve(__dirname, "..");
-  const state = fs.mkdtempSync(path.join(os.tmpdir(), "keepharness-browser-entry-"));
+  const state = fs.mkdtempSync(
+    path.join(os.tmpdir(), "keepharness-browser-entry-"),
+  );
   const reservation = net.createServer();
   await new Promise((resolve) => reservation.listen(0, "127.0.0.1", resolve));
   const port = reservation.address().port;
@@ -61,7 +63,9 @@ const { spawn } = require("node:child_process");
         viewport: { width: 1600, height: 950 },
         storageState,
       });
-      await context.addInitScript(() => localStorage.setItem("keepharness-tour-seen", "0.16.0"));
+      await context.addInitScript(() =>
+        localStorage.setItem("keepharness-tour-seen", "0.16.0"),
+      );
       await context.route("**/v1/**", (route) => {
         const endpoint = new URL(route.request().url()).pathname;
         const data =
@@ -91,7 +95,9 @@ const { spawn } = require("node:child_process");
     }
     let { context, page } = await open();
     // Distinct origins really contain different preferences before the restart.
-    await page.addInitScript(() => localStorage.setItem("keepharness-tour-seen", "0.16.0"));
+    await page.addInitScript(() =>
+      localStorage.setItem("keepharness-tour-seen", "0.16.0"),
+    );
     await page.goto(local + "/ui.css");
     await page.evaluate(() =>
       localStorage.setItem("panel-order", "conversations-left"),

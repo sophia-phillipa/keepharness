@@ -143,7 +143,9 @@ def test_a_legacy_non_loopback_vpn_bind_loads_as_loopback(tmp_path, caplog):
         loaded = Manager(tmp_path)
     assert loaded.settings["vpn_bind"] == "127.0.0.1"
     assert [r.levelname for r in caplog.records if "vpn_bind" in r.getMessage()] == ["WARNING"]
-    assert Manager(tmp_path).settings["vpn_bind"] == "127.0.0.1"  # coerced again until the next save
+    assert (
+        Manager(tmp_path).settings["vpn_bind"] == "127.0.0.1"
+    )  # coerced again until the next save
 
 
 class _Proc:

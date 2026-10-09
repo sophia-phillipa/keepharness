@@ -60,9 +60,17 @@ def test_reload_cancels_only_removed_model_and_keeps_registered_projects(tmp_pat
 
         asyncio.run(service.apply_runtime_config(candidate))
 
-        assert service.job(("local", service.config["clients"]["local"]), "removed")["state"] == "cancelled"
-        assert service.job(("local", service.config["clients"]["local"]), "kept")["state"] == "queued"
-        assert service.job(("local", service.config["clients"]["local"]), "registered")["state"] == "queued"
+        assert (
+            service.job(("local", service.config["clients"]["local"]), "removed")["state"]
+            == "cancelled"
+        )
+        assert (
+            service.job(("local", service.config["clients"]["local"]), "kept")["state"] == "queued"
+        )
+        assert (
+            service.job(("local", service.config["clients"]["local"]), "registered")["state"]
+            == "queued"
+        )
         assert service.config["projects"][project]["root"] == str(registered)
         assert service.config["config_revision"] == "revision-two"
     finally:

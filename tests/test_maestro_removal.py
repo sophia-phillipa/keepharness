@@ -162,9 +162,7 @@ def test_capabilities_drop_maestro_planner(tmp_path):
         service.db.close()
 
 
-@pytest.mark.parametrize(
-    "model", ["auto", "gpt-6-astra"], ids=["model_auto", "model_explicit"]
-)
+@pytest.mark.parametrize("model", ["auto", "gpt-6-astra"], ids=["model_auto", "model_explicit"])
 def test_assess_backend_maestro_is_backend_unavailable(tmp_path, model):
     service, identity = make_service(tmp_path)
     try:

@@ -17,7 +17,10 @@ const path = require("node:path");
 
 const origin = "http://layout-lint.test";
 const ROOT = path.join(__dirname, "..");
-const LINT = fs.readFileSync(path.join(__dirname, "support", "layout-lint.js"), "utf8");
+const LINT = fs.readFileSync(
+  path.join(__dirname, "support", "layout-lint.js"),
+  "utf8",
+);
 const { handleHitZones } = require("./support/handle-hit-zone.cjs");
 const SHOTS = path.join(os.tmpdir(), "keepharness-layout-lint");
 // Lint findings that are not defects.
@@ -63,7 +66,14 @@ const LONG_ANSWER = [
 ].join("\n");
 
 const models = [
-  { id: "gpt-6-astra", name: "GPT-6 Astra", backend: "codex", efforts: ["low", "medium", "high"], execution_modes: ["native", "scoped"], permissions: { upload: true } },
+  {
+    id: "gpt-6-astra",
+    name: "GPT-6 Astra",
+    backend: "codex",
+    efforts: ["low", "medium", "high"],
+    execution_modes: ["native", "scoped"],
+    permissions: { upload: true },
+  },
   {
     id: "claude-opus-5",
     name: "Claude Opus 5",
@@ -77,8 +87,20 @@ const turn = (id, request, result = {}, state = "completed", extra = {}) => ({
   id,
   project: "sem-projeto",
   state,
-  request: { backend: "codex", model: "gpt-6-astra", effort: "medium", access_mode: "ask", prompt: "Summarize the release.", ...request },
-  result: { answer: "Done.", model: request.model || "gpt-6-astra", total_seconds: 4.2, ...result },
+  request: {
+    backend: "codex",
+    model: "gpt-6-astra",
+    effort: "medium",
+    access_mode: "ask",
+    prompt: "Summarize the release.",
+    ...request,
+  },
+  result: {
+    answer: "Done.",
+    model: request.model || "gpt-6-astra",
+    total_seconds: 4.2,
+    ...result,
+  },
   gates: [],
   ...extra,
 });
@@ -92,7 +114,9 @@ const conversationDetails = {
         model: "claude-opus-5",
         effort: "configured",
         prompt: "@@release-checker check the changelog",
-        invocations: [{ mode: "conversational", resource_id: "release-checker" }],
+        invocations: [
+          { mode: "conversational", resource_id: "release-checker" },
+        ],
         resource_selections: [{ token: "@@release-checker" }],
       }),
     ],
@@ -101,19 +125,22 @@ const conversationDetails = {
     title: "Photo question",
     execution_mode: "native",
     turns: [
-      turn(
-        "j-files",
-        { prompt: "What does the label say?" },
-        {},
-        "completed",
-        { attachments: [{ name: "photo.png", preview_url: origin + "/v1/previews/photo.png" }, { name: "a-file-name-that-is-long-enough-to-need-truncating-in-the-chip.pdf" }] },
-      ),
+      turn("j-files", { prompt: "What does the label say?" }, {}, "completed", {
+        attachments: [
+          { name: "photo.png", preview_url: origin + "/v1/previews/photo.png" },
+          {
+            name: "a-file-name-that-is-long-enough-to-need-truncating-in-the-chip.pdf",
+          },
+        ],
+      }),
     ],
   },
   "c-long": {
     title: "Release matrix",
     execution_mode: "native",
-    turns: [turn("j-long", { prompt: "Make the matrix." }, { answer: LONG_ANSWER })],
+    turns: [
+      turn("j-long", { prompt: "Make the matrix." }, { answer: LONG_ANSWER }),
+    ],
   },
   "c-run": {
     title: "Release review",
@@ -122,15 +149,62 @@ const conversationDetails = {
   },
 };
 const conversationList = [
-  { id: "c-agent", title: "Release checker", project: "sem-projeto", state: "completed", last_job_id: "j-agent", execution: { backend: "claude", model: "claude-opus-5" } },
-  { id: "c-files", title: "Photo question", project: "sem-projeto", state: "completed", last_job_id: "j-files", execution: { backend: "codex", model: "gpt-6-astra" } },
-  { id: "c-long", title: "Release matrix", project: "sem-projeto", state: "completed", last_job_id: "j-long", execution: { backend: "codex", model: "gpt-6-astra" } },
-  { id: "c-run", title: "Release review", project: "sem-projeto", state: "running", last_job_id: "j-run", execution: { backend: "codex", model: "gpt-6-astra" } },
+  {
+    id: "c-agent",
+    title: "Release checker",
+    project: "sem-projeto",
+    state: "completed",
+    last_job_id: "j-agent",
+    execution: { backend: "claude", model: "claude-opus-5" },
+  },
+  {
+    id: "c-files",
+    title: "Photo question",
+    project: "sem-projeto",
+    state: "completed",
+    last_job_id: "j-files",
+    execution: { backend: "codex", model: "gpt-6-astra" },
+  },
+  {
+    id: "c-long",
+    title: "Release matrix",
+    project: "sem-projeto",
+    state: "completed",
+    last_job_id: "j-long",
+    execution: { backend: "codex", model: "gpt-6-astra" },
+  },
+  {
+    id: "c-run",
+    title: "Release review",
+    project: "sem-projeto",
+    state: "running",
+    last_job_id: "j-run",
+    execution: { backend: "codex", model: "gpt-6-astra" },
+  },
 ];
 const activity = {
   counts: { running: 1, queued: 0, needs_you: 0 },
-  jobs: [{ job_id: "j-run", conversation_id: "c-run", project_id: "sem-projeto", state: "running", backend: "codex", model: "gpt-6-astra", title: LONG_RUN_TEXT, work_item: LONG_WORK_ITEM }],
-  providers: [{ backend: "codex", model: "gpt-6-astra", state: "ready", running: 1, queued: 0 }],
+  jobs: [
+    {
+      job_id: "j-run",
+      conversation_id: "c-run",
+      project_id: "sem-projeto",
+      state: "running",
+      backend: "codex",
+      model: "gpt-6-astra",
+      title: LONG_RUN_TEXT,
+      work_item: LONG_WORK_ITEM,
+    },
+  ],
+  providers: [
+    {
+      backend: "codex",
+      model: "gpt-6-astra",
+      state: "ready",
+      running: 1,
+      queued: 0,
+    },
+  ],
   needs_you: [],
 };
 
@@ -139,19 +213,36 @@ async function serve(route) {
   const pathname = url.pathname;
   if (!pathname.startsWith("/v1/")) {
     const file = pathname === "/" ? "index.html" : pathname.slice(1);
-    return route.fulfill({ path: path.join(ROOT, file.startsWith("assets/") ? "harness_ui" : "agent_service", file) });
+    return route.fulfill({
+      path: path.join(
+        ROOT,
+        file.startsWith("assets/") ? "harness_ui" : "agent_service",
+        file,
+      ),
+    });
   }
   const detail = pathname.match(/^\/v1\/conversations\/([^/]+)$/);
   let data = {};
-  if (pathname === "/v1/projects") data = { projects: ["sem-projeto"], details: {} };
-  else if (pathname === "/v1/models") data = { models, providers: { codex: true, claude: true }, uploads_enabled: true };
-  else if (pathname === "/v1/conversations") data = { conversations: conversationList };
+  if (pathname === "/v1/projects")
+    data = { projects: ["sem-projeto"], details: {} };
+  else if (pathname === "/v1/models")
+    data = {
+      models,
+      providers: { codex: true, claude: true },
+      uploads_enabled: true,
+    };
+  else if (pathname === "/v1/conversations")
+    data = { conversations: conversationList };
   else if (detail) data = conversationDetails[detail[1]] || {};
-  else if (pathname === "/v1/version") data = { version: "0.16.0", build: "layout-lint" };
+  else if (pathname === "/v1/version")
+    data = { version: "0.16.0", build: "layout-lint" };
   else if (pathname === "/v1/activity") data = activity;
-  else if (pathname === "/v1/catalog") data = { agents: [], skills: [], warnings: [], scope: "test" };
-  else if (pathname === "/v1/files") data = { file_id: "file-fixture", name: "photo.png" };
-  else if (pathname === "/v1/previews/photo.png") return route.fulfill({ body: PIXEL_PNG, contentType: "image/png" });
+  else if (pathname === "/v1/catalog")
+    data = { agents: [], skills: [], warnings: [], scope: "test" };
+  else if (pathname === "/v1/files")
+    data = { file_id: "file-fixture", name: "photo.png" };
+  else if (pathname === "/v1/previews/photo.png")
+    return route.fulfill({ body: PIXEL_PNG, contentType: "image/png" });
   else if (/^\/v1\/jobs\/[^/]+\/spans$/.test(pathname)) data = { spans: [] };
   else if (pathname === "/v1/project-files") data = { roots: [], entries: [] };
   else if (pathname === "/v1/usage") data = { available: false };
@@ -160,19 +251,34 @@ async function serve(route) {
 async function openConversation(page, id) {
   const title = conversationDetails[id].title;
   await page.evaluate((conversationId) => load(conversationId), id);
-  await page.waitForFunction((expected) => document.getElementById("conversation-title")?.textContent === expected, title);
+  await page.waitForFunction(
+    (expected) =>
+      document.getElementById("conversation-title")?.textContent === expected,
+    title,
+  );
 }
 
 // Each screen leaves the page in the state it names; screens run in this order on one page per theme and viewport.
 const SCREENS = [
   { id: "new-chat", open: async () => {} },
-  { id: "new-chat-claude", open: (page) => page.selectOption("#model", "claude-opus-5") },
-  { id: "agent-conversation", open: (page) => openConversation(page, "c-agent"), extra: SMALL_WINDOWS },
+  {
+    id: "new-chat-claude",
+    open: (page) => page.selectOption("#model", "claude-opus-5"),
+  },
+  {
+    id: "agent-conversation",
+    open: (page) => openConversation(page, "c-agent"),
+    extra: SMALL_WINDOWS,
+  },
   {
     id: "conversation-attachment",
     open: async (page) => {
       await openConversation(page, "c-files");
-      await page.setInputFiles("#file", { name: "photo.png", mimeType: "image/png", buffer: PIXEL_PNG });
+      await page.setInputFiles("#file", {
+        name: "photo.png",
+        mimeType: "image/png",
+        buffer: PIXEL_PNG,
+      });
       await page.locator("#attachments .attachment").first().waitFor();
     },
   },
@@ -181,7 +287,11 @@ const SCREENS = [
     id: "status-bar-long",
     open: async (page) => {
       await openConversation(page, "c-run");
-      await page.waitForFunction(() => document.getElementById("run-status-toggle")?.textContent.includes("RELEASE-CUT-OVER"));
+      await page.waitForFunction(() =>
+        document
+          .getElementById("run-status-toggle")
+          ?.textContent.includes("RELEASE-CUT-OVER"),
+      );
     },
     extra: SMALL_WINDOWS,
   },
@@ -193,8 +303,12 @@ const SCREENS = [
       await page.evaluate(() =>
         showGate({
           gate_id: "g-lint",
-          question: "Which fixture option should run, and should it also publish the result to every connected project afterwards?",
-          options: [{ id: "a", label: "Alpha", description: "First option" }, { id: "b", label: "Beta", description: "Second option" }],
+          question:
+            "Which fixture option should run, and should it also publish the result to every connected project afterwards?",
+          options: [
+            { id: "a", label: "Alpha", description: "First option" },
+            { id: "b", label: "Beta", description: "Second option" },
+          ],
         }),
       );
       await page.locator("#gate-g-lint legend").waitFor();
@@ -210,7 +324,8 @@ const SCREENS = [
       await openConversation(page, "c-run");
       await page.keyboard.press("Control+j");
       await page.locator("#run-console").waitFor({ state: "visible" });
-      if (await page.locator("#activity-panel").isHidden()) await page.click("#panel-toggle");
+      if (await page.locator("#activity-panel").isHidden())
+        await page.click("#panel-toggle");
       await page.locator("#activity-panel").waitFor({ state: "visible" });
     },
     close: async (page) => {
@@ -231,7 +346,8 @@ const SCREENS = [
   {
     id: "setup-dialog",
     lint: [],
-    open: (page) => page.evaluate(() => document.getElementById("setup-dialog").showModal()),
+    open: (page) =>
+      page.evaluate(() => document.getElementById("setup-dialog").showModal()),
     close: (page) => page.keyboard.press("Escape"),
   },
 ];
@@ -243,61 +359,144 @@ async function namedInvariants(page, viewport) {
     const box = (el) => {
       if (!el || !el.checkVisibility()) return null;
       const r = el.getBoundingClientRect();
-      return { x: r.x, y: r.y, right: r.right, bottom: r.bottom, width: r.width, height: r.height };
+      return {
+        x: r.x,
+        y: r.y,
+        right: r.right,
+        bottom: r.bottom,
+        width: r.width,
+        height: r.height,
+      };
     };
     const $ = (selector) => document.querySelector(selector);
     // A label that is visually hidden on purpose (1 px wide in the conversation pill) is not clipped text.
-    const overflows = (el) => !!el && el.checkVisibility() && el.clientWidth > 2 && el.scrollWidth > el.clientWidth + 1;
+    const overflows = (el) =>
+      !!el &&
+      el.checkVisibility() &&
+      el.clientWidth > 2 &&
+      el.scrollWidth > el.clientWidth + 1;
     const prompt = $("#prompt");
     const style = getComputedStyle(prompt);
     const canvas = document.createElement("canvas").getContext("2d");
     canvas.font = `${style.fontStyle} ${style.fontWeight} ${style.fontSize} ${style.fontFamily}`;
     const strip = $("#run-status-strip");
     return {
-      controls: Object.fromEntries(["#attach", "#access-trigger", "#model-trigger", "#effort-trigger", "#send", "#prompt"].map((s) => [s, box($(s))])),
+      controls: Object.fromEntries(
+        [
+          "#attach",
+          "#access-trigger",
+          "#model-trigger",
+          "#effort-trigger",
+          "#send",
+          "#prompt",
+        ].map((s) => [s, box($(s))]),
+      ),
       dropzone: box($("#dropzone")),
       persona: box($("#persona-control")),
-      personaLabelWidth: $(".persona-label")?.checkVisibility() ? $(".persona-label").clientWidth : null,
+      personaLabelWidth: $(".persona-label")?.checkVisibility()
+        ? $(".persona-label").clientWidth
+        : null,
       personaLabelOverflow: overflows($(".persona-label")),
-      strip: { box: box(strip), overflow: strip.scrollHeight - strip.clientHeight },
-      stripChildren: [...strip.children].map((child) => ({ id: child.id || child.className, box: box(child) })),
-      modeHeadingOverflow: [".execution-mode-heading", "#access-mode-notice"].filter((s) => overflows($(s))),
-      placeholder: { shown: !prompt.value, width: canvas.measureText(prompt.placeholder).width, content: prompt.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight), text: prompt.placeholder },
-      clippedLabels: ["#effort-label", "#access-label"].filter((s) => overflows($(s))),
+      strip: {
+        box: box(strip),
+        overflow: strip.scrollHeight - strip.clientHeight,
+      },
+      stripChildren: [...strip.children].map((child) => ({
+        id: child.id || child.className,
+        box: box(child),
+      })),
+      modeHeadingOverflow: [
+        ".execution-mode-heading",
+        "#access-mode-notice",
+      ].filter((s) => overflows($(s))),
+      placeholder: {
+        shown: !prompt.value,
+        width: canvas.measureText(prompt.placeholder).width,
+        content:
+          prompt.clientWidth -
+          parseFloat(style.paddingLeft) -
+          parseFloat(style.paddingRight),
+        text: prompt.placeholder,
+      },
+      clippedLabels: ["#effort-label", "#access-label"].filter((s) =>
+        overflows($(s)),
+      ),
     };
   });
   // V1/V2: controls never intersect by more than 2 px and never leave the composer card.
-  const ids = Object.keys(measured.controls).filter((id) => measured.controls[id]);
+  const ids = Object.keys(measured.controls).filter(
+    (id) => measured.controls[id],
+  );
   for (const id of ids) {
     const control = measured.controls[id];
-    if (control.x < measured.dropzone.x - 1 || control.right > measured.dropzone.right + 1)
-      problems.push(`V1 ${id} leaves the composer card (${Math.round(control.x)}-${Math.round(control.right)} vs ${Math.round(measured.dropzone.x)}-${Math.round(measured.dropzone.right)})`);
+    if (
+      control.x < measured.dropzone.x - 1 ||
+      control.right > measured.dropzone.right + 1
+    )
+      problems.push(
+        `V1 ${id} leaves the composer card (${Math.round(control.x)}-${Math.round(control.right)} vs ${Math.round(measured.dropzone.x)}-${Math.round(measured.dropzone.right)})`,
+      );
   }
   for (let i = 0; i < ids.length; i++)
     for (let j = i + 1; j < ids.length; j++) {
-      const a = measured.controls[ids[i]], b = measured.controls[ids[j]];
-      const w = Math.min(a.right, b.right) - Math.max(a.x, b.x), h = Math.min(a.bottom, b.bottom) - Math.max(a.y, b.y);
-      if (w > 2 && h > 2) problems.push(`V1 ${ids[i]} and ${ids[j]} overlap by ${Math.round(w)}x${Math.round(h)} px`);
+      const a = measured.controls[ids[i]],
+        b = measured.controls[ids[j]];
+      const w = Math.min(a.right, b.right) - Math.max(a.x, b.x),
+        h = Math.min(a.bottom, b.bottom) - Math.max(a.y, b.y);
+      if (w > 2 && h > 2)
+        problems.push(
+          `V1 ${ids[i]} and ${ids[j]} overlap by ${Math.round(w)}x${Math.round(h)} px`,
+        );
     }
   if (measured.persona) {
-    if (measured.persona.height > viewport.height * 0.25) problems.push(`V2 #persona-control is ${Math.round(measured.persona.height)} px tall (limit ${viewport.height * 0.25})`);
-    if (measured.personaLabelWidth < 80 || measured.personaLabelOverflow) problems.push(`V2 .persona-label is ${measured.personaLabelWidth} px wide or overflows`);
-    if (measured.controls["#prompt"] && measured.persona.bottom > measured.controls["#prompt"].y + 1) problems.push("V1 the agent card is not above the input");
+    if (measured.persona.height > viewport.height * 0.25)
+      problems.push(
+        `V2 #persona-control is ${Math.round(measured.persona.height)} px tall (limit ${viewport.height * 0.25})`,
+      );
+    if (measured.personaLabelWidth < 80 || measured.personaLabelOverflow)
+      problems.push(
+        `V2 .persona-label is ${measured.personaLabelWidth} px wide or overflows`,
+      );
+    if (
+      measured.controls["#prompt"] &&
+      measured.persona.bottom > measured.controls["#prompt"].y + 1
+    )
+      problems.push("V1 the agent card is not above the input");
   }
   // V3: the 28 px strip holds its own content on one line.
-  if (measured.strip.overflow > 1) problems.push(`V3 #run-status-strip content is ${measured.strip.overflow} px taller than the strip`);
+  if (measured.strip.overflow > 1)
+    problems.push(
+      `V3 #run-status-strip content is ${measured.strip.overflow} px taller than the strip`,
+    );
   for (const child of measured.stripChildren) {
     if (!child.box) continue;
-    if (child.box.y < measured.strip.box.y - 1 || child.box.bottom > measured.strip.box.bottom + 1 || child.box.right > measured.strip.box.right + 1)
+    if (
+      child.box.y < measured.strip.box.y - 1 ||
+      child.box.bottom > measured.strip.box.bottom + 1 ||
+      child.box.right > measured.strip.box.right + 1
+    )
       problems.push(`V3 strip child ${child.id} leaves the strip`);
   }
   // V4/V5: nothing paints outside the "Native conversation" pill; labels and the placeholder fit.
-  for (const selector of measured.modeHeadingOverflow) problems.push(`V4 ${selector} paints outside its box`);
-  for (const selector of measured.clippedLabels) problems.push(`V5 ${selector} is clipped`);
-  if (measured.placeholder.shown && measured.placeholder.width > measured.placeholder.content + 1)
-    problems.push(`V5 the placeholder needs ${Math.round(measured.placeholder.width)} px but #prompt offers ${Math.round(measured.placeholder.content)} ("${measured.placeholder.text}")`);
-  if (viewport.width >= 1024 && measured.controls["#prompt"] && measured.controls["#prompt"].width < 240)
-    problems.push(`V1 #prompt is only ${Math.round(measured.controls["#prompt"].width)} px wide`);
+  for (const selector of measured.modeHeadingOverflow)
+    problems.push(`V4 ${selector} paints outside its box`);
+  for (const selector of measured.clippedLabels)
+    problems.push(`V5 ${selector} is clipped`);
+  if (
+    measured.placeholder.shown &&
+    measured.placeholder.width > measured.placeholder.content + 1
+  )
+    problems.push(
+      `V5 the placeholder needs ${Math.round(measured.placeholder.width)} px but #prompt offers ${Math.round(measured.placeholder.content)} ("${measured.placeholder.text}")`,
+    );
+  if (
+    viewport.width >= 1024 &&
+    measured.controls["#prompt"] &&
+    measured.controls["#prompt"].width < 240
+  )
+    problems.push(
+      `V1 #prompt is only ${Math.round(measured.controls["#prompt"].width)} px wide`,
+    );
   return problems;
 }
 
@@ -308,46 +507,78 @@ async function handleAndDialogInvariants(page) {
   const problems = [];
   for (const { name, zone, covers } of await handleHitZones(page)) {
     if (!zone) continue; // behind a modal, an inert region or another layer: no click reaches it
-    if (zone.width < 24 || zone.height < 24) problems.push(`V6 handle "${name}" hit area ${zone.width}x${zone.height} px is under 24 px`);
-    for (const c of covers) problems.push(`V6 handle "${name}" overlaps "${c.name}" by ${c.width}x${c.height} px`);
+    if (zone.width < 24 || zone.height < 24)
+      problems.push(
+        `V6 handle "${name}" hit area ${zone.width}x${zone.height} px is under 24 px`,
+      );
+    for (const c of covers)
+      problems.push(
+        `V6 handle "${name}" overlaps "${c.name}" by ${c.width}x${c.height} px`,
+      );
   }
-  return problems.concat(await page.evaluate(() => {
-    const problems = [];
-    const shown = (el) => el.checkVisibility() && el.getBoundingClientRect().width > 0;
-    const overlap = (a, b) => {
-      const w = Math.min(a.right, b.right) - Math.max(a.left, b.left), h = Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top);
-      return w > 2 && h > 2 ? { w, h } : null;
-    };
-    const name = (el) => el.getAttribute("aria-label") || el.id || el.className;
-    // Text lines, not the whole block: a heading's padding is not text.
-    const lines = (el) => {
-      const range = document.createRange();
-      range.selectNodeContents(el);
-      return [...range.getClientRects()].filter((r) => r.width > 0);
-    };
-    for (const dialog of document.querySelectorAll("dialog[open]"))
-      for (const close of dialog.querySelectorAll(".dialog-close, [id$='-close']")) {
-        if (!shown(close)) continue;
-        for (const text of dialog.querySelectorAll("h2, h3, p, label")) {
-          if (!shown(text) || close.contains(text) || text.contains(close)) continue;
-          for (const line of lines(text)) {
-            const hit = overlap(close.getBoundingClientRect(), line);
-            if (hit) problems.push(`V12 "${name(close)}" sits on text "${text.textContent.trim().slice(0, 30)}" by ${Math.round(hit.w)}x${Math.round(hit.h)} px`);
+  return problems.concat(
+    await page.evaluate(() => {
+      const problems = [];
+      const shown = (el) =>
+        el.checkVisibility() && el.getBoundingClientRect().width > 0;
+      const overlap = (a, b) => {
+        const w = Math.min(a.right, b.right) - Math.max(a.left, b.left),
+          h = Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top);
+        return w > 2 && h > 2 ? { w, h } : null;
+      };
+      const name = (el) =>
+        el.getAttribute("aria-label") || el.id || el.className;
+      // Text lines, not the whole block: a heading's padding is not text.
+      const lines = (el) => {
+        const range = document.createRange();
+        range.selectNodeContents(el);
+        return [...range.getClientRects()].filter((r) => r.width > 0);
+      };
+      for (const dialog of document.querySelectorAll("dialog[open]"))
+        for (const close of dialog.querySelectorAll(
+          ".dialog-close, [id$='-close']",
+        )) {
+          if (!shown(close)) continue;
+          for (const text of dialog.querySelectorAll("h2, h3, p, label")) {
+            if (!shown(text) || close.contains(text) || text.contains(close))
+              continue;
+            for (const line of lines(text)) {
+              const hit = overlap(close.getBoundingClientRect(), line);
+              if (hit)
+                problems.push(
+                  `V12 "${name(close)}" sits on text "${text.textContent.trim().slice(0, 30)}" by ${Math.round(hit.w)}x${Math.round(hit.h)} px`,
+                );
+            }
           }
         }
-      }
-    return problems;
-  }));
+      return problems;
+    }),
+  );
 }
 
 // ---------------------------------------------------------------------------- generic lint
-function lintProblems(report, keep = ["overlaps", "spills", "beyond", "fields"]) {
+function lintProblems(
+  report,
+  keep = ["overlaps", "spills", "beyond", "fields"],
+) {
   const problems = [];
-  for (const key of ["overlaps", "spills", "beyond", "fields"]) if (!keep.includes(key)) report = { ...report, [key]: [] };
-  for (const o of report.overlaps) problems.push(`${o.aLabel} ${JSON.stringify(o.aBox)} overlaps ${o.bLabel} ${JSON.stringify(o.bBox)} by ${o.overlap.w}x${o.overlap.h} px`);
-  for (const sp of report.spills) if (!KNOWN_NOISE.has(`${sp.kind}|${sp.sel}`)) problems.push(`${sp.sel} "${sp.text}" ${sp.kind}: scroll ${JSON.stringify(sp.scroll)} in client ${JSON.stringify(sp.client)}`);
-  for (const b of report.beyond) problems.push(`${b.sel} "${b.text}" ${b.kind} by ${b.excess} px`);
-  for (const f of report.fields) problems.push(`${f.sel} text "${f.text}" needs ${f.textWidth} px of ${f.availWidth} px (clipped ${f.textClipped}, under an icon ${f.textRunsUnderIcon}, padding deficit ${f.deficit})`);
+  for (const key of ["overlaps", "spills", "beyond", "fields"])
+    if (!keep.includes(key)) report = { ...report, [key]: [] };
+  for (const o of report.overlaps)
+    problems.push(
+      `${o.aLabel} ${JSON.stringify(o.aBox)} overlaps ${o.bLabel} ${JSON.stringify(o.bBox)} by ${o.overlap.w}x${o.overlap.h} px`,
+    );
+  for (const sp of report.spills)
+    if (!KNOWN_NOISE.has(`${sp.kind}|${sp.sel}`))
+      problems.push(
+        `${sp.sel} "${sp.text}" ${sp.kind}: scroll ${JSON.stringify(sp.scroll)} in client ${JSON.stringify(sp.client)}`,
+      );
+  for (const b of report.beyond)
+    problems.push(`${b.sel} "${b.text}" ${b.kind} by ${b.excess} px`);
+  for (const f of report.fields)
+    problems.push(
+      `${f.sel} text "${f.text}" needs ${f.textWidth} px of ${f.availWidth} px (clipped ${f.textClipped}, under an icon ${f.textRunsUnderIcon}, padding deficit ${f.deficit})`,
+    );
   return problems;
 }
 
@@ -369,10 +600,17 @@ function lintProblems(report, keep = ["overlaps", "spills", "beyond", "fields"])
         }, theme);
         await page.goto(origin);
         await page.locator("#startup-gate").waitFor({ state: "hidden" });
-        await page.waitForFunction(() => document.getElementById("model-label")?.textContent !== "Loading models…");
+        await page.waitForFunction(
+          () =>
+            document.getElementById("model-label")?.textContent !==
+            "Loading models…",
+        );
         for (const screen of SCREENS) {
           await screen.open(page);
-          for (const size of [viewport, ...(viewport === MAIN_VIEWPORTS[1] ? screen.extra || [] : [])]) {
+          for (const size of [
+            viewport,
+            ...(viewport === MAIN_VIEWPORTS[1] ? screen.extra || [] : []),
+          ]) {
             await page.setViewportSize(size);
             const where = `${theme} ${screen.id}@${size.width}x${size.height}`;
             const problems = [
@@ -381,17 +619,25 @@ function lintProblems(report, keep = ["overlaps", "spills", "beyond", "fields"])
               ...lintProblems(await page.evaluate(LINT), screen.lint),
             ];
             if (problems.length) {
-              const shot = path.join(SHOTS, where.replace(/\W+/g, "-") + ".png");
+              const shot = path.join(
+                SHOTS,
+                where.replace(/\W+/g, "-") + ".png",
+              );
               fs.mkdirSync(SHOTS, { recursive: true });
               await page.screenshot({ path: shot });
-              failures.push(`${where} (screenshot ${shot})\n    ` + problems.join("\n    "));
+              failures.push(
+                `${where} (screenshot ${shot})\n    ` + problems.join("\n    "),
+              );
             }
             measurements++;
           }
           await page.setViewportSize(viewport);
           await screen.close?.(page);
         }
-        for (const message of pageErrors) failures.push(`${theme} ${viewport.width}x${viewport.height}: page error ${message}`);
+        for (const message of pageErrors)
+          failures.push(
+            `${theme} ${viewport.width}x${viewport.height}: page error ${message}`,
+          );
         await context.close();
       }
     }
@@ -399,10 +645,14 @@ function lintProblems(report, keep = ["overlaps", "spills", "beyond", "fields"])
     await browser.close();
   }
   if (failures.length) {
-    console.error(failures.length + " layout lint failure(s):\n- " + failures.join("\n- "));
+    console.error(
+      failures.length + " layout lint failure(s):\n- " + failures.join("\n- "),
+    );
     process.exit(1);
   }
-  console.log(`PASS: layout lint, ${measurements} measurements (${THEMES.length} themes, ${SCREENS.length} screens)`);
+  console.log(
+    `PASS: layout lint, ${measurements} measurements (${THEMES.length} themes, ${SCREENS.length} screens)`,
+  );
 })().catch((error) => {
   console.error(error);
   process.exit(1);

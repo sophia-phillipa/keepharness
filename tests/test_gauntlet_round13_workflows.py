@@ -45,4 +45,3 @@ def test_invalid_effect_rejected_before_execution(tmp_path, effect):
         assert not service.gates.repository.for_job(row["id"])
     finally:
         service.db.close()
-

@@ -21,7 +21,8 @@ async function context(browser, options = {}) {
   const page = await ctx.newPage();
   await page.route("http://tour.test/**", async (route) => {
     const pathname = new URL(route.request().url()).pathname;
-    if (pathname === "/") return route.fulfill({ body: markup, contentType: "text/html" });
+    if (pathname === "/")
+      return route.fulfill({ body: markup, contentType: "text/html" });
     if (pathname.startsWith("/v1/")) return route.fulfill({ json: {} });
     const name = pathname.slice(1);
     return route.fulfill({
@@ -33,18 +34,36 @@ async function context(browser, options = {}) {
 }
 
 async function actualContext(browser) {
-  const ctx = await browser.newContext({ viewport: { width: 1280, height: 860 } });
+  const ctx = await browser.newContext({
+    viewport: { width: 1280, height: 860 },
+  });
   const page = await ctx.newPage();
-  await page.addInitScript(() => localStorage.removeItem("keepharness-tour-seen"));
-  await page.route("http://actual-tour.test/**", async route => {
+  await page.addInitScript(() =>
+    localStorage.removeItem("keepharness-tour-seen"),
+  );
+  await page.route("http://actual-tour.test/**", async (route) => {
     const pathname = new URL(route.request().url()).pathname;
     if (pathname.startsWith("/v1/")) {
       if (pathname.endsWith("/events")) return route.abort();
       const data =
         pathname === "/v1/projects"
-          ? { projects: ["sem-projeto"], details: { "sem-projeto": { label: "No project" } } }
+          ? {
+              projects: ["sem-projeto"],
+              details: { "sem-projeto": { label: "No project" } },
+            }
           : pathname === "/v1/models"
-            ? { models: [{ id: "fixture", name: "Fixture", backend: "local", efforts: ["low"] }], providers: { local: true }, uploads_enabled: false }
+            ? {
+                models: [
+                  {
+                    id: "fixture",
+                    name: "Fixture",
+                    backend: "local",
+                    efforts: ["low"],
+                  },
+                ],
+                providers: { local: true },
+                uploads_enabled: false,
+              }
             : pathname === "/v1/conversations"
               ? { conversations: [] }
               : pathname === "/v1/version"
@@ -61,8 +80,12 @@ async function actualContext(browser) {
       return route.fulfill({ json: data });
     }
     const name = pathname === "/" ? "index.html" : pathname.slice(1);
-    const base = name.startsWith("assets/") ? path.join(__dirname, "../harness_ui/assets") : root;
-    const file = name.startsWith("assets/") ? name.slice("assets/".length) : name;
+    const base = name.startsWith("assets/")
+      ? path.join(__dirname, "../harness_ui/assets")
+      : root;
+    const file = name.startsWith("assets/")
+      ? name.slice("assets/".length)
+      : name;
     return route.fulfill({
       body: await fs.readFile(path.join(base, file)),
       contentType: file.endsWith(".js")
@@ -82,23 +105,48 @@ async function actualContext(browser) {
   try {
     const first = await context(browser);
     const errors = [];
-    first.page.on("pageerror", error => errors.push(error.message));
+    first.page.on("pageerror", (error) => errors.push(error.message));
     await first.page.goto("http://tour.test/");
-    assert.equal(await first.page.locator("#tour-card").count(), 0, "waits until the app is ready");
-    await first.page.evaluate(() => { document.body.dataset.connectionReady = "true"; });
+    assert.equal(
+      await first.page.locator("#tour-card").count(),
+      0,
+      "waits until the app is ready",
+    );
+    await first.page.evaluate(() => {
+      document.body.dataset.connectionReady = "true";
+    });
     await first.page.locator("#tour-card").waitFor();
-    assert.match(await first.page.locator("#tour-title").innerText(), /Write and route/);
-    assert.match(await first.page.locator("#tour-counter").innerText(), /^1 of 5$/, "D19: the tour has at most five steps");
+    assert.match(
+      await first.page.locator("#tour-title").innerText(),
+      /Write and route/,
+    );
+    assert.match(
+      await first.page.locator("#tour-counter").innerText(),
+      /^1 of 5$/,
+      "D19: the tour has at most five steps",
+    );
     assert.equal(await first.page.locator(".tour-spotlight").count(), 1);
 
     await first.page.getByRole("button", { name: "Next" }).click();
-    assert.match(await first.page.locator("#tour-counter").innerText(), /^2 of /i);
+    assert.match(
+      await first.page.locator("#tour-counter").innerText(),
+      /^2 of /i,
+    );
     await first.page.getByRole("button", { name: "Back" }).click();
-    assert.match(await first.page.locator("#tour-counter").innerText(), /^1 of /i);
+    assert.match(
+      await first.page.locator("#tour-counter").innerText(),
+      /^1 of /i,
+    );
     await first.page.keyboard.press("ArrowRight");
-    assert.match(await first.page.locator("#tour-title").innerText(), /Space, Scheduled/);
+    assert.match(
+      await first.page.locator("#tour-title").innerText(),
+      /Space, Scheduled/,
+    );
     await first.page.keyboard.press("ArrowLeft");
-    assert.match(await first.page.locator("#tour-title").innerText(), /Write and route/);
+    assert.match(
+      await first.page.locator("#tour-title").innerText(),
+      /Write and route/,
+    );
     await first.page.keyboard.press("ArrowRight");
 
     await first.page.evaluate(() => {
@@ -108,7 +156,13 @@ async function actualContext(browser) {
       outsider.focus();
     });
     await first.page.waitForTimeout(0);
-    assert.equal(await first.page.locator("#tour-card").evaluate(card => card.contains(document.activeElement)), true, "focus moved outside is recovered");
+    assert.equal(
+      await first.page
+        .locator("#tour-card")
+        .evaluate((card) => card.contains(document.activeElement)),
+      true,
+      "focus moved outside is recovered",
+    );
 
     const trapped = await first.page.evaluate(() => {
       document.querySelector("#tour-skip").focus();
@@ -116,15 +170,29 @@ async function actualContext(browser) {
     });
     assert.equal(trapped, "tour-skip");
     await first.page.keyboard.press("Shift+Tab");
-    assert.equal(await first.page.evaluate(() => document.activeElement.id), "tour-next");
+    assert.equal(
+      await first.page.evaluate(() => document.activeElement.id),
+      "tour-next",
+    );
 
     await first.page.keyboard.press("Escape");
     assert.equal(await first.page.locator("#tour-card").count(), 0);
-    assert.equal(await first.page.evaluate(() => localStorage.getItem("keepharness-tour-seen")), "0.16.0");
+    assert.equal(
+      await first.page.evaluate(() =>
+        localStorage.getItem("keepharness-tour-seen"),
+      ),
+      "0.16.0",
+    );
     await first.page.reload();
-    await first.page.evaluate(() => { document.body.dataset.connectionReady = "true"; });
+    await first.page.evaluate(() => {
+      document.body.dataset.connectionReady = "true";
+    });
     await first.page.waitForTimeout(150);
-    assert.equal(await first.page.locator("#tour-card").count(), 0, "seen tour stays closed");
+    assert.equal(
+      await first.page.locator("#tour-card").count(),
+      0,
+      "seen tour stays closed",
+    );
     await first.page.locator("#take-tour").click();
     await first.page.locator("#tour-card").waitFor();
     await first.page.getByRole("button", { name: "Skip tour" }).click();
@@ -134,67 +202,131 @@ async function actualContext(browser) {
 
     const actual = await actualContext(browser);
     const actualErrors = [];
-    actual.page.on("pageerror", error => actualErrors.push(error.message));
+    actual.page.on("pageerror", (error) => actualErrors.push(error.message));
     await actual.page.goto("http://actual-tour.test/");
     await actual.page.locator("#startup-gate").waitFor({ state: "hidden" });
     await actual.page.locator("#tour-card").waitFor();
-    assert.match(await actual.page.locator("#tour-title").innerText(), /Write and route/);
+    assert.match(
+      await actual.page.locator("#tour-title").innerText(),
+      /Write and route/,
+    );
     await actual.page.keyboard.press("Escape");
-    await actual.page.keyboard.press("Control+,");await actual.page.locator('#about').click();
+    await actual.page.keyboard.press("Control+,");
+    await actual.page.locator("#about").click();
     assert.equal(await actual.page.locator("#about-dialog").isVisible(), true);
     await actual.page.locator("#take-tour").click();
-    assert.equal(await actual.page.locator("#about-dialog").isVisible(), false, "replay closes About before spotlighting the app");
+    assert.equal(
+      await actual.page.locator("#about-dialog").isVisible(),
+      false,
+      "replay closes About before spotlighting the app",
+    );
     await actual.page.locator("#tour-card").waitFor();
-    for (const palette of ["violet-bordeaux", "porcelain", "mineral-rose", "amethyst", "petroleum", "arizona"]) {
-      const ratios = await actual.page.evaluate(theme => {
+    for (const palette of [
+      "violet-bordeaux",
+      "porcelain",
+      "mineral-rose",
+      "amethyst",
+      "petroleum",
+      "arizona",
+    ]) {
+      const ratios = await actual.page.evaluate((theme) => {
         HarnessTheme.apply(theme, false);
         const ratio = (foreground, background) => {
-          const channel = value => {
+          const channel = (value) => {
             value /= 255;
-            return value <= .04045 ? value / 12.92 : ((value + .055) / 1.055) ** 2.4;
+            return value <= 0.04045
+              ? value / 12.92
+              : ((value + 0.055) / 1.055) ** 2.4;
           };
-          const rgb = value => value.match(/[\d.]+/g).slice(0, 3).map(Number);
-          const luminance = value => {
+          const rgb = (value) =>
+            value
+              .match(/[\d.]+/g)
+              .slice(0, 3)
+              .map(Number);
+          const luminance = (value) => {
             const [r, g, b] = rgb(value).map(channel);
-            return .2126 * r + .7152 * g + .0722 * b;
+            return 0.2126 * r + 0.7152 * g + 0.0722 * b;
           };
-          const [a, b] = [luminance(foreground), luminance(background)].sort((x, y) => y - x);
-          return (a + .05) / (b + .05);
+          const [a, b] = [luminance(foreground), luminance(background)].sort(
+            (x, y) => y - x,
+          );
+          return (a + 0.05) / (b + 0.05);
         };
         const card = getComputedStyle(document.querySelector("#tour-card"));
         const next = getComputedStyle(document.querySelector("#tour-next"));
-        return { card: ratio(card.color, card.backgroundColor), action: ratio(next.color, next.backgroundColor) };
+        return {
+          card: ratio(card.color, card.backgroundColor),
+          action: ratio(next.color, next.backgroundColor),
+        };
       }, palette);
-      assert(ratios.card >= 4.5 && ratios.action >= 4.5, `${palette} tour contrast: ${JSON.stringify(ratios)}`);
+      assert(
+        ratios.card >= 4.5 && ratios.action >= 4.5,
+        `${palette} tour contrast: ${JSON.stringify(ratios)}`,
+      );
     }
     for (let remaining = 5; remaining > 0; remaining--) {
-      if (/Live status/i.test(await actual.page.locator("#tour-title").innerText())) break;
+      if (
+        /Live status/i.test(
+          await actual.page.locator("#tour-title").innerText(),
+        )
+      )
+        break;
       await actual.page.locator("#tour-next").click();
     }
-    assert.match(await actual.page.locator("#tour-title").innerText(), /Live status and the Run console/i);
-    assert.equal(await actual.page.locator("#run-console").isVisible(), true, "console step opens its drawer");
+    assert.match(
+      await actual.page.locator("#tour-title").innerText(),
+      /Live status and the Run console/i,
+    );
+    assert.equal(
+      await actual.page.locator("#run-console").isVisible(),
+      true,
+      "console step opens its drawer",
+    );
     await actual.page.keyboard.press("Escape");
     assert.equal(await actual.page.locator("#tour-card").count(), 0);
-    assert.equal(await actual.page.locator("#run-console").isVisible(), true, "tour Escape is not handled again by the console");
-    assert.equal(await actual.page.evaluate(() => document.activeElement?.id), "prompt", "replay returns to the composer: its opener, About, now lives in the closed Settings (D43)");
-    await actual.page.keyboard.press("Control+,");await actual.page.locator('#about').click();
+    assert.equal(
+      await actual.page.locator("#run-console").isVisible(),
+      true,
+      "tour Escape is not handled again by the console",
+    );
+    assert.equal(
+      await actual.page.evaluate(() => document.activeElement?.id),
+      "prompt",
+      "replay returns to the composer: its opener, About, now lives in the closed Settings (D43)",
+    );
+    await actual.page.keyboard.press("Control+,");
+    await actual.page.locator("#about").click();
     await actual.page.locator("#take-tour").click();
     await actual.page.locator("#tour-card").waitFor();
-    await actual.page.evaluate(() => setReadiness(false, "Connection interrupted"));
+    await actual.page.evaluate(() =>
+      setReadiness(false, "Connection interrupted"),
+    );
     await actual.page.locator("#tour-card").waitFor({ state: "detached" });
-    assert.equal(await actual.page.locator("#app-topbar, #sidebar, main, #activity-panel")
-      .evaluateAll(nodes => nodes.every(node => node.inert)), true,
-    "tour cleanup preserves the application's disconnected-state focus guard");
+    assert.equal(
+      await actual.page
+        .locator("#app-topbar, #sidebar, main, #activity-panel")
+        .evaluateAll((nodes) => nodes.every((node) => node.inert)),
+      true,
+      "tour cleanup preserves the application's disconnected-state focus guard",
+    );
     assert.deepEqual(actualErrors, []);
     await actual.ctx.close();
 
     const readiness = await context(browser);
     await readiness.page.goto("http://tour.test/");
-    await readiness.page.evaluate(() => { document.body.dataset.connectionReady = "true"; });
+    await readiness.page.evaluate(() => {
+      document.body.dataset.connectionReady = "true";
+    });
     await readiness.page.waitForTimeout(50);
-    await readiness.page.evaluate(() => { document.body.dataset.connectionReady = "false"; });
+    await readiness.page.evaluate(() => {
+      document.body.dataset.connectionReady = "false";
+    });
     await readiness.page.waitForTimeout(300);
-    assert.equal(await readiness.page.locator("#tour-card").count(), 0, "readiness is rechecked when the timer fires");
+    assert.equal(
+      await readiness.page.locator("#tour-card").count(),
+      0,
+      "readiness is rechecked when the timer fires",
+    );
     await readiness.page.evaluate(() => {
       const dialog = document.createElement("dialog");
       dialog.id = "blocking-dialog";
@@ -204,17 +336,37 @@ async function actualContext(browser) {
       document.body.dataset.connectionReady = "true";
     });
     await readiness.page.waitForTimeout(300);
-    assert.equal(await readiness.page.locator("#tour-card").count(), 0, "auto-start waits for an open modal");
-    await readiness.page.evaluate(() => document.querySelector("#blocking-dialog").close());
+    assert.equal(
+      await readiness.page.locator("#tour-card").count(),
+      0,
+      "auto-start waits for an open modal",
+    );
+    await readiness.page.evaluate(() =>
+      document.querySelector("#blocking-dialog").close(),
+    );
     await readiness.page.locator("#tour-card").waitFor();
-    await readiness.page.evaluate(() => { document.body.dataset.connectionReady = "false"; });
+    await readiness.page.evaluate(() => {
+      document.body.dataset.connectionReady = "false";
+    });
     await readiness.page.waitForTimeout(0);
-    assert.equal(await readiness.page.locator("#tour-card").count(), 0, "connection loss suspends an active tour");
-    assert.equal(await readiness.page.evaluate(() => localStorage.getItem("keepharness-tour-seen")), null, "suspension does not mark the tour seen");
+    assert.equal(
+      await readiness.page.locator("#tour-card").count(),
+      0,
+      "connection loss suspends an active tour",
+    );
+    assert.equal(
+      await readiness.page.evaluate(() =>
+        localStorage.getItem("keepharness-tour-seen"),
+      ),
+      null,
+      "suspension does not mark the tour seen",
+    );
     await readiness.ctx.close();
 
     const missing = await context(browser);
-    await missing.page.addInitScript(() => localStorage.setItem("keepharness-tour-seen", "0.16.0"));
+    await missing.page.addInitScript(() =>
+      localStorage.setItem("keepharness-tour-seen", "0.16.0"),
+    );
     await missing.page.goto("http://tour.test/");
     await missing.page.evaluate(() => {
       document.querySelector('[data-tour="composer"]').remove();
@@ -222,12 +374,21 @@ async function actualContext(browser) {
       window.keepHarnessTour.start();
     });
     await missing.page.locator("#tour-card").waitFor();
-    assert.match(await missing.page.locator("#tour-title").innerText(), /Space, Scheduled/, "missing targets are skipped");
+    assert.match(
+      await missing.page.locator("#tour-title").innerText(),
+      /Space, Scheduled/,
+      "missing targets are skipped",
+    );
     await missing.ctx.close();
 
-    const reduced = await context(browser, { reducedMotion: "reduce", viewport: { width: 400, height: 812 } });
+    const reduced = await context(browser, {
+      reducedMotion: "reduce",
+      viewport: { width: 400, height: 812 },
+    });
     await reduced.page.goto("http://tour.test/");
-    await reduced.page.evaluate(() => { document.body.dataset.connectionReady = "true"; });
+    await reduced.page.evaluate(() => {
+      document.body.dataset.connectionReady = "true";
+    });
     await reduced.page.locator("#tour-card").waitFor();
     const mobileTitles = [];
     for (let remaining = 5; remaining > 0; remaining--) {
@@ -239,17 +400,43 @@ async function actualContext(browser) {
         reduced.page.locator(".tour-pointer").boundingBox(),
       ]);
       for (const box of [mobile, spotlight, pointer])
-        assert(box.x >= 0 && box.x + box.width <= 400 && box.y >= 0 && box.y + box.height <= 812, `${title} stays inside the mobile viewport`);
+        assert(
+          box.x >= 0 &&
+            box.x + box.width <= 400 &&
+            box.y >= 0 &&
+            box.y + box.height <= 812,
+          `${title} stays inside the mobile viewport`,
+        );
       if (/Settings and help/i.test(title)) break;
       await reduced.page.locator("#tour-next").click();
     }
-    assert(mobileTitles.some(title => /Live status/i.test(title)) && mobileTitles.some(title => /Settings and help/i.test(title)));
-    assert.equal(await reduced.page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
-    assert.equal(await reduced.page.locator("#tour-root").evaluate(el => getComputedStyle(el).getPropertyValue("--tour-duration").trim()), "0ms");
+    assert(
+      mobileTitles.some((title) => /Live status/i.test(title)) &&
+        mobileTitles.some((title) => /Settings and help/i.test(title)),
+    );
+    assert.equal(
+      await reduced.page.evaluate(
+        () => document.documentElement.scrollWidth <= innerWidth,
+      ),
+      true,
+    );
+    assert.equal(
+      await reduced.page
+        .locator("#tour-root")
+        .evaluate((el) =>
+          getComputedStyle(el).getPropertyValue("--tour-duration").trim(),
+        ),
+      "0ms",
+    );
     await reduced.ctx.close();
 
-    console.log("PASS guided tour first-run, navigation, focus trap, skip/replay, missing targets, reduced motion and 400px docking");
+    console.log(
+      "PASS guided tour first-run, navigation, focus trap, skip/replay, missing targets, reduced motion and 400px docking",
+    );
   } finally {
     await browser.close();
   }
-})().catch(error => { console.error(error); process.exitCode = 1; });
+})().catch((error) => {
+  console.error(error);
+  process.exitCode = 1;
+});

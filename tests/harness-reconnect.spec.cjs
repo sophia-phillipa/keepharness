@@ -18,7 +18,10 @@ const path = require("node:path");
       if (p.startsWith("/v1/")) {
         if (offline) return route.abort("failed");
         if (modelsFail && p === "/v1/models")
-          return route.fulfill({ status: 500, json: { code: "internal_error" } });
+          return route.fulfill({
+            status: 500,
+            json: { code: "internal_error" },
+          });
         let data = {};
         if (p === "/v1/projects") data = { projects: ["sem-projeto"] };
         if (p === "/v1/models")
@@ -47,7 +50,9 @@ const path = require("node:path");
             : "text/html",
       });
     });
-    await page.addInitScript(() => localStorage.setItem("keepharness-tour-seen", "0.16.0"));
+    await page.addInitScript(() =>
+      localStorage.setItem("keepharness-tour-seen", "0.16.0"),
+    );
     await page.goto("http://reconnect.test");
     await page.locator("#startup-gate").waitFor({ state: "hidden" });
     await page.fill("#prompt", "Preserve my draft");
@@ -123,21 +128,37 @@ const path = require("node:path");
       return probeReadiness();
     });
     await page.locator("#startup-gate").waitFor({ state: "visible" });
-    assert.equal(await space.isVisible(), true, "Space stays open when the probe fails");
-    assert.equal(await space.getByLabel("Page title").inputValue(), "Unsaved title");
+    assert.equal(
+      await space.isVisible(),
+      true,
+      "Space stays open when the probe fails",
+    );
+    assert.equal(
+      await space.getByLabel("Page title").inputValue(),
+      "Unsaved title",
+    );
     modelsFail = false;
     await page.evaluate(() => window.dispatchEvent(new Event("online")));
-    await page.locator("#startup-gate").waitFor({ state: "hidden", timeout: 3000 });
-    assert.equal(await space.getByLabel("Page content (Markdown)").inputValue(), "Unsaved body");
+    await page
+      .locator("#startup-gate")
+      .waitFor({ state: "hidden", timeout: 3000 });
+    assert.equal(
+      await space.getByLabel("Page content (Markdown)").inputValue(),
+      "Unsaved body",
+    );
     assert.equal(loads, 1);
     // QA-R2-3: an idle tab asks the server at most ~30 times a minute.
     await space.getByRole("button", { name: "Close Space" }).click();
     const idleRequests = [];
     page.on("request", (request) => {
-      if (new URL(request.url()).pathname.startsWith("/v1/")) idleRequests.push(request.url());
+      if (new URL(request.url()).pathname.startsWith("/v1/"))
+        idleRequests.push(request.url());
     });
     for (let second = 0; second < 60; second++) await page.clock.runFor(1000);
-    assert(idleRequests.length <= 30, "an idle minute made " + idleRequests.length + " requests");
+    assert(
+      idleRequests.length <= 30,
+      "an idle minute made " + idleRequests.length + " requests",
+    );
     assert.deepEqual(errors, []);
     console.log(
       "PASS: recovery owns history polling, online/foreground recovery, no reload, draft preserved, idle polling budget.",

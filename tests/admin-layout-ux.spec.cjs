@@ -148,9 +148,7 @@ const assert = require("node:assert/strict");
     };
     await page.goto("http://admin.test/");
     await page.locator("[data-panel=providers]").click();
-    await page
-      .getByRole("button", { name: "Edit Codex", exact: true })
-      .click();
+    await page.getByRole("button", { name: "Edit Codex", exact: true }).click();
     const tabs = page.locator("#inspector-tabs");
     let release;
     releaseCatalog = new Promise((resolve) => (release = resolve));
@@ -194,9 +192,7 @@ const assert = require("node:assert/strict");
       document.querySelector("#dirty").textContent.includes("saved"),
     );
     await page.reload();
-    await page
-      .getByRole("button", { name: "Edit Codex", exact: true })
-      .click();
+    await page.getByRole("button", { name: "Edit Codex", exact: true }).click();
     await tabs.getByText("Plugins", { exact: true }).click();
     await tabs.getByText("Connectors", { exact: true }).click();
     assert(!(await drive.isChecked()));

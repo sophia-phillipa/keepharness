@@ -13,6 +13,9 @@ standalone MCP bridge/installer, UI labels and browser theme defaults. Do not ed
 those generated identity values separately. `python -m control.product --identity
 /path/to/identity.json` applies a complete synthetic/fork identity through the
 same supported generator; it requires no patches to other source files.
+The inline bridge identity may use a single-line or formatted multiline dictionary.
+Generation preserves unchanged identity files byte for byte, including their formatting,
+so building from a read-only checkout remains supported.
 
 Build each identity in its own source directory and install each wheel in its own
 virtual environment. The bootstrap derives its environment and command from the

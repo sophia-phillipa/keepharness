@@ -172,7 +172,9 @@ SCHEMA: dict[str, Check] = {
         record({"token": _token, "state": text(pattern=WORD), "unread": flag}),
         ITEM_CAPS["conversation_activity"],
     ),
-    "conversation_scroll": pairs(_identifier, number(-1, 10_000_000), ITEM_CAPS["conversation_scroll"]),
+    "conversation_scroll": pairs(
+        _identifier, number(-1, 10_000_000), ITEM_CAPS["conversation_scroll"]
+    ),
     "tour_seen": text(pattern=re.compile(r"[0-9A-Za-z.+-]{0,32}")),
     "run_console_height": number(0, 20000),
     "workspace_sections": mapping(

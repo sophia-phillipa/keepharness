@@ -253,9 +253,9 @@ def test_prepare_limit_is_durable_and_scoped_to_execution(make_harness_config, l
                 await service.effects.prepare("job", request())
             assert error.value.status == 429
             assert len(service.effects.for_job("job")) == maximum
-            assert (await service.effects.prepare(
-                "job", request(), execution_id="next-execution"
-            ))["status"] == "prepared"
+            assert (await service.effects.prepare("job", request(), execution_id="next-execution"))[
+                "status"
+            ] == "prepared"
         finally:
             await service.effects.close()
             service.db.close()
