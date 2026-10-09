@@ -10,6 +10,7 @@ import shutil
 import socket
 import sys
 import uuid
+from contextlib import nullcontext
 from pathlib import Path
 from typing import get_args
 
@@ -29,6 +30,12 @@ from . import env, local_access
 from .catalog_admin import change_pin, read_catalogs
 from .customize_skills import read_customize_skills
 from .dashboard import execution as dashboard_execution
+from .first_run import (
+    finish_first_run,
+    read_first_run,
+    reset_first_run,
+    scan_first_run,
+)
 from .integration_catalog import catalog as integration_catalog
 from .integrations import inventory
 from .local_models import (
@@ -54,6 +61,10 @@ PANEL_DIR = env.REPOSITORY_ROOT / "control"
 LIMITED_OPERATIONS = frozenset(
     {"/api/provider-login", "/api/integration", "/api/model-install", "/api/local-start"}
 )
+
+# POST paths that run outside ``manager.lock``: read-only probes that must not queue behind (or
+# be refused by) a long administrative operation.
+UNLOCKED_POSTS = frozenset({"/api/first-run/scan"})
 
 logger = logging.getLogger(__name__)
 
@@ -95,7 +106,7 @@ def admin_guard(request, manager, port):
         return r
     if path.startswith("/assets/"):
         return asset_response(path, request.headers)
-    if path in ("/admin.js", "/catalogs.js", "/customize.js", "/admin.css"):
+    if path in ("/admin.js", "/catalogs.js", "/customize.js", "/first-run.js", "/admin.css"):
         return static_response(PANEL_DIR / path[1:], request.headers)
     if not secrets.compare_digest(
         request.cookies.get("admin", "").encode("utf-8"), manager.cookie.encode("utf-8")
@@ -747,6 +758,7 @@ GET_ROUTES = {
     "/api/dashboard": read_dashboard,
     "/api/state": read_state,
     "/api/provider-state": read_provider_state,
+    "/api/first-run": read_first_run,
 }
 POST_ROUTES = {
     "/api/provider-state/trust": trust_provider_project,
@@ -779,6 +791,9 @@ POST_ROUTES = {
     "/api/remote-model-add": add_remote_model,
     "/api/remote-model-remove": remove_remote_model,
     "/api/tailnet": set_tailnet,
+    "/api/first-run": finish_first_run,
+    "/api/first-run/scan": scan_first_run,
+    "/api/first-run:reset": reset_first_run,
 }
 
 
@@ -797,13 +812,14 @@ async def endpoint(request: Request):
             return result if isinstance(result, Response) else JSONResponse(result)
         if request.headers.get("x-harness-admin") != "1":
             raise UserMessageError("Administrative header required.")
-        if manager.lock.locked():
+        unlocked = path in UNLOCKED_POSTS
+        if manager.lock.locked() and not unlocked:
             return JSONResponse(
                 {"error": "Another administrative operation is in progress. Wait and try again."},
                 429,
                 headers={"Retry-After": "1"},
             )
-        async with manager.lock:
+        async with nullcontext() if unlocked else manager.lock:
             length = request.headers.get("content-length")
             if length is not None:
                 if not length.isdecimal():
@@ -868,6 +884,7 @@ ROUTES = [
     Route("/admin.js", endpoint),
     Route("/catalogs.js", endpoint),
     Route("/customize.js", endpoint),
+    Route("/first-run.js", endpoint),
     Route("/admin.css", endpoint),
     Route("/assets/{path:path}", endpoint),
     Route("/api/{path:path}", endpoint, methods=["GET", "POST"]),

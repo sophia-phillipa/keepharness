@@ -57,7 +57,14 @@ def create_app(state, port=8094):
     app.add_middleware(BaseHTTPMiddleware, dispatch=security)
     app.add_middleware(
         StaticGZipMiddleware,
-        paths=("/", "/admin.js", "/catalogs.js", "/customize.js", "/admin.css"),
+        paths=(
+            "/",
+            "/admin.js",
+            "/catalogs.js",
+            "/customize.js",
+            "/first-run.js",
+            "/admin.css",
+        ),
     )
 
     app.state.manager = manager

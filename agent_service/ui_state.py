@@ -14,7 +14,6 @@ import logging
 import math
 import os
 import re
-import threading
 from collections.abc import Callable
 from datetime import datetime, timezone
 from pathlib import Path
@@ -42,7 +41,6 @@ ITEM_CAPS = {
 }
 IDENTIFIER = re.compile(r"[A-Za-z0-9._:-]{1,64}")
 WORD = re.compile(r"[a-z0-9_-]*")
-_lock = threading.Lock()
 
 
 class Invalid(ValueError):
@@ -183,6 +181,7 @@ SCHEMA: dict[str, Check] = {
         ITEM_CAPS["workspace_sections"],
     ),
     "last_section": text(pattern=WORD),
+    "always_on_top": flag,
 }
 
 
@@ -291,24 +290,25 @@ def update(config: dict, owner: str, changes: dict) -> dict:
         except Invalid:
             raise APIError("ui_state_invalid_value", 422, field=key) from None
     store = repository(config, owner)
-    with _lock:
-        passthrough: dict = {}
-        values, read_only = load(store, passthrough)
-        if read_only:
-            raise unsafe()
-        before = {**values, **passthrough}
-        for key, value in checked.items():
-            passthrough.pop(key, None)
-            if value is None:
-                values.pop(key, None)
-            else:
-                values[key] = value
-        merged = {**values, **passthrough}  # a kept raw value wins over its tolerant reading
-        if merged == before:
-            return view(values, False)
-        document = json.dumps({"version": VERSION, "values": merged}, ensure_ascii=False)
-        try:
+    try:
+        # Control and the harness are separate processes that write this one store.
+        with store.lock(ENTRY):
+            passthrough: dict = {}
+            values, read_only = load(store, passthrough)
+            if read_only:
+                raise unsafe()
+            before = {**values, **passthrough}
+            for key, value in checked.items():
+                passthrough.pop(key, None)
+                if value is None:
+                    values.pop(key, None)
+                else:
+                    values[key] = value
+            merged = {**values, **passthrough}  # a kept raw value wins over its tolerant reading
+            if merged == before:
+                return view(values, False)
+            document = json.dumps({"version": VERSION, "values": merged}, ensure_ascii=False)
             store.replace(ENTRY, document)
-        except OSError:
-            raise unsafe() from None
+    except OSError:
+        raise unsafe() from None
     return view(values, False)

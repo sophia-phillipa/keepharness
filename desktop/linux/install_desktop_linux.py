@@ -293,9 +293,13 @@ def main():
     modes = parser.add_mutually_exclusive_group()
     modes.add_argument("--uninstall", action="store_true")
     modes.add_argument("--rollback", action="store_true")
+    modes.add_argument("--verify", action="store_true", help="print the package version; read-only")
     parser.add_argument("--yes", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
+    if args.verify:
+        print(verify_package(Path(args.source).resolve(strict=True)))
+        return
     raw = os.environ.get("HOME", "")
     if not raw or not Path(raw).is_absolute() or Path(raw) == Path("/"):
         refuse("HOME must be an existing absolute user directory, not /")

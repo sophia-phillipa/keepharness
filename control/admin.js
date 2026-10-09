@@ -3965,6 +3965,17 @@ const buttonActions = [
     "settings",
     "Opens the appearance and configuration preferences.",
   ],
+  [
+    /^Run setup again/,
+    "settings",
+    "Reopens the first-run setup: theme, providers and defaults.",
+  ],
+  [/^Scan again/, "scan", "Checks the provider logins on this computer again."],
+  [
+    /^(Next|Finish|Skip setup)/,
+    "player-play",
+    "Moves the first-run setup forward, or leaves it.",
+  ],
 ];
 function decoratePanelButtons() {
   for (const button of document.querySelectorAll("button")) {

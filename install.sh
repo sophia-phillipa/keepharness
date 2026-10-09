@@ -4,6 +4,8 @@
 #   ./install.sh --dev [--port N] [--boot]  editable install: the service runs this checkout
 #   ./install.sh --check-only               the same checks and a trial install in a temporary
 #                                           folder; nothing outside it changes
+#   ./install.sh --require-desktop          fail when no desktop package can be installed
+#                                           (see KEEPHARNESS_DESKTOP_PACKAGE below)
 #   ./install.sh --merge-legacy [--apply]   heal a Tail Harness state split in two (dry run first)
 #   ./install.sh --rollback-to-0.14         remove the service and give the state back to 0.14
 set -eu
@@ -15,11 +17,16 @@ case "${1:-}" in
 esac
 TH_CHECK=
 TH_DEV=
+TH_REQUIRE=
+# --require-desktop is for this script only: it is dropped from the arguments forwarded below.
 for arg in "$@"; do
+  shift
   case "$arg" in
+    --require-desktop) TH_REQUIRE=1; continue ;;
     --check-only) TH_CHECK=1 ;;
     --dev) TH_DEV=1 ;;
   esac
+  set -- "$@" "$arg"
 done
 # Refuses inside a container, on a port another program holds and on state that cannot move.
 python3 -m control.install --check-only "$@"
@@ -41,6 +48,36 @@ preflight_failed() {
   echo "$1 Nothing was stopped or moved." >&2
   exit 1
 }
+# The desktop app comes from an unpacked package, never built or downloaded here: the folder named
+# by KEEPHARNESS_DESKTOP_PACKAGE (an explicit input, so a bad one is an error), else
+# dist/keepharness-<version>-linux-x64. Its version must be the one in pyproject.toml.
+TH_VERSION=$(sed -n 's/^version = "\(.*\)"$/\1/p' pyproject.toml | head -n 1)
+TH_PKG=
+TH_SKIP=
+desktop_package() { # $1 = package folder; sets TH_SKIP to the reason when it cannot be used
+  [ -n "$TH_VERSION" ] || { TH_SKIP="pyproject.toml has no project version"; return 1; }
+  [ -d "$1" ] || { TH_SKIP="there is no package folder at $1"; return 1; }
+  # The checkout's desktop installer checks SHA256SUMS and the build manifest and changes nothing.
+  found=$(python3 desktop/linux/install_desktop_linux.py --source "$1" --verify 2>"$TH_TMP/verify.err") ||
+    { TH_SKIP="the package at $1 failed its check ($(cat "$TH_TMP/verify.err"))"; return 1; }
+  [ "$found" = "$TH_VERSION" ] ||
+    { TH_SKIP="the package at $1 is version $found, not $TH_VERSION"; return 1; }
+  TH_PKG=$1
+}
+if [ -n "${KEEPHARNESS_DESKTOP_PACKAGE:-}" ]; then
+  case "$KEEPHARNESS_DESKTOP_PACKAGE" in
+    /*) desktop_package "$KEEPHARNESS_DESKTOP_PACKAGE" || true ;;
+    *) TH_SKIP="KEEPHARNESS_DESKTOP_PACKAGE must be an absolute path" ;;
+  esac
+  [ -n "$TH_PKG" ] || preflight_failed "The desktop package was rejected: $TH_SKIP."
+elif [ -n "$TH_DEV" ]; then
+  TH_SKIP="--dev runs this checkout and installs no desktop app unless KEEPHARNESS_DESKTOP_PACKAGE is set"
+else
+  desktop_package "dist/keepharness-$TH_VERSION-linux-x64" || true
+fi
+[ -n "$TH_PKG" ] || [ -z "$TH_REQUIRE" ] ||
+  preflight_failed "No desktop app can be installed (--require-desktop): $TH_SKIP."
+if [ -n "$TH_PKG" ]; then echo "Desktop package: $TH_PKG"; else echo "No desktop package: $TH_SKIP."; fi
 # Preflight: a trial install in a temporary venv, before anything is stopped or moved.
 python3 -m venv "$TH_TMP/venv" ||
   preflight_failed "$(command -v python3) cannot create a virtual environment (on Debian/Ubuntu: install python3-venv)."
@@ -98,3 +135,16 @@ else
   "$TH_VENV/bin/python" -m pip install --quiet --force-reinstall --no-deps "$TH_WHEEL"
 fi
 "$TH_VENV/bin/$TH_PRODUCT_SLUG-install" "$@"
+# The service is done: a desktop failure from here on is not a reason to go back to Tail Harness.
+TH_STOPPED=
+if [ -n "$TH_PKG" ]; then
+  if "$TH_PKG/install-desktop-linux.sh"; then
+    echo "Service and desktop app installed (KeepHarness $TH_VERSION)."
+    exit 0
+  fi
+  echo "The service is installed and running; the desktop app was not installed:" \
+    "the desktop installer failed (see above). Run ./install.sh again after fixing it." >&2
+  [ -z "$TH_REQUIRE" ] || exit 1
+  exit 0
+fi
+echo "Service installed; desktop app skipped: $TH_SKIP. Build it with ./scripts/package-desktop-linux.sh"

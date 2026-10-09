@@ -195,6 +195,7 @@
     },
     last_section: { old: () => [], read: () => undefined, write: () => [] },
     visual_markers: { old: () => [], read: () => undefined, write: () => [] },
+    always_on_top: { old: () => [], read: () => undefined, write: () => [] },
   };
 
   const clone = (value) =>
