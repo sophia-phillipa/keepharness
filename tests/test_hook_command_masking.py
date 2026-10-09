@@ -232,3 +232,29 @@ def test_random_unknown_keys_never_expose_values():
         secret = "".join(rng.choices(chars, k=rng.randint(8, 40))).strip() or "s3cretvalue"
         for value in (secret, [secret, "-p", secret], {"nested": {"deep": [secret]}}, {secret: 1}):
             assert secret not in repr(safe_details({"command": "run", key: value})), (key, value)
+
+
+@pytest.mark.parametrize("matcher", ["", "Bash", "Edit|Write", "mcp__memory__.*", "*", "startup"])
+def test_plain_matchers_pass(matcher):
+    assert safe_details({"matcher": matcher})["matcher"] == matcher
+
+
+@pytest.mark.parametrize(
+    "matcher",
+    [
+        "sk-0123456789abcdef0123456789abcdef",
+        "Bash|0123456789abcdef0123456789abcdef",
+        "Bash(curl --token hunter2)",
+        "mcp__server1__tool",
+        "a" * 41,
+    ],
+)
+def test_secret_looking_matchers_are_masked(matcher):
+    assert safe_details({"matcher": matcher})["matcher"] == PLACEHOLDER
+
+
+def test_free_text_fields_are_truncated():
+    details = safe_details(
+        {"prompt": "x" * 5000, "statusMessage": "y" * 5000, "description": "z" * 5000}
+    )
+    assert all(len(text) <= 300 for text in details.values())

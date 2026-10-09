@@ -20,6 +20,7 @@ _EXECUTABLE = re.compile(r"[A-Za-z][A-Za-z0-9._+-]{0,31}")
 _SEGMENT = re.compile(r"[A-Za-z0-9._-]{0,32}")
 _PATH_PREFIXES = ("/", "./", "../", "~/")
 _TOKEN_PREFIX = re.compile(r"(?i)(sk|ghp|gho|ghu|ghs|github_pat|xox.|akia|eyj)[-_.A-Za-z0-9]")
+_MATCHER = re.compile(r"[A-Za-z.*][A-Za-z_.*:-]{0,39}")
 _HEX_RUN = re.compile(r"[0-9a-fA-F]{16,}")
 _URL = re.compile(r"(https?://[A-Za-z0-9.-]+(?::\d{1,5})?)(.*)", re.S)
 _MAX_ITEMS = 100
@@ -159,6 +160,15 @@ def mask_argv(argv: Iterable[object]) -> list[str]:
         text = item if isinstance(item, str) else PLACEHOLDER
         words.append(_Word(text, text, False))
     return _mask_words(words)
+
+
+def mask_matcher(value: object) -> str:
+    """Keep a hook matcher only when each ``|`` alternative is a plain tool-name pattern."""
+    if not isinstance(value, str):
+        return PLACEHOLDER
+    parts = value.split("|") if value else []
+    plain = all(_MATCHER.fullmatch(part) and not _opaque(part) for part in parts)
+    return value if plain else PLACEHOLDER
 
 
 def mask_named_values(value: object) -> object:

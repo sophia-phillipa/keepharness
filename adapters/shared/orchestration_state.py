@@ -12,6 +12,7 @@ from adapters.shared.command_mask import (
     PLACEHOLDER,
     mask_argv,
     mask_command,
+    mask_matcher,
     mask_named_values,
     mask_url,
 )
@@ -44,7 +45,7 @@ _PLAIN_KEYS = frozenset(
         "server tool model status disableAllHooks"
     ).split()
 )
-_TEXT_KEYS = frozenset({"matcher", "prompt", "statusmessage", "description"})
+_TEXT_KEYS = frozenset({"prompt", "statusmessage", "description"})
 _ENV_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_-]{0,63}")
 _FIELD_CHARS = 300
 
@@ -206,6 +207,8 @@ def _safe_field(value, key):
     masked = _mask_known_field(value, lower)
     if masked is not None:
         return masked
+    if lower == "matcher":
+        return mask_matcher(value)
     if lower in _TEXT_KEYS:
         return _safe_scalar(value)
     if lower == "allowedenvvars":
