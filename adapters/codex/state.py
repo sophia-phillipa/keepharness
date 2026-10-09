@@ -416,6 +416,8 @@ class CodexStateAdapter:
 
     environment = None
     provider = PROVIDER
+    # Other providers that read this adapter's shared skills root (its HOME/.agents/skills).
+    shared_root_readers: tuple[str, ...] = ("gemini",)
     extra_args = ()
 
     def __init__(self, *, environment=None):
@@ -613,7 +615,11 @@ class CodexStateAdapter:
                     f"Shared skills root: {shared_root}. Content changes affect "
                     "other providers using this root; this switch changes only this provider's config."
                 )
-                item = replace(item, reason=" ".join(filter(None, (item.reason, shared))))
+                item = replace(
+                    item,
+                    reason=" ".join(filter(None, (item.reason, shared))),
+                    affects=self.shared_root_readers,
+                )
             items.append(item)
         items.sort(key=lambda item: (_ORDER[item.kind], item.id))
 
