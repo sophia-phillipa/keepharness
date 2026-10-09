@@ -11,6 +11,7 @@ const origin = process.env.HARNESS_URL;
     let closed = 0;
     let failNextTemporary = false;
     let originDeleted = false;
+    let originMissing = 0;
     await page.route("**/v1/**", (route) => {
       const request = route.request(),
         url = new URL(request.url());
@@ -21,7 +22,8 @@ const origin = process.env.HARNESS_URL;
           json: { code: "temporary_storage_unavailable" },
         });
       }
-      if (originDeleted && url.pathname === "/v1/conversations/cx")
+      if (originDeleted && /^\/v1\/conversations\/c[xy]$/.test(url.pathname)) {
+        originMissing++;
         return route.fulfill({
           status: 404,
           json: {
@@ -29,6 +31,7 @@ const origin = process.env.HARNESS_URL;
             error: "Conversation not found",
           },
         });
+      }
       const data =
         url.pathname === "/v1/projects"
           ? { projects: ["sem-projeto"], details: {} }
@@ -270,13 +273,13 @@ const origin = process.env.HARNESS_URL;
     await page.locator("#close-temporary-chat").click();
     await page.locator("#temporary-chat-notice").waitFor({ state: "hidden" });
     await page.waitForFunction(() => !loading);
-    assert.match(
-      await page.locator("#status").innerText(),
-      /Couldn't open the conversation/,
-    );
     assert.equal(
       await draftOf("conversation-draft:new:sem-projeto"),
       "HOME-DRAFT",
+    );
+    assert.match(
+      await page.locator("#status").innerText(),
+      /Couldn't open the conversation/,
     );
     assert.equal(await page.locator("#prompt").inputValue(), "HOME-DRAFT");
     assert.equal(
@@ -290,6 +293,39 @@ const origin = process.env.HARNESS_URL;
     originDeleted = false;
     console.log(
       "PASS closing a temporary chat whose origin conversation was deleted keeps the Home draft and the error",
+    );
+    await openConversation("cy");
+    await page.keyboard.press("Control+Shift+N");
+    await page.locator("#temporary-chat-notice").waitFor({ state: "visible" });
+    await page.fill("#prompt", "PRIVATE-MARKER-60-E");
+    originMissing = 0;
+    originDeleted = true;
+    failNextTemporary = true;
+    page.once("dialog", (dialog) => dialog.accept());
+    await page.keyboard.press("Control+Shift+N");
+    await page.waitForFunction(
+      () => !temporaryStarting && !temporarySession && !loading,
+    );
+    assert.equal(originMissing, 1);
+    await page.evaluate(() => saveView());
+    assert.equal(
+      await draftOf("conversation-draft:new:sem-projeto"),
+      "HOME-DRAFT",
+    );
+    const status = await page.locator("#status").innerText();
+    assert.match(status, /Couldn't start temporary chat/);
+    assert.doesNotMatch(status, /Couldn't open the conversation/);
+    assert.equal(
+      await page.evaluate(() =>
+        JSON.stringify({ ...sessionStorage, ...localStorage }).includes(
+          "PRIVATE-MARKER-60",
+        ),
+      ),
+      false,
+    );
+    originDeleted = false;
+    console.log(
+      "PASS failed temporary replacement with a deleted origin keeps the Home draft, shows the start error and stores nothing private",
     );
     // The one-row entry must not push a visible composer note (draft limit) out of the viewport.
     await page.fill("#prompt", "x".repeat(130000));
