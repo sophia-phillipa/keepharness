@@ -17,7 +17,9 @@ def executable(path, body):
 
 
 def trusted(root, *names):
-    (root / "harness.catalog.json").write_text(json.dumps({"version": 1, "allowed_hooks": list(names)}))
+    (root / "harness.catalog.json").write_text(
+        json.dumps({"version": 1, "allowed_hooks": list(names)})
+    )
     return [{"root": str(root), "hooks_sha256": hooks_digest(root)}]
 
 
@@ -26,7 +28,11 @@ def test_hooks_require_grant_and_run_only_allowlisted_scripts(tmp_path):
     executable(tmp_path / "unrelated", "touch unrelated-marker\n")
     store = SecretVault(tmp_path / "vault")
     store.set("demo", {"token": "fake-hook-value"})
-    runtime = {"allowed_hooks": [allowed], "cwd": str(tmp_path), "hook_catalogs": trusted(tmp_path, "allowed")}
+    runtime = {
+        "allowed_hooks": [allowed],
+        "cwd": str(tmp_path),
+        "hook_catalogs": trusted(tmp_path, "allowed"),
+    }
     events = []
 
     async def scenario():
@@ -47,7 +53,11 @@ def test_hook_failure_timeout_and_output_limit_stop_execution(tmp_path):
         hook = executable(tmp_path / "hook", body)
         with pytest.raises(APIError, match=code):
             await run_hooks(
-                {"allowed_hooks": [hook], "cwd": str(tmp_path), "hook_catalogs": trusted(tmp_path, "hook")},
+                {
+                    "allowed_hooks": [hook],
+                    "cwd": str(tmp_path),
+                    "hook_catalogs": trusted(tmp_path, "hook"),
+                },
                 True,
                 lambda *_: None,
                 timeout=timeout,
@@ -63,7 +73,11 @@ def test_hook_outside_the_verified_set_is_skipped_not_run_unhashed(tmp_path):
     hook = executable(tmp_path / "loose", "touch ran\n")
     events = []
     asyncio.run(
-        run_hooks({"allowed_hooks": [hook], "cwd": str(tmp_path)}, True, lambda kind, value: events.append(value))
+        run_hooks(
+            {"allowed_hooks": [hook], "cwd": str(tmp_path)},
+            True,
+            lambda kind, value: events.append(value),
+        )
     )
     assert not (tmp_path / "ran").exists()
     assert events == [{"outcome": "skipped", "reason": "hooks_not_trusted", "hook": hook}]

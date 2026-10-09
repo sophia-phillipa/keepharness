@@ -14,7 +14,9 @@ from control.server import Manager
 
 def make_catalog(root, hooks=("check.sh",), body="exit 0\n"):
     root.mkdir(exist_ok=True)
-    (root / "harness.catalog.json").write_text(json.dumps({"version": 1, "allowed_hooks": list(hooks)}))
+    (root / "harness.catalog.json").write_text(
+        json.dumps({"version": 1, "allowed_hooks": list(hooks)})
+    )
     for name in hooks:
         (root / name).write_text("#!/bin/sh\n" + body)
         (root / name).chmod(0o700)
@@ -41,17 +43,27 @@ def test_changed_hook_is_skipped_until_retrusted(tmp_path):
     root = make_catalog(tmp_path / "catalog")
     manager = Manager(tmp_path / "state")
     manager.settings["catalogs"] = [
-        {"id": "demo", "root": str(root), "trusted": True, "kind": "folder", "namespace": "demo",
-         "hooks_sha256": hooks_digest(root)}
+        {
+            "id": "demo",
+            "root": str(root),
+            "trusted": True,
+            "kind": "folder",
+            "namespace": "demo",
+            "hooks_sha256": hooks_digest(root),
+        }
     ]
-    manager.settings["projects"] = [{"id": "p", "root": str(project_root(tmp_path)), "catalogs": ["demo"]}]
+    manager.settings["projects"] = [
+        {"id": "p", "root": str(project_root(tmp_path)), "catalogs": ["demo"]}
+    ]
     assert runtime_for_project(catalog_config(manager), "p")["allowed_hooks"]
     (root / "check.sh").write_text("#!/bin/sh\ntouch tampered\n")
     skipped = runtime_for_project(catalog_config(manager), "p")  # the turn goes on, hooks dropped
     assert skipped["allowed_hooks"] == [] and skipped["hooks_skipped"] == ["demo"]
     events = []
     asyncio.run(run_hooks(skipped, True, lambda kind, value: events.append((kind, value))))
-    assert events == [("catalog_hook", {"outcome": "skipped", "reason": "hooks_not_trusted", "catalog": "demo"})]
+    assert events == [
+        ("catalog_hook", {"outcome": "skipped", "reason": "hooks_not_trusted", "catalog": "demo"})
+    ]
     assert not (root / "tampered").exists()
     status = asyncio.run(
         change_pin(None, manager, {"action": "retrust", "project_id": "p", "catalog_id": "demo"})
@@ -90,12 +102,16 @@ def test_legacy_trusted_catalog_reconfirms_once(tmp_path):
     manager.settings["catalogs"] = [
         {"id": "demo", "root": str(root), "trusted": True, "kind": "folder", "namespace": "demo"}
     ]
-    manager.settings["projects"] = [{"id": "p", "root": str(project_root(tmp_path)), "catalogs": ["demo"]}]
+    manager.settings["projects"] = [
+        {"id": "p", "root": str(project_root(tmp_path)), "catalogs": ["demo"]}
+    ]
     for _ in range(2):  # a plain re-save never grants trust
         manager.settings = manager.validate(manager.settings)
         assert "hooks_sha256" not in manager.settings["catalogs"][0]
         assert runtime_for_project(catalog_config(manager), "p")["hooks_skipped"] == ["demo"]
-    asyncio.run(change_pin(None, manager, {"action": "retrust", "project_id": "p", "catalog_id": "demo"}))
+    asyncio.run(
+        change_pin(None, manager, {"action": "retrust", "project_id": "p", "catalog_id": "demo"})
+    )
     manager.settings = manager.validate(manager.settings)
     assert manager.settings["catalogs"][0]["hooks_sha256"] == hooks_digest(root)
     assert runtime_for_project(catalog_config(manager), "p")["allowed_hooks"]

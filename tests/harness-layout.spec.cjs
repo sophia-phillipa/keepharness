@@ -29,10 +29,20 @@ const path = require("node:path");
         if (p === "/v1/projects")
           data = { projects: ["sem-projeto"], details: {} };
         if (p === "/v1/activity")
-          data = { jobs: [], needs_you: [], counts: {}, providers: [{
-            backend: "codex", quota: { available: true,
-              rateLimits: { primary: { usedPercent: 21.4 } } },
-          }] };
+          data = {
+            jobs: [],
+            needs_you: [],
+            counts: {},
+            providers: [
+              {
+                backend: "codex",
+                quota: {
+                  available: true,
+                  rateLimits: { primary: { usedPercent: 21.4 } },
+                },
+              },
+            ],
+          };
         if (p === "/v1/usage")
           data =
             new URL(route.request().url()).searchParams.get("backend") ===
@@ -168,7 +178,9 @@ const path = require("node:path");
       });
     };
     await page.route(origin + "/**", serve);
-    await page.addInitScript(() => localStorage.setItem("keepharness-tour-seen", "0.16.0"));
+    await page.addInitScript(() =>
+      localStorage.setItem("keepharness-tour-seen", "0.16.0"),
+    );
     await page.goto(origin);
     await page.locator("#startup-gate").waitFor({ state: "hidden" });
     assert.equal(await page.locator("#task-section,#task-label").count(), 0);
@@ -196,13 +208,17 @@ const path = require("node:path");
       await page.locator("#quota-model-name").textContent(),
       /GPT-6 Astra/,
     );
-    await page.screenshot({ path: "/tmp/keepharness-quota-header-desktop.png" });
+    await page.screenshot({
+      path: "/tmp/keepharness-quota-header-desktop.png",
+    });
     await page.setViewportSize({ width: 1280, height: 950 });
     await page.evaluate(() => setPanelOpen(true, false));
     await page.waitForTimeout(100);
     const narrowQuota = await page.locator("#provider-quotas").boundingBox();
     assert(
-      narrowQuota.width > 0 && narrowQuota.x >= 0 && narrowQuota.x + narrowQuota.width <= 1280,
+      narrowQuota.width > 0 &&
+        narrowQuota.x >= 0 &&
+        narrowQuota.x + narrowQuota.width <= 1280,
       "visible provider quotas stay inside viewport with both panels open",
     );
     await page.screenshot({ path: "/tmp/keepharness-quota-both-panels.png" });
@@ -373,7 +389,9 @@ const path = require("node:path");
         reversed1280.activity < reversed1280.main,
       "reversed 1280px positions panels on opposite sides of chat",
     );
-    await page.screenshot({ path: "/tmp/keepharness-panel-order-reversed-1280.png" });
+    await page.screenshot({
+      path: "/tmp/keepharness-panel-order-reversed-1280.png",
+    });
     await page.setViewportSize({ width: 900, height: 950 });
     await page.waitForFunction(() =>
       document.querySelector("#app-topbar #provider-quotas"),
@@ -395,7 +413,9 @@ const path = require("node:path");
         reversed900.activity <= reversed900.main,
       "reversed 900px keeps the drawer on the left",
     );
-    await page.screenshot({ path: "/tmp/keepharness-panel-order-reversed-900.png" });
+    await page.screenshot({
+      path: "/tmp/keepharness-panel-order-reversed-900.png",
+    });
     await page.evaluate(() => setPanelOpen(false, false));
     assert.equal(
       await page.locator("#app-topbar #provider-quotas").count(),
@@ -416,9 +436,13 @@ const path = require("node:path");
       applyPanelOrder("conversations-right");
       setPanelOpen(true, false);
     });
-    await page.screenshot({ path: "/tmp/keepharness-panels-reversed-live-1280.png" });
+    await page.screenshot({
+      path: "/tmp/keepharness-panels-reversed-live-1280.png",
+    });
     await page.setViewportSize({ width: 900, height: 950 });
-    await page.screenshot({ path: "/tmp/keepharness-panels-reversed-live-900.png" });
+    await page.screenshot({
+      path: "/tmp/keepharness-panels-reversed-live-900.png",
+    });
     await page.evaluate(() => {
       setPanelOpen(false, false);
       applyPanelOrder("conversations-left");
@@ -662,7 +686,9 @@ const path = require("node:path");
       localStorage.setItem("activity-open", "0"),
     );
     await scaled.route(origin + "/**", serve);
-    await scaled.addInitScript(() => localStorage.setItem("keepharness-tour-seen", "0.16.0"));
+    await scaled.addInitScript(() =>
+      localStorage.setItem("keepharness-tour-seen", "0.16.0"),
+    );
     await scaled.goto(origin);
     await scaled.locator("#startup-gate").waitFor({ state: "hidden" });
     if (await scaled.locator("#th-toast").isVisible())

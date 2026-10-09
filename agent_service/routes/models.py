@@ -43,7 +43,8 @@ async def models(request, service, identity):
             unrestricted = config.get(backend, {}).get("unrestricted") is True
             access_modes[mode] = (
                 codex_access_settings(
-                    mode, permissions,
+                    mode,
+                    permissions,
                     unrestricted and mode == "full" and bool(permissions.get("shell")),
                 )
                 if backend == "codex"

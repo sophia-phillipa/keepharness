@@ -191,9 +191,7 @@ const assert = require("node:assert/strict");
       );
     assert.equal(cards[0].y, cards[1].y);
     assert(cards[1].x > cards[0].x);
-    await page
-      .getByRole("button", { name: "Edit Codex", exact: true })
-      .click();
+    await page.getByRole("button", { name: "Edit Codex", exact: true }).click();
     assert(
       await page
         .locator("#provider-dialog")
@@ -254,15 +252,21 @@ const assert = require("node:assert/strict");
       () => !document.querySelector("#provider-dialog").open,
     );
     await page.waitForFunction(
-      () =>
-        document.activeElement.getAttribute("aria-label") === "Edit Codex",
+      () => document.activeElement.getAttribute("aria-label") === "Edit Codex",
     );
     for (const theme of ["violet-bordeaux", "arizona"]) {
       await page.evaluate((theme) => HarnessTheme.apply(theme, false), theme);
       for (const width of [320, 390, 768, 1440]) {
         await page.setViewportSize({ width, height: 1000 });
-        const connectionIcon = await page.locator("[data-panel=connection] svg").boundingBox();
-        assert(connectionIcon && connectionIcon.width > 0 && connectionIcon.height > 0, "Connection remains visible in the narrow sidebar");
+        const connectionIcon = await page
+          .locator("[data-panel=connection] svg")
+          .boundingBox();
+        assert(
+          connectionIcon &&
+            connectionIcon.width > 0 &&
+            connectionIcon.height > 0,
+          "Connection remains visible in the narrow sidebar",
+        );
         for (const section of ["home", "providers", "runs", "connection"]) {
           await page.locator("[data-panel=" + section + "]").click();
           await page.waitForFunction(

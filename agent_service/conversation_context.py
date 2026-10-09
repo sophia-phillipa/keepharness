@@ -243,7 +243,9 @@ def turn_digest(number, record):
     if tools := tool_outcomes(record):
         lines.append("Tools: " + tools)
     if record.get("attachments"):
-        lines.append("Attachments: " + ", ".join(capped(clip(n, 200) for n in record["attachments"])))
+        lines.append(
+            "Attachments: " + ", ".join(capped(clip(n, 200) for n in record["attachments"]))
+        )
     return "\n".join(lines)
 
 

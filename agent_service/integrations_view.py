@@ -46,7 +46,9 @@ PERSONAL_SETUP_OFF = (
     " which is off. Turn it on in Settings › System."
 )
 # Separate-home DeepSeek runs disable apps; native Codex inherits the CLI configuration.
-REMOTE_PLUGIN = "Remote ChatGPT plugins bring their tools as Codex apps, which harness runs turn off."
+REMOTE_PLUGIN = (
+    "Remote ChatGPT plugins bring their tools as Codex apps, which harness runs turn off."
+)
 APPS_OFF_BACKENDS = frozenset({"deepseek"})
 # control.integrations.inventory() hands these backends the Codex lists: one inventory, not two.
 SHARED_INVENTORY = {"deepseek": "codex", "local": "codex"}
@@ -55,7 +57,11 @@ ELSEWHERE_LIMIT = 50
 
 def app_based(item: Item, backend: str) -> bool:
     marketplace = item["id"].rsplit("@", 1)[-1] if "@" in item["id"] else ""
-    return backend in APPS_OFF_BACKENDS and item["kind"] == "plugin" and marketplace.endswith("-remote")
+    return (
+        backend in APPS_OFF_BACKENDS
+        and item["kind"] == "plugin"
+        and marketplace.endswith("-remote")
+    )
 
 
 class Route(NamedTuple):

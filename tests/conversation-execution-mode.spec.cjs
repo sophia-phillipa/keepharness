@@ -106,13 +106,20 @@ const assert = require("node:assert/strict"),
                     : {};
       return route.fulfill({ json: data });
     });
-    await page.addInitScript(() => localStorage.setItem("keepharness-tour-seen", "0.16.0"));
+    await page.addInitScript(() =>
+      localStorage.setItem("keepharness-tour-seen", "0.16.0"),
+    );
     await page.addInitScript(() => {
       if (sessionStorage.getItem("mode-fixture-seeded")) return;
       sessionStorage.setItem("mode-fixture-seeded", "1");
-      sessionStorage.setItem("remote-view", JSON.stringify({ project: "p",
-        composer_selection: { model: "local-fixture", effort: "low" },
-        draft_mode: { mode: "scoped", modeChosen: true, retiredLock: false } }));
+      sessionStorage.setItem(
+        "remote-view",
+        JSON.stringify({
+          project: "p",
+          composer_selection: { model: "local-fixture", effort: "low" },
+          draft_mode: { mode: "scoped", modeChosen: true, retiredLock: false },
+        }),
+      );
     });
     await page.goto("http://panel.test/");
     await page.locator("#startup-gate").waitFor({ state: "hidden" });
@@ -141,9 +148,7 @@ const assert = require("node:assert/strict"),
     assert.equal(await page.locator("#prompt").inputValue(), "Draft 🐋 <test>");
     assert.equal(await page.locator("#send").isDisabled(), true);
     assert.equal(sent.length, 0);
-    await page
-      .locator("#model")
-      .selectOption("local-fixture", { force: true });
+    await page.locator("#model").selectOption("local-fixture", { force: true });
     assert.equal(await page.locator("#send").isEnabled(), true);
     await page.locator("#prompt").fill("Preserve draft");
     await page.reload();
@@ -170,8 +175,15 @@ const assert = require("node:assert/strict"),
       await page.locator("#header-execution-mode").innerText(),
       "Isolated conversation",
     );
-    assert.equal(await page.locator("#header-execution-mode").evaluate(el => el.tagName), "SPAN");
-    assert.equal(await toggle.isVisible(), false, "started mode stays immutable");
+    assert.equal(
+      await page.locator("#header-execution-mode").evaluate((el) => el.tagName),
+      "SPAN",
+    );
+    assert.equal(
+      await toggle.isVisible(),
+      false,
+      "started mode stays immutable",
+    );
     assert.equal(
       await page.locator("#execution-mode-label").innerText(),
       "Isolated conversation",

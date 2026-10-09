@@ -80,7 +80,12 @@ def test_every_client_is_the_owner_who_saves_project_workflows(tmp_path):
         # Both clients reach the save itself (here: an unknown job); neither is refused up front.
         for headers in ({"Authorization": "Bearer a"}, {}):
             saved = request(
-                app, "POST", "/v1/jobs/j1/save-workflow", headers=headers, json={"id": "x"}, local=True
+                app,
+                "POST",
+                "/v1/jobs/j1/save-workflow",
+                headers=headers,
+                json={"id": "x"},
+                local=True,
             )
             assert saved.json()["code"] == "job_not_found", saved.text
     finally:

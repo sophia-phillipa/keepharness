@@ -76,7 +76,9 @@ const path = require("node:path");
       });
     const errors = [];
     page.on("pageerror", (error) => errors.push(error.message));
-    await page.addInitScript(() => localStorage.setItem("keepharness-tour-seen", "0.16.0"));
+    await page.addInitScript(() =>
+      localStorage.setItem("keepharness-tour-seen", "0.16.0"),
+    );
     await page.goto(origin);
     await page.locator("#startup-gate").waitFor({ state: "hidden" });
 
@@ -86,26 +88,38 @@ const path = require("node:path");
     // Exercise the operator's actual resize step, including mutations that omit
     // each key press. A Home/End-only step must not pass as arrow-key coverage.
     const keyboardArea = require("./operator/areas/15-keyboard.cjs");
-    const resizeStep = async (omitKey) => keyboardArea.run({
-      page,
-      async step(id, _description, run) {
-        if (id === "sidebar-resize-keys") await run();
-      },
-      async press(key) {
-        if (key !== omitKey) await page.keyboard.press(key);
-      },
-      async until(predicate, message) {
-        for (let i = 0; i < 20; i++) {
-          if (await predicate()) return;
-          await page.waitForTimeout(25);
-        }
-        assert.fail(message);
-      },
-    });
-    await assert.rejects(resizeStep("ArrowRight"), /ArrowRight/, "removing ArrowRight must fail the operator's directional assertion");
-    await assert.rejects(resizeStep("ArrowLeft"), /ArrowLeft/, "removing ArrowLeft must fail the operator's directional assertion");
+    const resizeStep = async (omitKey) =>
+      keyboardArea.run({
+        page,
+        async step(id, _description, run) {
+          if (id === "sidebar-resize-keys") await run();
+        },
+        async press(key) {
+          if (key !== omitKey) await page.keyboard.press(key);
+        },
+        async until(predicate, message) {
+          for (let i = 0; i < 20; i++) {
+            if (await predicate()) return;
+            await page.waitForTimeout(25);
+          }
+          assert.fail(message);
+        },
+      });
+    await assert.rejects(
+      resizeStep("ArrowRight"),
+      /ArrowRight/,
+      "removing ArrowRight must fail the operator's directional assertion",
+    );
+    await assert.rejects(
+      resizeStep("ArrowLeft"),
+      /ArrowLeft/,
+      "removing ArrowLeft must fail the operator's directional assertion",
+    );
     await resizeStep();
-    check("P5-W15 operator real arrows resize directionally; omitted presses fail", true);
+    check(
+      "P5-W15 operator real arrows resize directionally; omitted presses fail",
+      true,
+    );
 
     // P5-20: each dialog opens from the keyboard, Escape closes it, and focus returns
     // to the button that opened it.
@@ -114,7 +128,9 @@ const path = require("node:path");
       await page.keyboard.press("Enter");
       if (openerId === "settings") {
         // The Settings button opens a submenu; its first item opens the dialog.
-        await page.waitForFunction(() => document.activeElement?.getAttribute("role") === "menuitem");
+        await page.waitForFunction(
+          () => document.activeElement?.getAttribute("role") === "menuitem",
+        );
         await page.keyboard.press("Enter");
         await page.locator("#" + dialogId).waitFor({ state: "visible" });
       }
@@ -150,7 +166,9 @@ const path = require("node:path");
     // setup-dialog is reached from inside settings-dialog.
     await page.locator("#settings").focus();
     await page.keyboard.press("Enter");
-    await page.waitForFunction(() => document.activeElement?.getAttribute("role") === "menuitem");
+    await page.waitForFunction(
+      () => document.activeElement?.getAttribute("role") === "menuitem",
+    );
     await page.keyboard.press("Enter"); // the Settings submenu opens first; its first item opens the dialog
     await page.locator("#setup").focus();
     await page.keyboard.press("Enter");
@@ -187,7 +205,9 @@ const path = require("node:path");
     // focusable control wraps to the first, and Shift+Tab on the first wraps to the last.
     await page.locator("#settings").focus();
     await page.keyboard.press("Enter");
-    await page.waitForFunction(() => document.activeElement?.getAttribute("role") === "menuitem");
+    await page.waitForFunction(
+      () => document.activeElement?.getAttribute("role") === "menuitem",
+    );
     await page.keyboard.press("Enter"); // the Settings submenu opens first; its first item opens the dialog
     let escapes = 0;
     let escapee = null;
@@ -311,13 +331,19 @@ const path = require("node:path");
           return [v[0], v[1], v[2], v[3] ?? 1];
         };
         const over = (top, bottom) =>
-          [0, 1, 2].map((i) => top[i] * top[3] + bottom[i] * (1 - top[3])).concat(1);
+          [0, 1, 2]
+            .map((i) => top[i] * top[3] + bottom[i] * (1 - top[3]))
+            .concat(1);
         const lum = (c) => {
-          const f = (x) => ((x /= 255) <= 0.03928 ? x / 12.92 : ((x + 0.055) / 1.055) ** 2.4);
+          const f = (x) =>
+            (x /= 255) <= 0.03928 ? x / 12.92 : ((x + 0.055) / 1.055) ** 2.4;
           return 0.2126 * f(c[0]) + 0.7152 * f(c[1]) + 0.0722 * f(c[2]);
         };
         const backdrop = (el) => {
-          let bg = over(parse(getComputedStyle(document.documentElement).backgroundColor), [255, 255, 255, 1]);
+          let bg = over(
+            parse(getComputedStyle(document.documentElement).backgroundColor),
+            [255, 255, 255, 1],
+          );
           const chain = [];
           for (let e = el; e; e = e.parentElement) chain.unshift(e);
           for (const e of chain) {
@@ -328,11 +354,28 @@ const path = require("node:path");
         };
         const rows = [];
         for (const el of document.querySelectorAll("body *")) {
-          if (![...el.childNodes].some((n) => n.nodeType === 3 && n.textContent.trim())) continue;
+          if (
+            ![...el.childNodes].some(
+              (n) => n.nodeType === 3 && n.textContent.trim(),
+            )
+          )
+            continue;
           const box = el.getBoundingClientRect(),
             style = getComputedStyle(el);
-          if (box.width <= 1 || box.height <= 1 || style.visibility === "hidden" || +style.opacity === 0) continue;
-          if (box.right < 0 || box.bottom < 0 || box.left > innerWidth || box.top > innerHeight) continue;
+          if (
+            box.width <= 1 ||
+            box.height <= 1 ||
+            style.visibility === "hidden" ||
+            +style.opacity === 0
+          )
+            continue;
+          if (
+            box.right < 0 ||
+            box.bottom < 0 ||
+            box.left > innerWidth ||
+            box.top > innerHeight
+          )
+            continue;
           if (el.closest("[hidden],[aria-hidden=true],[inert]")) continue;
           const background = backdrop(el);
           let fg = parse(style.color);
@@ -340,28 +383,43 @@ const path = require("node:path");
           const [hi, lo] = [lum(fg), lum(background)].sort((a, b) => b - a);
           const size = parseFloat(style.fontSize);
           rows.push({
-            name: el.id ? "#" + el.id : el.tagName.toLowerCase() + "." + String(el.className).split(" ")[0],
+            name: el.id
+              ? "#" + el.id
+              : el.tagName.toLowerCase() +
+                "." +
+                String(el.className).split(" ")[0],
             text: el.textContent.trim().slice(0, 24),
             size,
             ratio: +((hi + 0.05) / (lo + 0.05)).toFixed(2),
-            need: size >= 24 || (size >= 18.66 && +style.fontWeight >= 700) ? 3 : 4.5,
+            need:
+              size >= 24 || (size >= 18.66 && +style.fontWeight >= 700)
+                ? 3
+                : 4.5,
           });
         }
         return rows;
       });
-    const palettes = await page.evaluate(() => HarnessTheme.themes.map((t) => t.id));
+    const palettes = await page.evaluate(() =>
+      HarnessTheme.themes.map((t) => t.id),
+    );
     assert.equal(palettes.length, 8);
     const contrastStates = [
       ["page", async () => {}],
       ["quota panel", async () => page.evaluate(() => setQuotaOpen(true))],
-      ["search", async () => {
-        await page.evaluate(() => setQuotaOpen(false));
-        await page.keyboard.press("Control+k");
-      }],
-      ["settings", async () => {
-        await page.keyboard.press("Escape");
-        await page.keyboard.press("Control+,");
-      }],
+      [
+        "search",
+        async () => {
+          await page.evaluate(() => setQuotaOpen(false));
+          await page.keyboard.press("Control+k");
+        },
+      ],
+      [
+        "settings",
+        async () => {
+          await page.keyboard.press("Escape");
+          await page.keyboard.press("Control+,");
+        },
+      ],
     ];
     const lowContrast = [];
     for (const [stateName, enter] of contrastStates) {
@@ -370,12 +428,22 @@ const path = require("node:path");
         await page.evaluate((id) => HarnessTheme.apply(id), palette);
         await page.waitForTimeout(60);
         for (const row of await measureText()) {
-          if (row.ratio < row.need) lowContrast.push(`${palette}/${stateName}: ${row.ratio} ${row.name} "${row.text}"`);
-          if (row.size < 11) lowContrast.push(`${palette}/${stateName}: ${row.size}px ${row.name} "${row.text}"`);
+          if (row.ratio < row.need)
+            lowContrast.push(
+              `${palette}/${stateName}: ${row.ratio} ${row.name} "${row.text}"`,
+            );
+          if (row.size < 11)
+            lowContrast.push(
+              `${palette}/${stateName}: ${row.size}px ${row.name} "${row.text}"`,
+            );
         }
       }
     }
-    check("all palettes: text >= 4.5:1 (3:1 large) and >= 11 px", lowContrast.length === 0, [...new Set(lowContrast)].slice(0, 12));
+    check(
+      "all palettes: text >= 4.5:1 (3:1 large) and >= 11 px",
+      lowContrast.length === 0,
+      [...new Set(lowContrast)].slice(0, 12),
+    );
 
     const failures = results.filter((r) => !r.ok);
     for (const r of results)

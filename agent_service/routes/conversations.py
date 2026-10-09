@@ -387,7 +387,11 @@ async def job_events(request, service, identity):
             rows = rows[:limit]
         else:
             rows = service.message_repository.events_after(job, after)[:limit]
-            has_more = bool(service.message_repository.events_after(job, rows[-1]["id"])) if rows else False
+            has_more = (
+                bool(service.message_repository.events_after(job, rows[-1]["id"]))
+                if rows
+                else False
+            )
         next_after = max((row["id"] for row in rows), default=after)
         next_before = min((row["id"] for row in rows), default=before)
         return JSONResponse(

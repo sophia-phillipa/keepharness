@@ -133,8 +133,14 @@ class BuildVersions:
         ui_files = [
             PACKAGE_DIR / name
             for name in (
-                "ui.js", "ui-prefs.js", "run-console.js", "tour.js", "ui.css", "tour.css",
-                "vendor/markdown-it.min.js", "index.html",
+                "ui.js",
+                "ui-prefs.js",
+                "run-console.js",
+                "tour.js",
+                "ui.css",
+                "tour.css",
+                "vendor/markdown-it.min.js",
+                "index.html",
             )
         ]
         ui_files += [ASSETS / name for name in sorted(PUBLIC)]

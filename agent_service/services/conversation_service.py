@@ -909,9 +909,7 @@ class ConversationService:
                 roots[visited] = roots[current]
             return roots[job_id]
 
-        return [
-            payload for job_id, payload in payloads.items() if root(job_id) == cid
-        ]
+        return [payload for job_id, payload in payloads.items() if root(job_id) == cid]
 
     def conversation_execution_mode(self, row):
         root = self.conversation_repository.get(self.conversation_id(row))
@@ -1351,9 +1349,7 @@ class ConversationService:
                             data["resource_selections"][0]["token"] + " " + data.get("prompt", "")
                         )
             canonical = values if values is not None and not supplied_selections else None
-            selected = self.selected_resources(
-                data, canonical=canonical, owner=True
-            )
+            selected = self.selected_resources(data, canonical=canonical, owner=True)
             selected_by_id = {item["resource_id"]: item for item in selected}
             normalized = (
                 [
@@ -3028,7 +3024,12 @@ class ConversationService:
         if summary is None:
             result = {"provider": "deepseek", "available": False, "reason": "balance_unavailable"}
         else:
-            result = {"provider": "deepseek", "available": True, "checked_at": time.time(), **summary}
+            result = {
+                "provider": "deepseek",
+                "available": True,
+                "checked_at": time.time(),
+                **summary,
+            }
         self.deepseek_usage_cache = (cache_key, time.monotonic(), result)
         return result
 

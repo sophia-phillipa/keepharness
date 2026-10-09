@@ -29,8 +29,8 @@ class ResponseAssetsTest(unittest.TestCase):
             app = create_app({"state_dir": root, "projects": {}, "clients": {}})
             with TestClient(app) as client:
                 page = client.get("/")
-                self.assertIn('/tour.css', page.text)
-                self.assertLess(page.text.index('/run-console.js'), page.text.index('/tour.js'))
+                self.assertIn("/tour.css", page.text)
+                self.assertLess(page.text.index("/run-console.js"), page.text.index("/tour.js"))
                 for path, mime in (("/tour.js", "javascript"), ("/tour.css", "text/css")):
                     response = client.get(path)
                     self.assertEqual(response.status_code, 200)

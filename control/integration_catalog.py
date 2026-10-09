@@ -152,7 +152,13 @@ def _plugin_metadata(plugin):
 def _public_source(value):
     """Return a public HTTP(S) source without credentials or request-specific data."""
     # urlsplit silently removes some controls; reject them before parsing.
-    if any(character.isspace() or ord(character) < 32 or ord(character) == 127 for character in value) or "\\" in value:
+    if (
+        any(
+            character.isspace() or ord(character) < 32 or ord(character) == 127
+            for character in value
+        )
+        or "\\" in value
+    ):
         return ""
     try:
         parsed = urlsplit(value)
@@ -175,7 +181,9 @@ def _public_source(value):
         if (
             len(normalized_host) > 253
             or len(labels) < 2
-            or any(not re.fullmatch(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?", label) for label in labels)
+            or any(
+                not re.fullmatch(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?", label) for label in labels
+            )
             or normalized_host.endswith((".localhost", ".local", ".internal", ".lan"))
             # Browsers treat a numeric final label as an IPv4 address attempt.
             or re.fullmatch(r"(?:[0-9]+|0x[0-9a-f]*)", labels[-1])

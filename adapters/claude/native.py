@@ -59,7 +59,9 @@ def build_command(config, model, home, permissions, selected, access_mode, addit
         command += ["--setting-sources", "user"]
     command += [
         "--permission-mode",
-        claude_access_settings(access_mode, permissions, config.get("unrestricted"))["permissionMode"],
+        claude_access_settings(access_mode, permissions, config.get("unrestricted"))[
+            "permissionMode"
+        ],
     ]
     if additional_roots:
         command += ["--add-dir", *additional_roots]
@@ -180,7 +182,9 @@ async def run(
         **config,
         "_project_security": await asyncio.to_thread(project_security, config, Path(cwd)),
     }
-    await asyncio.to_thread(version_notice, config["binary"], "claude", event, child_source(config, "claude"))
+    await asyncio.to_thread(
+        version_notice, config["binary"], "claude", event, child_source(config, "claude")
+    )
     command = build_command(
         config, model, home, permissions, selected, access_mode, additional_roots
     )
@@ -192,9 +196,7 @@ async def run(
     ]
     event(
         "hook_scope",
-        {
-            "scope": "global_and_project" if config["_project_security"]["trusted"] else "disabled"
-        },
+        {"scope": "global_and_project" if config["_project_security"]["trusted"] else "disabled"},
     )
     marker = home / "claude-session.json"
     if marker.exists():

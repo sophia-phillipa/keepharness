@@ -306,13 +306,13 @@ async def _run(fixture: IsolatedFixture, name: str) -> dict[str, Any]:
             "command_models": command_models,
             "result": text,
         }
-        if (
-            "SYNTHETIC_COMMAND_ARGUMENTS=alpha beta" in text
-            and any("haiku" in model for model in command_models)
+        if "SYNTHETIC_COMMAND_ARGUMENTS=alpha beta" in text and any(
+            "haiku" in model for model in command_models
         ):
             report["verdict"] = "supported"
 
     elif name == "ask_user_question":
+
         def answer(request: dict[str, Any]) -> dict[str, Any]:
             updated = dict(request.get("input", {}))
             questions = updated.get("questions", [])
@@ -405,9 +405,7 @@ async def _run(fixture: IsolatedFixture, name: str) -> dict[str, Any]:
         report["runs"].extend([strict, loose])
 
         def inventory(run: dict[str, Any]) -> dict[str, Any]:
-            init = next(
-                (item for item in run["events"] if item.get("type") == "system"), {}
-            )
+            init = next((item for item in run["events"] if item.get("type") == "system"), {})
             return {
                 "mcp_servers": init.get("mcp_servers", []),
                 "tools": [
@@ -578,9 +576,7 @@ def assert_claude_conformance(report: dict[str, Any]) -> None:
         assert report["verdict"] == "supported"
         assert evidence["control_request"] is True
         assert evidence["options"] == ["Alpha", "Beta"]
-        assert evidence["updatedInput"]["answers"] == {
-            "Choose the synthetic option?": "Alpha"
-        }
+        assert evidence["updatedInput"]["answers"] == {"Choose the synthetic option?": "Alpha"}
         assert evidence["result"] == "CHOICE=Alpha"
     elif name == "delegation":
         assert report["verdict"] == "supported"
@@ -626,6 +622,7 @@ def run_claude_probe(name: str) -> dict[str, Any]:
     if name not in PROBES:
         raise ValueError(name)
     with isolated_fixture(copy_claude_auth=True) as fixture:
+
         async def bounded() -> dict[str, Any]:
             try:
                 async with asyncio.timeout(PROBE_TIMEOUT_SECONDS - 10):

@@ -16,6 +16,7 @@ from ..project_icons import discover_project_icon
 from ..secret_vault import redact_secrets
 from . import api_route, body
 
+
 def project_git(root):
     """Read the branch (or detached revision) without changing the repository."""
     if not root:

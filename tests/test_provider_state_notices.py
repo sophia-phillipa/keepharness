@@ -304,7 +304,11 @@ def test_a_newer_change_keeps_the_first_before(client, now, codex_home):
     later(now)
     (first,) = changes(client)
     reconfigure(codex_home, plugins=[p for p in listed(codex_home) if p["name"] != "github"])
-    edit_codex(codex_home, '[plugins."github@openai-curated"]\nenabled = true  # turned on in the terminal\n', "")
+    edit_codex(
+        codex_home,
+        '[plugins."github@openai-curated"]\nenabled = true  # turned on in the terminal\n',
+        "",
+    )
     later(now)
     (second,) = changes(client)
     assert second["id"] != first["id"] and second["before"] is False and second["after"] is None

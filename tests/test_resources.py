@@ -63,9 +63,17 @@ def test_trusted_catalog_precedence_relative_ids_and_symlink_boundary(tmp_path, 
     project = tmp_path / "project"
     catalog = tmp_path / "catalog"
     outside = tmp_path / "outside"
-    put(tmp_path / "home", ".codex/agents/reviewer.toml", 'name="demo--reviewer"\ndeveloper_instructions="User"')
+    put(
+        tmp_path / "home",
+        ".codex/agents/reviewer.toml",
+        'name="demo--reviewer"\ndeveloper_instructions="User"',
+    )
     put(catalog, "agents/reviewer.toml", 'name="demo--reviewer"\ndeveloper_instructions="Catalog"')
-    put(project, ".codex/agents/reviewer.toml", 'name="demo--reviewer"\ndeveloper_instructions="Project"')
+    put(
+        project,
+        ".codex/agents/reviewer.toml",
+        'name="demo--reviewer"\ndeveloper_instructions="Project"',
+    )
     put(catalog, "skills/shared/SKILL.md", "---\nname: shared\n---\nInside")
     alias = catalog / "skills/alias"
     alias.symlink_to(catalog / "skills/shared")
@@ -234,10 +242,7 @@ def test_command_expansion_no_execution(tmp_path, monkeypatch):
 
 def test_single_leading_command_expands_all_verbatim_arguments():
     item = {"kind": "command", "name": "inspect", "_body": "ARGS=[$ARGUMENTS]"}
-    assert (
-        resources.prepare_prompt("/inspect first\nsecond  ", [item])
-        == "ARGS=[first\nsecond  ]"
-    )
+    assert resources.prepare_prompt("/inspect first\nsecond  ", [item]) == "ARGS=[first\nsecond  ]"
 
 
 def test_api_permissions_and_revalidation_before_queue(tmp_path, monkeypatch):
@@ -316,12 +321,15 @@ def test_codex_native_skill_reload_and_structured_input(tmp_path):
 def test_claude_native_tools_are_not_filtered_by_resource_selection(tmp_path):
     from adapters.claude.native import build_command
 
-    basic = build_command(
-        {"binary": "claude"}, "sonnet", tmp_path, {"read": True}, [], "ask", []
-    )
+    basic = build_command({"binary": "claude"}, "sonnet", tmp_path, {"read": True}, [], "ask", [])
     selected = build_command(
         {"binary": "claude", "resource_skills": ["review"]},
-        "sonnet", tmp_path, {"read": True}, [], "ask", []
+        "sonnet",
+        tmp_path,
+        {"read": True},
+        [],
+        "ask",
+        [],
     )
     assert "--tools" not in basic
     assert "--tools" not in selected
@@ -477,7 +485,11 @@ def test_claude_user_skills_load_without_personal_setup_or_hooks_grant(tmp_path,
             items = user_items(config, "claude")
             assert set(items) == {("skill", "owner"), ("command", "ownercmd")}
             assert all(i["selectable"] and not i["unavailable_reason"] for i in items.values())
-            project = [i for i in resources.discover(config, "p", "claude")["items"] if i["name"] == "local"]
+            project = [
+                i
+                for i in resources.discover(config, "p", "claude")["items"]
+                if i["name"] == "local"
+            ]
             assert [i["selectable"] for i in project] == [True]
 
 
@@ -488,7 +500,10 @@ def test_claude_user_resource_hints_do_not_require_personal_setup(tmp_path, monk
     put(home / ".claude", "commands/homecmd.md", "---\ndescription: cmd\n---\nRun")
     items = user_items(provider_home_config(root, state, "claude"), "claude")
     assert set(items) == {("skill", "home"), ("command", "homecmd")}
-    assert all(i["preflight_hint"] == "Ready to invoke with the current provider and execution mode." for i in items.values())
+    assert all(
+        i["preflight_hint"] == "Ready to invoke with the current provider and execution mode."
+        for i in items.values()
+    )
 
 
 def test_legacy_claude_config_with_hooks_lists_host_skills_as_available(tmp_path, monkeypatch):
@@ -542,7 +557,9 @@ def test_codex_owner_prompts_do_not_need_the_retired_opt_in(tmp_path, monkeypatc
     monkeypatch.delenv("CODEX_HOME", raising=False)
     put(owner / ".codex", "prompts/mine.md", "---\ndescription: mine\n---\nDo it")
     on = provider_home_config(root, state, "codex", personal_setup=True)
-    assert user_items(provider_home_config(root, state, "codex"), "codex")[("command", "mine")]["selectable"]
+    assert user_items(provider_home_config(root, state, "codex"), "codex")[("command", "mine")][
+        "selectable"
+    ]
     assert user_items(on, "codex", owner=False)[("command", "mine")]["selectable"]
     assert user_items(on, "codex")[("command", "mine")]["selectable"] is True
 
@@ -628,7 +645,9 @@ def test_every_client_sees_the_owners_personal_resources_in_catalog_or_palette(
         app.state.service.db.close()
 
 
-def test_a_non_owner_resolution_cannot_resolve_an_owner_resource_id_at_run_time(tmp_path, monkeypatch):
+def test_a_non_owner_resolution_cannot_resolve_an_owner_resource_id_at_run_time(
+    tmp_path, monkeypatch
+):
     from starlette.testclient import TestClient
 
     from agent_service.app import create_app
@@ -649,7 +668,9 @@ def test_a_non_owner_resolution_cannot_resolve_an_owner_resource_id_at_run_time(
             "backend": "gemini",
             "model": "fixture",
             "prompt": "/mine hi",
-            "resource_selections": [{"id": item["id"], "revision": item["revision"], "token": "/mine"}],
+            "resource_selections": [
+                {"id": item["id"], "revision": item["revision"], "token": "/mine"}
+            ],
         }
         service = app.state.service
         assert service.selected_resources(data, owner=True)[0]["name"] == "mine"
@@ -809,7 +830,9 @@ def test_catalog_preflight_ignores_retired_cloud_service_mode(tmp_path, monkeypa
     assert preflight.call_args.args[4:] == ("native", [{"id": "fixture", "required": True}])
 
 
-@pytest.mark.parametrize("backend,variable", [("codex", "CODEX_HOME"), ("claude", "CLAUDE_CONFIG_DIR")])
+@pytest.mark.parametrize(
+    "backend,variable", [("codex", "CODEX_HOME"), ("claude", "CLAUDE_CONFIG_DIR")]
+)
 @pytest.mark.parametrize("preset", ["ask", "read_only", "auto", "full"])
 @pytest.mark.parametrize("scheduled", [False, True])
 @pytest.mark.parametrize("override", [False, True])
@@ -831,12 +854,20 @@ def test_native_resources_use_cli_home_for_every_preset_and_schedule(
     config["provider_homes"] = str(state / "providers")
     config["projects"]["p"]["permissions"]["hooks"] = False
     result = resources.discover(config, "p", backend, owner=True, access_mode=preset)
-    items = {(item["kind"], item["name"]): item for item in result["items"] if item["scope"] == "user"}
+    items = {
+        (item["kind"], item["name"]): item for item in result["items"] if item["scope"] == "user"
+    }
     assert set(items) == {("skill", "native"), ("command", "nativecmd")}
     assert all(item["selectable"] for item in items.values())
     assert all(not item["unavailable_reason"] for item in items.values())
     item = items[("skill", "native")]
     token = resources.accepted_tokens(item)[0]
-    data = {"project_id": "p", "backend": backend, "schedule_id": "s" if scheduled else None,
-            "access_mode": preset, "prompt": token, "resource_selections": selection(item, token)}
+    data = {
+        "project_id": "p",
+        "backend": backend,
+        "schedule_id": "s" if scheduled else None,
+        "access_mode": preset,
+        "prompt": token,
+        "resource_selections": selection(item, token),
+    }
     assert resources.resolve(config, data, owner=True)[0]["id"] == item["id"]

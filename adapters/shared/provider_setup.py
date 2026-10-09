@@ -102,18 +102,24 @@ def instructions(config, *, provider=None):
 def version_notice(binary, provider, event, environment=None):
     """Warn without blocking runs when the installed CLI has drifted from tested versions."""
     from adapters.codex.state import _cli_version
+
     if provider == "codex":
         from adapters.codex.state import TESTED_VERSIONS, _tested
     else:
         from adapters.claude.state import TESTED_VERSIONS, _tested, _version_tuple
     version = _cli_version(binary, environment)
-    tested = bool(version) and _tested(version if provider == "codex" else _version_tuple(version) or ())
+    tested = bool(version) and _tested(
+        version if provider == "codex" else _version_tuple(version) or ()
+    )
     if not tested:
-        event("provider_warning", {
-            "backend": provider,
-            "code": "provider_version_untested",
-            "message": f"{provider.title()} {version or 'unknown'} is outside the tested range {TESTED_VERSIONS}. The run will continue.",
-        })
+        event(
+            "provider_warning",
+            {
+                "backend": provider,
+                "code": "provider_version_untested",
+                "message": f"{provider.title()} {version or 'unknown'} is outside the tested range {TESTED_VERSIONS}. The run will continue.",
+            },
+        )
 
 
 def codex_access_settings(mode, permissions, unrestricted=False, isolated=False):
@@ -121,8 +127,10 @@ def codex_access_settings(mode, permissions, unrestricted=False, isolated=False)
     ask = mode == "ask" and not isolated
     return {
         "sandbox": (
-            "danger-full-access" if unrestricted
-            else "workspace-write" if permissions.get("write") and not ask
+            "danger-full-access"
+            if unrestricted
+            else "workspace-write"
+            if permissions.get("write") and not ask
             else "read-only"
         ),
         "approvalPolicy": (
@@ -136,6 +144,7 @@ def claude_access_settings(mode, permissions, unrestricted=False):
     if mode == "full":
         return {
             "permissionMode": "bypassPermissions"
-            if unrestricted and permissions.get("shell") else "dontAsk"
+            if unrestricted and permissions.get("shell")
+            else "dontAsk"
         }
     return {"permissionMode": {"ask": "default", "auto": "acceptEdits", "read_only": "plan"}[mode]}

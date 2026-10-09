@@ -506,9 +506,7 @@ def discover(
     if global_base is not None:
         add(global_base, "user", engine, None, "user/" + engine, global_base)
     if engine == "codex" and global_base is not None:
-        source(
-            global_base / "prompts", "user", "codex", None, "command", "user/codex", global_base
-        )
+        source(global_base / "prompts", "user", "codex", None, "command", "user/codex", global_base)
     for shared_root in shared:
         source(
             shared_root,
@@ -777,7 +775,9 @@ def conversation_title(prompt):
     text = RESERVED_MARKER.sub(" ", str(prompt)).strip()
     sentence = " ".join(SENTENCE_END.split(text, 1)[0].split())
     # "e.g." or "Hi." is not a title: a very short first sentence falls back to the whole prompt.
-    return (sentence if len(sentence) > 11 else " ".join(text.split()))[:TITLE_LIMIT] or "Conversation"
+    return (sentence if len(sentence) > 11 else " ".join(text.split()))[
+        :TITLE_LIMIT
+    ] or "Conversation"
 
 
 def reserved_markers(prompt, selections):

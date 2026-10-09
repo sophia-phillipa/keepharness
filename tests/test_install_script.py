@@ -23,9 +23,9 @@ FAIL_ON = 'case "$*" in ${FAIL:-__never__}) echo "stub failed: $*" >&2; exit 1 ;
 # `pip wheel --wheel-dir DIR` leaves one wheel in DIR, as the real build does.
 WHEEL = (
     'case "$*" in *"pip wheel"*)\n'
-    '  for source; do :; done\n'
+    "  for source; do :; done\n"
     '  [ -z "${SOURCE_LIST:-}" ] || (cd "$source" && find . -type f | sort > "$SOURCE_LIST")\n'
-    '  while [ $# -gt 0 ]; do\n'
+    "  while [ $# -gt 0 ]; do\n"
     '    if [ "$1" = --wheel-dir ]; then mkdir -p "$2" && : > "$2/keepharness-0.15.0-py3-none-any.whl"; fi\n'
     "    shift\n"
     "  done ;;\n"
@@ -47,7 +47,10 @@ def stub(path, body):
 @pytest.fixture
 def install(tmp_path):
     bin_dir, venv, calls, temporary = (
-        tmp_path / "bin", tmp_path / "venv", tmp_path / "calls", tmp_path / "tmp"
+        tmp_path / "bin",
+        tmp_path / "venv",
+        tmp_path / "calls",
+        tmp_path / "tmp",
     )
     temporary.mkdir()
     stub(bin_dir / "systemctl", LOGGER.format(name="systemctl"))
@@ -64,7 +67,10 @@ def install(tmp_path):
         + "esac\n",
     )
     # The installed venv's python logs as venv-python, the preflight's as preflight-python.
-    stub(tmp_path / "venv-python", VENV_LOGGER + FAIL_ON + WHEEL + '[ -z "${BUSY_FILE:-}" ] || : > "$BUSY_FILE"\n')
+    stub(
+        tmp_path / "venv-python",
+        VENV_LOGGER + FAIL_ON + WHEEL + '[ -z "${BUSY_FILE:-}" ] || : > "$BUSY_FILE"\n',
+    )
     stub(venv / "bin/keepharness-install", LOGGER.format(name="keepharness-install") + FAIL_ON)
 
     def run(*args, check=True, **extra):
@@ -206,14 +212,22 @@ def test_the_build_uses_only_what_the_hashed_lock_installed(install):
 
 def source_tree(root, *, git):
     """A checkout shaped like the real one: code, committed brand assets, build output, secrets."""
-    for name in ("pkg/mod.py", "desktop/build/icon.png", "build/lib/old.py", "state/s.json", "k.key"):
+    for name in (
+        "pkg/mod.py",
+        "desktop/build/icon.png",
+        "build/lib/old.py",
+        "state/s.json",
+        "k.key",
+    ):
         (root / name).parent.mkdir(parents=True, exist_ok=True)
         (root / name).write_text("x")
     (root / "install.sh").write_text((ROOT / "install.sh").read_text())
     if git:
         (root / ".gitignore").write_text("/build/\n/state/\n*.key\n")
         subprocess.run(["git", "-C", str(root), "init", "-q"], check=True)
-        subprocess.run(["git", "-C", str(root), "add", ".gitignore", "pkg", "install.sh"], check=True)
+        subprocess.run(
+            ["git", "-C", str(root), "add", ".gitignore", "pkg", "install.sh"], check=True
+        )
 
 
 def built_from(install, tmp_path, root):
@@ -233,7 +247,9 @@ def test_a_checkout_inside_another_repository_is_copied_whole_minus_build_and_se
     root.mkdir()
     source_tree(root, git=False)
     assert built_from(install, tmp_path, root) == {
-        "./install.sh", "./pkg/mod.py", "./desktop/build/icon.png",
+        "./install.sh",
+        "./pkg/mod.py",
+        "./desktop/build/icon.png",
     }
 
 
@@ -244,7 +260,10 @@ def test_a_checkout_that_is_its_own_repository_copies_untracked_files_but_not_ig
     root.mkdir()
     source_tree(root, git=True)  # desktop/build/icon.png stays untracked
     assert built_from(install, tmp_path, root) == {
-        "./.gitignore", "./install.sh", "./pkg/mod.py", "./desktop/build/icon.png",
+        "./.gitignore",
+        "./install.sh",
+        "./pkg/mod.py",
+        "./desktop/build/icon.png",
     }
 
 
@@ -293,7 +312,9 @@ def test_work_arriving_during_trial_refuses_before_live_install(install, tmp_pat
     assert "Nothing was stopped or moved" in install.result.stderr
     assert calls.count("python3 -m control.install --check-only --port 19876") == 2
     assert "preflight-python -m control.install_check" in calls
-    assert not any(call.startswith(("systemctl", "venv-python", "keepharness-install")) for call in calls)
+    assert not any(
+        call.startswith(("systemctl", "venv-python", "keepharness-install")) for call in calls
+    )
     assert "python3 control/product.py --migrate-state" not in calls
     assert f"python3 -m venv {install.venv}" not in calls
     assert not (install.venv / "bin/python").exists()

@@ -257,25 +257,29 @@ Types (in `adapters/shared/provider_state.py`):
 Kind = Literal["plugin", "app", "mcp", "skill", "hook", "instructions"]
 Scope = Literal["user", "project", "local", "managed", "profile"]
 
+
 @dataclass(frozen=True)
 class StateItem:
-    id: str            # "<kind>:<provider-native id>", e.g. "plugin:github@openai-curated", "mcp:linear"
+    id: str  # "<kind>:<provider-native id>", e.g. "plugin:github@openai-curated", "mcp:linear"
     kind: Kind
     name: str
-    scope: Scope       # the layer that decides the effective value
-    enabled: bool      # effective value after layering
-    source: str        # file or command that decides it, for display ("~/.codex/config.toml")
+    scope: Scope  # the layer that decides the effective value
+    enabled: bool  # effective value after layering
+    source: str  # file or command that decides it, for display ("~/.codex/config.toml")
     writable: bool
-    reason: str = ""   # why not writable, shown under the switch
-    affects: tuple[str, ...] = ()   # other provider ids that read the same source (shared skills root)
+    reason: str = ""  # why not writable, shown under the switch
+    affects: tuple[
+        str, ...
+    ] = ()  # other provider ids that read the same source (shared skills root)
+
 
 @dataclass(frozen=True)
 class StateSnapshot:
     provider: str
-    engine: str        # engine id, separate from the provider id (§2.7)
+    engine: str  # engine id, separate from the provider id (§2.7)
     project_root: str | None
     items: tuple[StateItem, ...]
-    fingerprint: str   # sha256 over the bytes of the files read; changes when any of them changes
+    fingerprint: str  # sha256 over the bytes of the files read; changes when any of them changes
     cli_version: str
     warnings: tuple[str, ...] = ()
 ```

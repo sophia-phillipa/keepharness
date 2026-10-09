@@ -107,8 +107,11 @@ def run_codex_route(tmp_path, provider, project, backend_config=None):
         "integrations": SELECTED,
         "plugin_inventory": ["plugin:notes@market"],
         "personal_setup": True,  # host connectors and plugins are the owner's opt-in (D01)
-        **({"api_provider": {"url": "https://example.invalid", "key_file": str(key)}}
-           if provider == "deepseek" else {}),
+        **(
+            {"api_provider": {"url": "https://example.invalid", "key_file": str(key)}}
+            if provider == "deepseek"
+            else {}
+        ),
         **(backend_config or {}),
     }
     with (
@@ -147,7 +150,11 @@ def test_mcp_gating_matrix(tmp_path, provider, mode):
     if provider == "codex":
         assert not set(HOST_SERVERS) & servers.keys()
         assert "plugins" not in thread["config"]
-        assert thread["approvalPolicy"] == turn["approvalPolicy"] == ("never" if mode in ("full", "read_only") else "on-request")
+        assert (
+            thread["approvalPolicy"]
+            == turn["approvalPolicy"]
+            == ("never" if mode in ("full", "read_only") else "on-request")
+        )
         return
     host = {name: servers[name] for name in HOST_SERVERS}
     if mode == "read_only":

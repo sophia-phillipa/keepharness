@@ -1323,7 +1323,9 @@ def test_admin_imports_a_vpn_key_era_bind_as_loopback(admin_pair):
             headers = {"X-Harness-Admin": "1"}
             bundle = (await client.post("/api/settings-export", json={}, headers=headers)).json()
             bundle["settings"]["vpn_bind"] = "10.44.0.2"
-            return await client.post("/api/settings-import", json={"bundle": bundle}, headers=headers)
+            return await client.post(
+                "/api/settings-import", json={"bundle": bundle}, headers=headers
+            )
         finally:
             await client.aclose()
 

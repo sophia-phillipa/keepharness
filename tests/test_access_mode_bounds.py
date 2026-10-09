@@ -203,17 +203,29 @@ def test_access_menu_metadata_matches_actual_native_commands(tmp_path, mode, she
     identity = ("local", {"projects": ["p"]})
     config = {"codex": {"unrestricted": True}, "claude": {"unrestricted": True}}
     service = SimpleNamespace(
-        config=config, models_with_context=AsyncMock(return_value=entries),
-        project=lambda *a: None, identity=lambda *a, **k: identity, uploads_enabled=lambda *a: False,
+        config=config,
+        models_with_context=AsyncMock(return_value=entries),
+        project=lambda *a: None,
+        identity=lambda *a, **k: identity,
+        uploads_enabled=lambda *a: False,
     )
     response = asyncio.run(models_route(SimpleNamespace(query_params={}), service, identity))
     codex, claude = json.loads(response.body)["models"]
     project, _ = codex_project(tmp_path, mode, grants)
     _, thread, turn = run_codex_route(tmp_path, "codex", project)
-    assert codex["access_modes"][mode] == {key: thread[key] for key in ("sandbox", "approvalPolicy")}
+    assert codex["access_modes"][mode] == {
+        key: thread[key] for key in ("sandbox", "approvalPolicy")
+    }
     assert codex["access_modes"][mode]["approvalPolicy"] == turn["approvalPolicy"]
     command = claude_command(
-        {"binary": "claude", "unrestricted": True}, "fixture", tmp_path,
-        effective_permissions(grants, mode), [], mode, [],
+        {"binary": "claude", "unrestricted": True},
+        "fixture",
+        tmp_path,
+        effective_permissions(grants, mode),
+        [],
+        mode,
+        [],
     )
-    assert claude["access_modes"][mode] == {"permissionMode": command[command.index("--permission-mode") + 1]}
+    assert claude["access_modes"][mode] == {
+        "permissionMode": command[command.index("--permission-mode") + 1]
+    }

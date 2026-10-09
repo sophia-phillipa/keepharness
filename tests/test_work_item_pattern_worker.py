@@ -66,7 +66,9 @@ STUCK_SECONDS = 3
 
 def test_worker_that_never_signals_ready_is_killed(monkeypatch, children):
     monkeypatch.setattr(work_items, "_STARTUP_SECONDS", 0.3)
-    monkeypatch.setattr(work_items, "_MATCH_REFERENCES", f"import time\ntime.sleep({STUCK_SECONDS})\n")
+    monkeypatch.setattr(
+        work_items, "_MATCH_REFERENCES", f"import time\ntime.sleep({STUCK_SECONDS})\n"
+    )
     started = time.monotonic()
     with pytest.raises(APIError, match="invalid_work_item_pattern"):
         work_items.invocation_reference(
@@ -108,7 +110,9 @@ def test_interrupt_while_waiting_for_ready_still_reaps_the_worker(monkeypatch):
         return child
 
     monkeypatch.setattr(work_items.subprocess, "Popen", start)
-    monkeypatch.setattr(work_items, "_MATCH_REFERENCES", f"import time\ntime.sleep({STUCK_SECONDS})\n")
+    monkeypatch.setattr(
+        work_items, "_MATCH_REFERENCES", f"import time\ntime.sleep({STUCK_SECONDS})\n"
+    )
     started = time.monotonic()
     with pytest.raises(KeyboardInterrupt):
         work_items.invocation_reference(
@@ -198,7 +202,10 @@ def test_concurrent_matches_respect_the_worker_cap(monkeypatch):
 
     async def scenario():
         await asyncio.gather(
-            *(work_items.prematch_reference({}, PROJECT, DATA) for _ in range(work_items._MAX_WORKERS * 3))
+            *(
+                work_items.prematch_reference({}, PROJECT, DATA)
+                for _ in range(work_items._MAX_WORKERS * 3)
+            )
         )
 
     asyncio.run(scenario())
@@ -426,7 +433,9 @@ def test_submit_refuses_a_project_whose_deletion_finished_during_admission(tmp_p
         # Neither "deleting" nor "deleted" was set at the first look; both have passed by now.
         service.deleted_project_folders.add("p")
 
-    monkeypatch.setattr(conversation_service, "prematch_reference", deletion_finishes_while_matching)
+    monkeypatch.setattr(
+        conversation_service, "prematch_reference", deletion_finishes_while_matching
+    )
     try:
         with pytest.raises(APIError, match="project_folder_deleted") as error:
             asyncio.run(service.submit_async(identity, data))

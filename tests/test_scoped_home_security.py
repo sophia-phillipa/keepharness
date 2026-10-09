@@ -113,7 +113,11 @@ def test_private_key_rejects_planted_links(tmp_path):
 
 SENTINEL = "SENTINEL-PERSONAL-SETUP"
 
-FAKE_CODEX = "SAFE_CONFIG = " + repr(SAFE_CONFIG) + "\n" + """
+FAKE_CODEX = (
+    "SAFE_CONFIG = "
+    + repr(SAFE_CONFIG)
+    + "\n"
+    + """
 import json, os, sys
 from pathlib import Path
 record = {"argv": sys.argv, "env": dict(os.environ), "requests": []}
@@ -138,6 +142,7 @@ for line in sys.stdin:
     elif ident is not None:
         emit({"id": ident, "result": {}})
 """
+)
 
 FAKE_CLAUDE = """
 import json, os, sys
@@ -220,7 +225,9 @@ def provider_turn(tmp_path, provider, *, personal=False, mode="auto", scheduled=
         "integrations": ["mcp:sentinel_mcp"],
         "unrestricted": True,
         # What the dispatch adds for an owner's own conversation (not scheduled).
-        **run_settings({"personal_setup": personal}, provider, data={"schedule_id": "s"} if scheduled else {}),
+        **run_settings(
+            {"personal_setup": personal}, provider, data={"schedule_id": "s"} if scheduled else {}
+        ),
     }
     if provider == "deepseek":
         key = tmp_path / "state" / "deepseek.key"
@@ -239,7 +246,15 @@ def provider_turn(tmp_path, provider, *, personal=False, mode="auto", scheduled=
             config,
             "Hello",
             lambda *_: None,
-            {"permissions": {"read": True, "write": mode != "read_only", "shell": mode != "read_only", "hooks": False}, "access_mode": mode},
+            {
+                "permissions": {
+                    "read": True,
+                    "write": mode != "read_only",
+                    "shell": mode != "read_only",
+                    "hooks": False,
+                },
+                "access_mode": mode,
+            },
             "fixture",
             "low" if provider != "claude" else "configured",
             session,
@@ -257,7 +272,9 @@ def seen_text(record):
 
 @pytest.mark.parametrize("provider", ["codex", "claude"])
 @pytest.mark.parametrize("personal", [False, True])
-def test_native_home_and_sessions_ignore_retired_opt_in(tmp_path, personal_home, provider, personal):
+def test_native_home_and_sessions_ignore_retired_opt_in(
+    tmp_path, personal_home, provider, personal
+):
     from adapters.shared.provider_setup import LANGUAGE_RULE
 
     record = provider_turn(tmp_path, provider, personal=personal)

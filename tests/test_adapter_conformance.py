@@ -169,7 +169,8 @@ emit({"type":"result", "subtype":"success", "result":"SYNTHETIC_GLOBAL_AGENT_REV
                     for kind, data in events
                 )
                 assert any(
-                    kind == "hook_scope" and data["scope"] == "global_and_project" for kind, data in events
+                    kind == "hook_scope" and data["scope"] == "global_and_project"
+                    for kind, data in events
                 )
                 assert any(
                     kind == "gate_resolved" and data["resolved_by"] == "local"

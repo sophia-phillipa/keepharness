@@ -75,20 +75,30 @@ const path = require("node:path");
       return route.fulfill({ json: data });
     });
     const ready = async () => {
-      await page.addInitScript(() => localStorage.setItem("keepharness-tour-seen", "0.16.0"));
+      await page.addInitScript(() =>
+        localStorage.setItem("keepharness-tour-seen", "0.16.0"),
+      );
       await page.goto("http://panel.test");
       await page.locator("#startup-gate").waitFor({ state: "hidden" });
-    // Projects are listed open by default in the Codex-style sidebar.
-    if (!(await page.locator("#project-tree").evaluate((el) => el.open)))
-      await page.locator("#project-tree > summary").click();
+      // Projects are listed open by default in the Codex-style sidebar.
+      if (!(await page.locator("#project-tree").evaluate((el) => el.open)))
+        await page.locator("#project-tree > summary").click();
     };
     await ready();
     assert.equal(await page.locator(".project-group").count(), 2);
     // Project folders start expanded (Codex model, Sophia 2026-10-03); open it only if collapsed.
-    if (!(await page.locator('[data-project-id="alpha"]').evaluate((el) => el.open)))
-      await page.locator('[data-project-id="alpha"] > summary > button').click();
+    if (
+      !(await page
+        .locator('[data-project-id="alpha"]')
+        .evaluate((el) => el.open))
+    )
+      await page
+        .locator('[data-project-id="alpha"] > summary > button')
+        .click();
     await page
-      .locator(".conversation-title").filter({ hasText: /^Preserved conversation$/ }).first()
+      .locator(".conversation-title")
+      .filter({ hasText: /^Preserved conversation$/ })
+      .first()
       .waitFor();
     const logo = page.locator('[data-project-id="alpha"] .project-logo');
     assert.equal(await logo.count(), 1);

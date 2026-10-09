@@ -50,7 +50,9 @@ def execution_failed(provider, error=None):
 
 
 class RPC:
-    def __init__(self, process, idle_timeout_seconds=300, config=None, provider="codex", event=None):
+    def __init__(
+        self, process, idle_timeout_seconds=300, config=None, provider="codex", event=None
+    ):
         self.process = process
         self.watchdog = IdleWatchdog(
             {"idle_timeout_seconds": idle_timeout_seconds, **(config or {})}
@@ -79,10 +81,19 @@ class RPC:
         kind = item.get("method")
         if kind in ("warning", "configWarning") and self.event is not None:
             params = item.get("params", {})
-            self.event("provider_warning", {
-                "backend": self.provider,
-                "message": provider_message({**params, "message": params.get("message") or params.get("summary"), "additionalDetails": params.get("details")}),
-            })
+            self.event(
+                "provider_warning",
+                {
+                    "backend": self.provider,
+                    "message": provider_message(
+                        {
+                            **params,
+                            "message": params.get("message") or params.get("summary"),
+                            "additionalDetails": params.get("details"),
+                        }
+                    ),
+                },
+            )
         content = item.get("params", {}).get("item", {})
         if kind in ("item/started", "item/completed") and content.get("type") in (
             "mcpToolCall",

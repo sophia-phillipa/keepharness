@@ -41,4 +41,3 @@ def scoped_home_read(home, name):
             if not stat.S_ISREG(metadata.st_mode) or metadata.st_nlink != 1:
                 raise ToolError("unsafe_scoped_home")
             return stream.read()
-

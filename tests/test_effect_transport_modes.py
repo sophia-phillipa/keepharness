@@ -115,8 +115,11 @@ def test_native_configs_use_owned_server_and_disable_host_impersonation(tmp_path
     import os
 
     from adapters.codex.native import build_command as codex_command
+
     home = Path(os.environ["CODEX_HOME"])
-    (home / "config.toml").write_text('[mcp_servers.harness_effects]\ncommand="host-should-not-run"\n')
+    (home / "config.toml").write_text(
+        '[mcp_servers.harness_effects]\ncommand="host-should-not-run"\n'
+    )
     assert "mcp_servers.harness_effects.enabled=false" in codex_command("fixture", {})
 
 

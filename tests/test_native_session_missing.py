@@ -341,8 +341,15 @@ def run_codex(executable, session, provider, tmp_path):
         config["api_provider"] = {"url": "http://127.0.0.1:9/v1", "key_file": str(key)}
     return asyncio.run(
         adapters.run_native(
-            config, "hello", lambda *_: None, {"permissions": {}}, "fixture", "low", session,
-            provider, approve,
+            config,
+            "hello",
+            lambda *_: None,
+            {"permissions": {}},
+            "fixture",
+            "low",
+            session,
+            provider,
+            approve,
         )
     )
 

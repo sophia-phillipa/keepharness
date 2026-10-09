@@ -7,7 +7,10 @@ const fs = require("node:fs");
 const path = require("node:path");
 const assert = require("node:assert/strict");
 
-const LINT = fs.readFileSync(path.join(__dirname, "support", "layout-lint.js"), "utf8");
+const LINT = fs.readFileSync(
+  path.join(__dirname, "support", "layout-lint.js"),
+  "utf8",
+);
 const BASE = `<style>
   body { margin: 0; font: 14px sans-serif }
   .abs { position: absolute }
@@ -20,7 +23,8 @@ const CASES = [
     name: "two real controls that overlap are reported",
     html: `<button class="abs" style="left:20px;top:20px;width:120px;height:40px">First</button>
            <button class="abs" style="left:100px;top:30px;width:120px;height:40px">Second</button>`,
-    expect: (r) => assert.equal(r.overlaps.length, 1, JSON.stringify(r.overlaps)),
+    expect: (r) =>
+      assert.equal(r.overlaps.length, 1, JSON.stringify(r.overlaps)),
   },
   {
     name: "text that runs under a real icon button is reported",
@@ -70,7 +74,11 @@ const CASES = [
     name: "a long textarea value scrolls while a clipped placeholder is reported",
     html: `<textarea id="v" class="abs" style="left:20px;top:20px;width:150px;height:40px;white-space:pre">a long line of text that runs past the right edge of this box</textarea>
            <textarea id="p" class="abs" style="left:20px;top:100px;width:150px;height:40px;white-space:pre" placeholder="a long placeholder that runs past the right edge of this box"></textarea>`,
-    expect: (r) => assert.deepEqual(r.fields.map((f) => f.sel), ["#p"]),
+    expect: (r) =>
+      assert.deepEqual(
+        r.fields.map((f) => f.sel),
+        ["#p"],
+      ),
   },
 ];
 
@@ -78,7 +86,9 @@ const CASES = [
   const browser = await chromium.launch();
   const failures = [];
   try {
-    const page = await browser.newPage({ viewport: { width: 500, height: 400 } });
+    const page = await browser.newPage({
+      viewport: { width: 500, height: 400 },
+    });
     for (const c of CASES) {
       await page.setContent(BASE + c.html);
       const report = await page.evaluate(LINT);
@@ -92,7 +102,11 @@ const CASES = [
     await browser.close();
   }
   if (failures.length) {
-    console.error(failures.length + " layout lint self-test failure(s):\n- " + failures.join("\n- "));
+    console.error(
+      failures.length +
+        " layout lint self-test failure(s):\n- " +
+        failures.join("\n- "),
+    );
     process.exit(1);
   }
   console.log(`PASS: layout lint self-test, ${CASES.length} cases`);

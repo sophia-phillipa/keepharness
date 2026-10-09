@@ -235,7 +235,9 @@ const path = require("node:path");
       }
       return route.fulfill({ json: data });
     });
-    await page.addInitScript(() => localStorage.setItem("keepharness-tour-seen", "0.16.0"));
+    await page.addInitScript(() =>
+      localStorage.setItem("keepharness-tour-seen", "0.16.0"),
+    );
     await page.goto(process.env.HARNESS_URL || "http://panel.test/");
     await page.locator("#startup-gate").waitFor({ state: "hidden" });
     for (const [id, label] of [
@@ -339,8 +341,16 @@ const path = require("node:path");
     );
     await page.locator("#activity-panel").waitFor({ state: "visible" });
     // D-033: the seeded view is Activities; the file tree appears once Files is chosen.
-    assert.equal(await page.locator("#activities-view").isVisible(), true, "the seeded Activities view is shown");
-    assert.equal(await page.locator("#files-view").isVisible(), false, "the file tree waits for the Files view");
+    assert.equal(
+      await page.locator("#activities-view").isVisible(),
+      true,
+      "the seeded Activities view is shown",
+    );
+    assert.equal(
+      await page.locator("#files-view").isVisible(),
+      false,
+      "the file tree waits for the Files view",
+    );
     await page.click("#files-toggle");
     // D-033: the tree lives in System Files; Project Files is the default open section.
     await page.click("#workspace-system-files-head");
@@ -362,7 +372,11 @@ const path = require("node:path");
         .count(),
       0,
     );
-    assert.equal(await page.locator("#activities-view").isVisible(), false, "the Activities and Files views are exclusive");
+    assert.equal(
+      await page.locator("#activities-view").isVisible(),
+      false,
+      "the Activities and Files views are exclusive",
+    );
     assert.equal(
       await page.locator("#files-toggle").getAttribute("aria-expanded"),
       "true",
@@ -378,7 +392,8 @@ const path = require("node:path");
     );
     // UX-R1-6 / D-033: the Files view fills the panel (the Activities accordion is hidden), instead of a 160 px window.
     const layout = await page.evaluate(() => {
-      const box = (selector) => document.querySelector(selector).getBoundingClientRect();
+      const box = (selector) =>
+        document.querySelector(selector).getBoundingClientRect();
       const panel = document.querySelector("#activity-panel");
       return {
         files: box("#workspace-system-files").height,
@@ -391,17 +406,34 @@ const path = require("node:path");
         scrolls: panel.scrollHeight > panel.clientHeight,
       };
     });
-    assert(layout.files >= 168, "the System Files body is at least 168 px: " + JSON.stringify(layout));
-    assert(layout.scrolls || layout.files > 160, "the Files body is not the old 160 px window");
-    assert.equal(layout.activities, 0, "the hidden Activities accordion takes no height: " + JSON.stringify(layout));
+    assert(
+      layout.files >= 168,
+      "the System Files body is at least 168 px: " + JSON.stringify(layout),
+    );
+    assert(
+      layout.scrolls || layout.files > 160,
+      "the Files body is not the old 160 px window",
+    );
+    assert.equal(
+      layout.activities,
+      0,
+      "the hidden Activities accordion takes no height: " +
+        JSON.stringify(layout),
+    );
     assert(
       layout.view >= layout.panelBottom - layout.controlsBottom - 120,
-      "the Files view (both accordion sections) fills the panel under the switch: " + JSON.stringify(layout),
+      "the Files view (both accordion sections) fills the panel under the switch: " +
+        JSON.stringify(layout),
     );
     // The folder chevrons are 24 px targets.
-    for (const chevron of await page.locator("#files-tree .file-chevron").all()) {
+    for (const chevron of await page
+      .locator("#files-tree .file-chevron")
+      .all()) {
       const size = await chevron.boundingBox();
-      assert(size.width >= 24 && size.height >= 24, "chevron " + JSON.stringify(size));
+      assert(
+        size.width >= 24 && size.height >= 24,
+        "chevron " + JSON.stringify(size),
+      );
     }
     assert.deepEqual(await page.locator(".file-root").allTextContents(), [
       "Local Folders",
@@ -661,7 +693,8 @@ const path = require("node:path");
     await page.reload();
     await page.locator("#startup-gate").waitFor({ state: "hidden" });
     // Chat-first shell: without a saved preference the files panel starts closed; open it.
-    if (await page.locator("#activity-panel").isHidden()) await page.click("#panel-toggle");
+    if (await page.locator("#activity-panel").isHidden())
+      await page.click("#panel-toggle");
     assert.equal(
       await page.locator("#prompt").inputValue(),
       "Draft with attachment before reloading",
@@ -912,7 +945,9 @@ const path = require("node:path");
       await page.locator("#model-trigger .model-picker-icon").count(),
       1,
     );
-    await page.screenshot({ path: "/tmp/keepharness-model-identity-mobile.png" });
+    await page.screenshot({
+      path: "/tmp/keepharness-model-identity-mobile.png",
+    });
     await page.click("#panel-toggle");
     await page.locator("#activity-panel").waitFor({ state: "visible" });
     assert.equal(
