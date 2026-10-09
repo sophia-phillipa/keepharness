@@ -57,9 +57,9 @@ and 8095 are refused unless `--allow-default-ports` is passed on purpose.
 `fixture/serve_fixture.py` starts an admin and a harness on their own ports (18510/18511
 by default, `--fixture-ports` to change), with a private `HOME`, a temporary state folder,
 a fixture project (`Alpha research`) with files, an agent, a skill and a command, and one
-connector. The fixture retains a legacy personal-setup flag, which its plugins area may
-change by rewriting the harness config; native Codex and Claude no longer use that flag
-to filter orchestration (#45). The admin area signs in with a one-time link minted from
+connector. The fixture retains a legacy personal-setup flag in the harness config, but no
+step changes it any more: native Codex and Claude no longer use that flag to filter
+orchestration (#45), and the plugins area asserts the native-CLI facade (#45, #61). The admin area signs in with a one-time link minted from
 the fixture's secret. Both provider CLIs are `fixture/fake_provider.py`: a Claude Code stand-in
 (stream-json) and a Gemini stand-in (ACP). Nothing calls a cloud model. The newest marker
 in a prompt picks the behavior: `OP-SLOW`, `OP-TABLE`, `OP-IMAGE`, `OP-TOOLS`,

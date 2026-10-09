@@ -5,7 +5,10 @@ const { home } = require("../lib/app.cjs");
 
 function contrast(a, b) {
   const lum = (hex) => {
-    const [r, g, bl] = hex.match(/\w\w/g).map((x) => parseInt(x, 16) / 255).map((c) => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4));
+    const [r, g, bl] = hex
+      .match(/\w\w/g)
+      .map((x) => parseInt(x, 16) / 255)
+      .map((c) => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4));
     return 0.2126 * r + 0.7152 * g + 0.0722 * bl;
   };
   const [x, y] = [lum(a), lum(b)].sort((p, q) => q - p);
@@ -17,73 +20,170 @@ module.exports = {
   title: "Light and dark themes",
   async run(op) {
     const page = op.page;
-    const palette = () => page.evaluate(() => document.documentElement.dataset.palette);
+    // The Settings button opens a submenu; its Appearance item opens the dialog at that section.
+    const openAppearance = async () => {
+      await op.click(page.locator("#settings"));
+      await op.click(
+        page
+          .locator("#settings-menu")
+          .getByRole("menuitem", { name: "Appearance", exact: true }),
+      );
+      await op.see(page.locator("#settings-dialog"));
+    };
+    const palette = () =>
+      page.evaluate(() => document.documentElement.dataset.palette);
     const tokens = () =>
       page.evaluate(() => {
         const style = getComputedStyle(document.documentElement);
-        return { muted: style.getPropertyValue("--th-muted").trim(), panel: style.getPropertyValue("--th-panel").trim() };
+        return {
+          muted: style.getPropertyValue("--th-muted").trim(),
+          panel: style.getPropertyValue("--th-panel").trim(),
+        };
       });
 
-    await op.step("home", "Start in the light theme", async () => {
-      await home(op);
-      if ((await palette()) !== "paper") await page.evaluate(() => window.HarnessTheme?.apply("paper"));
-      await op.until(async () => (await palette()) === "paper", "not in Paper");
-    }, { critical: true });
+    await op.step(
+      "home",
+      "Start in the light theme",
+      async () => {
+        await home(op);
+        if ((await palette()) !== "paper")
+          await page.evaluate(() => window.HarnessTheme?.apply("paper"));
+        await op.until(
+          async () => (await palette()) === "paper",
+          "not in Paper",
+        );
+      },
+      { critical: true },
+    );
 
-    await op.step("light-contrast", "Light theme: muted text has at least 4.5:1 contrast", async () => {
-      const { muted, panel } = await tokens();
-      const ratio = contrast(muted, panel);
-      op.check(ratio >= 4.5, `muted ${muted} on ${panel} is ${ratio.toFixed(2)}:1`);
-    });
+    await op.step(
+      "light-contrast",
+      "Light theme: muted text has at least 4.5:1 contrast",
+      async () => {
+        const { muted, panel } = await tokens();
+        const ratio = contrast(muted, panel);
+        op.check(
+          ratio >= 4.5,
+          `muted ${muted} on ${panel} is ${ratio.toFixed(2)}:1`,
+        );
+      },
+    );
 
-    await op.step("toggle-dark", "The Appearance toggle switches to the dark theme", async () => {
-      await op.click(page.locator("#settings"));
-      await op.click(page.locator("#theme-toggle"));
-      await op.click(page.locator("#settings-close"));
-      await op.until(async () => (await palette()) === "graphite", "the toggle did not switch to Graphite");
-      op.check((await page.evaluate(() => document.documentElement.dataset.theme)) === "dark", "data-theme is not dark");
-    });
+    await op.step(
+      "toggle-dark",
+      "The Appearance toggle switches to the dark theme",
+      async () => {
+        await openAppearance();
+        await op.click(page.locator("#theme-toggle"));
+        await op.click(page.locator("#settings-close"));
+        await op.until(
+          async () => (await palette()) === "graphite",
+          "the toggle did not switch to Graphite",
+        );
+        op.check(
+          (await page.evaluate(
+            () => document.documentElement.dataset.theme,
+          )) === "dark",
+          "data-theme is not dark",
+        );
+      },
+    );
 
-    await op.step("dark-contrast", "Dark theme: muted text has at least 4.5:1 contrast", async () => {
-      const { muted, panel } = await tokens();
-      const ratio = contrast(muted, panel);
-      op.check(ratio >= 4.5, `muted ${muted} on ${panel} is ${ratio.toFixed(2)}:1`);
-    }, { recover: false });
+    await op.step(
+      "dark-contrast",
+      "Dark theme: muted text has at least 4.5:1 contrast",
+      async () => {
+        const { muted, panel } = await tokens();
+        const ratio = contrast(muted, panel);
+        op.check(
+          ratio >= 4.5,
+          `muted ${muted} on ${panel} is ${ratio.toFixed(2)}:1`,
+        );
+      },
+    );
 
-    await op.step("dark-persists", "The dark theme survives a reload", async () => {
-      await page.reload();
-      await page.locator("#startup-gate").waitFor({ state: "hidden", timeout: 30000 });
-      await op.until(async () => (await palette()) === "graphite", "the theme reset after a reload");
-    });
+    await op.step(
+      "dark-persists",
+      "The dark theme survives a reload",
+      async () => {
+        // theme.js caches the theme in localStorage; drop that cache so the reload can only get
+        // graphite back from the backend store (reconcileTheme, ui-prefs.js).
+        await page.evaluate(async () => {
+          await HarnessPrefs.flush();
+          localStorage.removeItem("keepharness:theme:harness");
+        });
+        await page.reload();
+        await page
+          .locator("#startup-gate")
+          .waitFor({ state: "hidden", timeout: 30000 });
+        await op.until(
+          async () => (await palette()) === "graphite",
+          "the theme reset after a reload",
+        );
+      },
+    );
 
-    await op.step("dark-conversation", "Dark theme: an existing conversation (linted)", async () => {
-      const last = page.locator("#sidebar").getByRole("button").filter({ hasText: /Completed/ }).filter({ visible: true }).first();
-      if (!(await last.count())) op.skip("no finished conversation to open");
-      await op.click(last);
-      await op.see(page.locator("#messages").getByRole("article").first());
-    });
+    await op.step(
+      "dark-conversation",
+      "Dark theme: an existing conversation (linted)",
+      async () => {
+        const last = page
+          .locator("#sidebar")
+          .getByRole("button")
+          .filter({ hasText: /Completed/ })
+          .filter({ visible: true })
+          .first();
+        if (!(await last.count())) op.skip("no finished conversation to open");
+        await op.click(last);
+        await op.see(page.locator("#messages").getByRole("article").first());
+      },
+    );
 
-    await op.step("dark-settings", "Dark theme: Settings (linted)", async () => {
-      await op.click(page.locator("#settings"));
-      await op.see(page.locator("#settings-dialog"));
-      await op.click(page.locator("#settings-close"));
-    });
+    await op.step(
+      "dark-settings",
+      "Dark theme: Settings (linted)",
+      async () => {
+        await openAppearance();
+        await op.click(page.locator("#settings-close"));
+      },
+    );
 
-    await op.step("dark-admin-follows", "The embedded admin follows the dark theme", async () => {
-      await op.click(page.locator("#settings"));
-      const providers = page.locator("#settings-dialog").getByRole("button", { name: "Providers", exact: true });
-      if (!(await providers.isVisible())) op.skip("System is shown only on the admin's own host");
-      await op.click(providers);
-      await op.see(page.locator("#admin-frame"), 15000);
-      await op.until(async () => (await page.frameLocator("#admin-frame").locator("html").getAttribute("data-palette")) === "graphite", "the admin stayed light");
-      await op.click(page.locator("#settings-close"));
-    });
+    await op.step(
+      "dark-admin-follows",
+      "The embedded admin follows the dark theme",
+      async () => {
+        await openAppearance();
+        const providers = page
+          .locator("#settings-dialog")
+          .getByRole("button", { name: "Providers", exact: true });
+        if (!(await providers.isVisible()))
+          op.skip("System is shown only on the admin's own host");
+        await op.click(providers);
+        await op.see(page.locator("#admin-frame"), 15000);
+        await op.until(
+          async () =>
+            (await page
+              .frameLocator("#admin-frame")
+              .locator("html")
+              .getAttribute("data-palette")) === "graphite",
+          "the admin stayed light",
+        );
+        await op.click(page.locator("#settings-close"));
+      },
+    );
 
-    await op.step("toggle-light", "Toggle back to the light theme", async () => {
-      await op.click(page.locator("#settings"));
-      await op.click(page.locator("#theme-toggle"));
-      await op.click(page.locator("#settings-close"));
-      await op.until(async () => (await palette()) === "paper", "the toggle did not return to Paper");
-    });
+    await op.step(
+      "toggle-light",
+      "Toggle back to the light theme",
+      async () => {
+        await openAppearance();
+        await op.click(page.locator("#theme-toggle"));
+        await op.click(page.locator("#settings-close"));
+        await op.until(
+          async () => (await palette()) === "paper",
+          "the toggle did not return to Paper",
+        );
+      },
+    );
   },
 };
