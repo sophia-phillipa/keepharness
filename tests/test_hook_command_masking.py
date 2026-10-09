@@ -437,3 +437,22 @@ def test_model_ids_keep_their_digits(model):
 def test_a_separated_token_is_not_a_model_id(token):
     assert safe_details({"model": token})["model"] == PLACEHOLDER
 
+
+
+def test_the_instructions_content_hash_never_reaches_the_api_snapshot():
+    from adapters.shared.provider_state import StateItem, StateSnapshot
+    from control.provider_state import snapshot_json
+
+    item = StateItem(
+        "instructions:x",
+        "instructions",
+        "AGENTS.md",
+        "user",
+        True,
+        "~/AGENTS.md",
+        False,
+        details={"title": "t", "content_sha256": "ab" * 32},
+    )
+    snapshot = StateSnapshot("claude", "claude", None, (item,), "fp", "1")
+    assert "content_sha256" not in json.dumps(snapshot_json(snapshot))
+    assert snapshot.items[0].details["content_sha256"]

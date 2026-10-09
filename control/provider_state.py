@@ -155,6 +155,7 @@ def snapshot_json(snapshot: StateSnapshot) -> dict:
     result = dataclasses.asdict(snapshot)
     for item in result["items"]:
         item.pop("content_digest")  # server-side only; a weak secret could be checked against it
+        item["details"].pop("content_sha256", None)  # same weak-secret concern as the digest
         if not item["details"]:
             item.pop("details")
     return result  # preserve the existing item wire shape when no details apply
