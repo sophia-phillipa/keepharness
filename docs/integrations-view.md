@@ -58,8 +58,8 @@ validated the same way; `access_mode` is one of `ask` (default), `auto`, `full`,
   not apply a KeepHarness integrations filter, and remote Codex apps are not hidden.
 - For other routes (DeepSeek, Gemini, local), `allowed` is always `false` and `effective`
   is false: since 0.16.0 (#46) there is no per-provider allow list
-  (`services.<provider>.integrations` is gone from the settings); Gemini uses its native
-  connector configuration. `reason` says why. The route rules below still decide the
+  (`services.<provider>.integrations` is gone from the settings); Gemini connectors are off
+  (fail-closed); native Gemini connectors are a follow-up. `reason` says why. The route rules below still decide the
   explanation:
 
   | Route | Result |

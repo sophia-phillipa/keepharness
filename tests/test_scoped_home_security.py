@@ -285,9 +285,10 @@ def test_native_home_and_sessions_ignore_retired_opt_in(
         assert not any("features.hooks=" in arg for arg in record["argv"])
 
 
-def test_deepseek_keeps_its_dedicated_home(tmp_path, personal_home):
+@pytest.mark.parametrize("personal", [False, True])
+def test_deepseek_keeps_its_dedicated_home(tmp_path, personal_home, personal):
     before = snapshot(personal_home)
-    record = provider_turn(tmp_path, "deepseek")
+    record = provider_turn(tmp_path, "deepseek", personal=personal)
     assert snapshot(personal_home) == before
     assert Path(record["env"]["CODEX_HOME"]) == tmp_path / "state/providers/deepseek"
     assert record["env"]["HOME"] == record["env"]["CODEX_HOME"]

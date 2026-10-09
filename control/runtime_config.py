@@ -217,17 +217,10 @@ def check_mcp_defaults(cfg):
             raise UserMessageError("Check the default MCP effort before starting.")
 
 
-def mark_unrestricted(cfg, integrations):
-    """``integrations`` is called only when codex or deepseek is configured."""
+def mark_unrestricted(cfg):
     for provider in ("codex", "claude", "deepseek"):
         if provider in cfg:
             cfg[provider]["unrestricted"] = True
-            if provider in ("codex", "deepseek"):
-                cfg[provider]["plugin_inventory"] = [
-                    item["id"]
-                    for item in integrations().get(provider, [])
-                    if item.get("kind") == "plugin"
-                ]
 
 
 def build_clients(cfg, settings, state, previous):

@@ -107,21 +107,6 @@ def item_reason(allowed: bool, limits: Limits) -> str:
     return limits.blocked_if_allowed if allowed else NOT_ALLOWED
 
 
-def with_plugin_catalog(config: Settings, backend: str, installed: list[Item]) -> list[Item]:
-    """Swap the profile's plugins for the list the adapter really toggles (``codex plugin list``)."""
-    if backend in NATIVE_BACKENDS:
-        return installed
-    catalog = config.get(backend, {}).get("plugin_inventory")
-    if not isinstance(catalog, list):
-        return installed
-    plugins = [
-        {"id": plugin, "kind": "plugin", "name": plugin.split(":", 1)[1], "status": "installed"}
-        for plugin in catalog
-        if isinstance(plugin, str) and plugin.startswith("plugin:")
-    ]
-    return [item for item in installed if item.get("kind") != "plugin"] + plugins
-
-
 def read_catalog() -> dict[str, list[Item]] | None:
     """Every provider's installed items, read once per view; ``None`` when unreadable."""
     try:
@@ -131,17 +116,15 @@ def read_catalog() -> dict[str, list[Item]] | None:
         return None
 
 
-def load_items(
-    config: Settings, backend: str, catalog: dict[str, list[Item]] | None
-) -> tuple[list[Item], list[str]]:
+def load_items(backend: str, catalog: dict[str, list[Item]] | None) -> tuple[list[Item], list[str]]:
     """The backend's installed items; DeepSeek's own home sees no host connectors (D01)."""
     if backend == "deepseek":
         return [], [DEEPSEEK_OWN_HOME]
-    return read_inventory(config, backend, catalog)
+    return read_inventory(backend, catalog)
 
 
 def read_inventory(
-    config: Settings, backend: str, catalog: dict[str, list[Item]] | None
+    backend: str, catalog: dict[str, list[Item]] | None
 ) -> tuple[list[Item], list[str]]:
     """The provider's installed connectors then plugins, as ``(items, warnings)``."""
     if catalog is None:
@@ -149,7 +132,7 @@ def read_inventory(
     installed = catalog.get(backend, [])
     items = [
         {key: item.get(key) for key in PUBLIC_KEYS}
-        for item in with_plugin_catalog(config, backend, installed)
+        for item in installed
         if not item["name"].startswith(INTERNAL_PREFIX)
     ]
     return sorted(items, key=lambda item: (item["kind"] != "mcp", item["name"])), []
@@ -226,7 +209,7 @@ def build(
 ) -> Item:
     """The ``/v1/integrations`` response for one route; ``usage_rows`` come from the repository."""
     catalog = read_catalog()
-    items, warnings = load_items(config, route.backend, catalog)
+    items, warnings = load_items(route.backend, catalog)
     limits = route_limits(config, route)
     used, other_tools = attribute_usage(items, usage_rows)
     for item in items:

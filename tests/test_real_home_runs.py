@@ -94,7 +94,7 @@ def test_tested_cli_has_no_version_warning(monkeypatch, provider, version):
 
 @pytest.mark.parametrize("provider", ["codex", "claude"])
 @pytest.mark.parametrize("mode", ["ask", "auto", "full", "read_only"])
-def test_spawned_native_cli_presets_and_schedule_use_owner_home(tmp_path, provider, mode):
+def test_spawned_native_cli_presets_use_owner_home(tmp_path, provider, mode):
     from tests.test_scoped_home_security import provider_turn
 
     if provider == "claude":

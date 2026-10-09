@@ -7,9 +7,9 @@ No owner CLI state or credentials are fixtures. No cloud inference is performed.
 
 | Requirement | Evidence |
 | --- | --- |
-| Native homes and all four presets, attended and scheduled | `tests/test_real_home_runs.py::test_spawned_native_cli_presets_and_schedule_use_owner_home` (16 spawned cases) and `test_native_presets_keep_real_home_and_orchestration` (16 builder cases) assert inherited environment, native modes and absent legacy filters. |
-| Absent home overrides stay absent | `tests/test_real_home_runs.py::test_unset_native_home_overrides_stay_unset` (both providers); `tests/test_env.py::test_native_homes_are_inherited_and_deepseek_home_is_separate`. |
-| No personal instruction injection or reads for Codex/Claude | `tests/test_real_home_runs.py::test_run_settings_never_reads_personal_files` and the preset matrix. |
+| Native homes and all four presets, attended and scheduled | `tests/test_real_home_runs.py::test_spawned_native_cli_presets_use_owner_home` (16 spawned cases) and `test_native_presets_keep_real_home_and_orchestration` (16 builder cases) assert inherited environment, native modes and absent legacy filters. |
+| Absent home overrides stay absent | `tests/test_real_home_runs.py::test_unset_native_home_overrides_stay_unset` (both providers); `tests/test_env.py::test_runtime_config_carries_no_provider_homes_or_allow_list`. |
+| No personal instruction injection or reads for Codex/Claude | `tests/test_scoped_home_security.py::test_native_home_and_sessions_ignore_retired_opt_in` and the preset matrix. |
 | Native resources without the retired opt-in | `tests/test_resources.py::test_native_resources_use_cli_home_for_every_preset_and_schedule` (32 cases) and `test_scheduled_run_resolves_native_owner_prompts`. |
 | Scheduled execution retains owner orchestration and network policy | `tests/test_schedule_internet.py::test_codex_scheduled_runs_keep_owner_network_grant` and `test_claude_scheduled_runs_keep_owner_web_tools` exercise `ConversationService.infer`; the Gemini control retains its existing behavior. |
 | Codex hooks pending review are visible and never bypassed | `tests/test_real_home_runs.py::test_codex_pending_hooks_are_visible_without_bypassing_review`, `test_codex_hook_warning_before_rpc_reply_is_visible_once` (initialize and thread-start), and the spawned matrix's forbidden-bypass assertion. |
@@ -17,7 +17,7 @@ No owner CLI state or credentials are fixtures. No cloud inference is performed.
 | Owner can read hook and version notices | `tests/chat-campaign-batch1.spec.cjs` asserts both messages in conversation activity and confirms hostile markup remains text. |
 | Project trust remains effective before a run | `tests/test_provider_trust.py::test_native_run_executes_hook_env_and_mcp_only_after_acceptance` and the trust transaction/deadline suites. |
 | Disabled MCP servers are not reintroduced | `tests/test_provider_trust_review.py::test_approved_disabled_project_mcp_never_executes`, `tests/test_provider_trust.py::test_project_mcp_cannot_replace_harness_effects`, and `tests/test_real_home_runs.py::test_native_reader_never_overwrites_owner_mcp_entry` (enabled and disabled collisions). |
-| DeepSeek, Local and cloud-scoped retirement remain separate | `tests/test_real_home_runs.py::test_deepseek_personal_instructions_remain_separate_from_native_homes`, `tests/test_deepseek_isolation.py`, `tests/test_local_sandbox.py`, `tests/test_cloud_scoped_retirement.py`. |
+| DeepSeek, Local and cloud-scoped retirement remain separate | `tests/test_scoped_home_security.py::test_deepseek_keeps_its_dedicated_home`, `tests/test_deepseek_isolation.py`, `tests/test_local_sandbox.py`, `tests/test_cloud_scoped_retirement.py`. |
 
 ## Review and red-first evidence
 

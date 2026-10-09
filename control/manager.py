@@ -613,7 +613,7 @@ class Manager:
         if not enabled and not allow_empty:
             raise UserMessageError("Enable at least one service.")
         runtime_config.check_mcp_defaults(cfg)
-        runtime_config.mark_unrestricted(cfg, self.integrations)
+        runtime_config.mark_unrestricted(cfg)
         runtime_config.build_clients(cfg, settings, self.state, self._previous_runtime())
         runtime_config.build_origins(cfg, settings, self.inventory)
         return cfg

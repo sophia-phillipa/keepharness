@@ -13,13 +13,19 @@ RETIRED_KEYS = [
 ]
 
 
+@pytest.mark.parametrize("model_provider", [None, "tail_api"])
 @pytest.mark.parametrize("config", RETIRED_KEYS)
-def test_native_runs_leave_owner_plugins_and_servers_alone(config, tmp_path):
+def test_native_runs_leave_owner_plugins_and_servers_alone(config, model_provider, tmp_path):
     workspace = SimpleNamespace(
         cwd="/tmp/project", permissions={"read": True, "write": True}, roots=[], home=tmp_path
     )
     params = thread_parameters(
-        config, {}, "fixture", workspace, RuntimeOptions(command=["codex"]), False
+        config,
+        {},
+        "fixture",
+        workspace,
+        RuntimeOptions(command=["codex"], model_provider=model_provider),
+        False,
     )
 
     assert "plugins" not in params["config"]

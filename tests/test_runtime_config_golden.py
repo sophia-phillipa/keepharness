@@ -246,7 +246,6 @@ def test_build_runtime_config_matches_golden_shape(tmp_path):
             "binary": "<PYTHON_RESOLVED>",
             "python": "<PYTHON>",
             "unrestricted": True,
-            "plugin_inventory": [],
         },
         "codex_models": {"gpt-5-codex": ["low", "medium"]},
         "claude": {
@@ -271,7 +270,6 @@ def test_build_runtime_config_matches_golden_shape(tmp_path):
                 "key_file": "<TMP>/control/deepseek.key",
             },
             "unrestricted": True,
-            "plugin_inventory": [],
         },
         "deepseek_models": {"deepseek-chat": ["configured"]},
         "tailscale_logins": {"person@example.com": "local"},
