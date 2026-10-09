@@ -1543,10 +1543,6 @@ const userErrors = {
     "Gemini can't run isolated conversations. Start a native conversation.",
   gemini_access_mode_invalid:
     "That access mode is not available for Gemini. Choose another one.",
-  gemini_integration_denied:
-    "A Gemini integration is blocked by policy. Ask the administrator.",
-  gemini_integration_unavailable:
-    "A Gemini integration is unavailable. Choose another model.",
   gemini_system_auth_conflict:
     "The server's Gemini settings conflict with the harness sign-in. Ask the administrator to review them.",
   gemini_system_policy_conflict:

@@ -31,7 +31,6 @@ def test_native_session_receives_the_harness_conversation_title(tmp_path, monkey
             "sonnet",
             tmp_path / "home",
             {"read": True},
-            [],
             lambda *_: asyncio.sleep(0),
             title="KeepHarness conversation  ",
         )

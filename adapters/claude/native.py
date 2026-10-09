@@ -14,7 +14,7 @@ from .stream import Stream
 MISSING_SESSION = "No conversation found with session ID:"
 
 
-def build_command(config, model, home, permissions, selected, access_mode, additional_roots):
+def build_command(config, model, home, permissions, access_mode, additional_roots):
     """Select a native permission mode and add only KeepHarness-owned servers."""
     selected_servers = {}
     policy = config.get("_project_security", {})
@@ -167,7 +167,6 @@ async def run(
     model,
     home,
     permissions,
-    selected,
     approve,
     images=None,
     access_mode="ask",
@@ -180,9 +179,7 @@ async def run(
         "_project_security": await asyncio.to_thread(project_security, config, Path(cwd)),
     }
     await asyncio.to_thread(version_notice, config["binary"], "claude", event)
-    command = build_command(
-        config, model, home, permissions, selected, access_mode, additional_roots
-    )
+    command = build_command(config, model, home, permissions, access_mode, additional_roots)
     if effort != "configured":
         command += ["--effort", effort]
     command += [

@@ -96,7 +96,6 @@ def test_temporary_claude_spawn_disables_persistence_and_resume(tmp_path):
                 "fixture",
                 tmp_path,
                 {},
-                [],
                 AsyncMock(),
             )
         )
@@ -108,5 +107,5 @@ def test_temporary_claude_spawn_disables_persistence_and_resume(tmp_path):
 
 
 def test_saved_claude_command_keeps_session_persistence(tmp_path):
-    command = claude.build_command({"binary": "fixture"}, "fixture", tmp_path, {}, [], "ask", [])
+    command = claude.build_command({"binary": "fixture"}, "fixture", tmp_path, {}, "ask", [])
     assert "--no-session-persistence" not in command

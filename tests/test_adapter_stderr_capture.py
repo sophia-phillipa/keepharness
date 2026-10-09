@@ -144,7 +144,6 @@ print(json.dumps({'type':'result','subtype':'error','is_error':True}), flush=Tru
                     "fake",
                     tmp_path,
                     {},
-                    [],
                     AsyncMock(),
                 )
             else:
