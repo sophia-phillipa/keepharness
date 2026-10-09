@@ -330,7 +330,8 @@ async def run_turn(
 ):
     home, cwd, prompt = workspace.home, workspace.cwd, workspace.prompt
     marker = home / "native-thread.json"
-    saved = session_marker(marker, provider)
+    temporary = config.get("temporary_chat") is True
+    saved = {} if temporary else session_marker(marker, provider)
     permissions, images = workspace.permissions, workspace.images
     access_mode = project.get("access_mode", "ask")
     ask = access_mode == "ask" and not runtime.isolated
@@ -405,18 +406,19 @@ async def run_turn(
             thread = await open_thread(rpc, "thread/resume", params, marker, provider)
             event("session_resumed", {"thread_id": params["threadId"]})
         else:
-            params["ephemeral"] = not bool(session_dir)
+            params["ephemeral"] = temporary or not bool(session_dir)
             thread = await open_thread(rpc, "thread/start", params, marker, provider)
         thread_id = thread["thread"]["id"]
-        marker.write_text(
-            json.dumps(
-                {
-                    "id": thread_id,
-                    **isolation,
-                    **({"usage_total": previous_usage} if previous_usage is not None else {}),
-                }
+        if not temporary:
+            marker.write_text(
+                json.dumps(
+                    {
+                        "id": thread_id,
+                        **isolation,
+                        **({"usage_total": previous_usage} if previous_usage is not None else {}),
+                    }
+                )
             )
-        )
         await sync_title(rpc, thread_id, project.get("_conversation_title"), event)
         writable = [
             str(cwd),
@@ -573,7 +575,10 @@ async def run_turn(
                 ).items():
                     usage[key] = usage.get(key, 0) + value
                 previous_usage = total
-                marker.write_text(json.dumps({"id": thread_id, **isolation, "usage_total": total}))
+                if not temporary:
+                    marker.write_text(
+                        json.dumps({"id": thread_id, **isolation, "usage_total": total})
+                    )
                 event(
                     "context_usage",
                     {

@@ -48,9 +48,17 @@ def take_lane(service, job: str, backend: str) -> None:
 
 def notify_lanes(service) -> None:
     """Wake the dispatcher and the runs waiting to take their lane back."""
-    freed, service.lane_freed = service.lane_freed, asyncio.Event()
-    freed.set()
-    service.wake.set()
+    root = getattr(service, "temporary_parent", None) or service
+    temporary = getattr(root, "temporary", None)
+    services = (
+        [root, *(item.service for item in temporary.sessions.values())] if temporary else [service]
+    )
+    if service not in services:
+        services.append(service)
+    for item in services:
+        freed, item.lane_freed = item.lane_freed, asyncio.Event()
+        freed.set()
+        item.wake.set()
 
 
 def free_lane(service, backend: str) -> None:

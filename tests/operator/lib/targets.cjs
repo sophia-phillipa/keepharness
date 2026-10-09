@@ -71,9 +71,22 @@ async function openBrowser(options, base) {
   return session;
 }
 
+// Playwright attaches to Electron through --inspect, which the packaged app switches off with the
+// EnableNodeCliInspectArguments fuse (fuse 3: the byte after the sentinel, version and length).
+// Against such a binary electron.launch only times out after 60 s, so refuse it up front.
+function inspectFuseOff(binary) {
+  const bytes = fs.readFileSync(binary);
+  const sentinel = Buffer.from("dL7pKGdnNz796PbbjQWNKmHXBZaB9tsX");
+  const at = bytes.indexOf(sentinel);
+  return at >= 0 && bytes[at + sentinel.length + 2 + 3] === 0x30;
+}
+
 async function launchDesktop(options, base, admin) {
   const { _electron: electron } = playwright();
   if (!options.app || !fs.existsSync(options.app)) throw new Error("desktop binary not found: " + (options.app || "(none)") + " (pass --app)");
+  if (inspectFuseOff(options.app)) {
+    throw new Error("Playwright cannot attach to " + options.app + ": its EnableNodeCliInspectArguments fuse is off (as in every packaged build). Run the suite on a copy with that one fuse flipped on, e.g. @electron/fuses flipFuses(copy, {version: FuseVersion.V1, [FuseV1Options.EnableNodeCliInspectArguments]: true}).");
+  }
   // Chromium's single-instance socket lives under TMPDIR and must fit a 108-byte socket
   // path; with a long TMPDIR the app quits at once, so use a short private folder then.
   const parent = os.tmpdir().length > 40 ? "/tmp" : os.tmpdir();

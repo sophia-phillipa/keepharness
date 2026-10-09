@@ -19,6 +19,12 @@ let providers = {},
   loading = false,
   uiBuild = "",
   reloadPending = false;
+const temporaryPreviews = new Map();
+let temporarySession = "",
+  temporaryStarting = false,
+  temporaryPreviousDraft = null,
+  temporaryHeartbeat = 0,
+  viewDiscarded = false;
 let queuedTurns = [];
 let executionMode = "native";
 let draftMode = { mode: "native", modeChosen: false, retiredLock: false };
@@ -49,10 +55,11 @@ function submissionKey(data) {
         ).join(""),
     };
     try {
-      sessionStorage.setItem(
-        "pending-submission",
-        JSON.stringify(pendingSubmission),
-      );
+      if (!temporarySession)
+        sessionStorage.setItem(
+          "pending-submission",
+          JSON.stringify(pendingSubmission),
+        );
     } catch {}
   }
   return pendingSubmission.key;
@@ -148,7 +155,9 @@ let fileTree = {
   ready: false,
 };
 function setConversationTitle(value) {
-  const full = String(value || "New Conversation").trim() || "New Conversation",
+  const full = temporarySession
+      ? "Temporary chat"
+      : String(value || "New Conversation").trim() || "New Conversation",
     el = $("conversation-title");
   el.textContent = full.length > 80 ? truncateTitle(full, 79) + "…" : full;
   el.title = full;
@@ -1203,6 +1212,19 @@ const efforts = {
   ultra: "Ultra",
 };
 const userErrors = {
+  invalid_temporary:
+    "The temporary chat setting is invalid. Start a new temporary chat and try again.",
+  temporary_session_required:
+    "Start a temporary chat before sending this message. Nothing was sent as a saved conversation.",
+  temporary_backend_unsupported:
+    "This provider does not support temporary chats. Choose Claude, Codex, DeepSeek or a local model.",
+  temporary_session_not_found:
+    "This temporary chat has expired. Close it and start a new temporary chat. Nothing was sent as a saved conversation.",
+  temporary_operation_unsupported:
+    "This action is unavailable in a temporary chat.",
+  temporary_session_limit: "Close another temporary chat before starting one.",
+  temporary_storage_unavailable:
+    "Temporary storage is unavailable. Try again after checking server storage.",
   retry_source_not_failed:
     "This turn is not failed anymore, so it can't be retried. The conversation was refreshed.",
   retry_source_superseded:
@@ -1825,6 +1847,18 @@ const userErrors = {
     "The schedules folder cannot be used safely. Check the harness state folder.",
 };
 async function api(path, options = {}) {
+  const { temporarySession: scope = temporarySession, ...requestOptions } =
+    options;
+  options = requestOptions;
+  const scoped =
+    /^\/v1\/(jobs(?:[/?]|$)|files(?:[/?]|$)|conversations\/|effects(?:[/?]|$)|approvals(?:[/?]|$)|approval-rules(?:[/?]|$)|project-files\/attach|assess(?:[/?]|$))/.test(
+      path,
+    );
+  if (scope && scoped)
+    options = {
+      ...options,
+      headers: { ...options.headers, "X-KeepHarness-Temporary": scope },
+    };
   let r;
   try {
     r = await fetch(path, {
@@ -1881,14 +1915,57 @@ async function api(path, options = {}) {
   return r;
 }
 async function json(path, options) {
+  const session = options?.temporarySession ?? temporarySession;
   const r = await api(path, options);
+  let data;
   try {
-    return await r.json();
+    data = await r.json();
   } catch {
     throw Error(
       "The server returned invalid data. Try refreshing the connection.",
     );
   }
+  if (session) {
+    if (temporarySession !== session)
+      throw new DOMException("Temporary chat closed", "AbortError");
+    await hydrateTemporaryPreviews(data, session);
+  }
+  return data;
+}
+// Image elements cannot send the session header. Keep authenticated previews in memory.
+async function hydrateTemporaryPreviews(value, session) {
+  if (!value || typeof value !== "object") return;
+  if (
+    typeof value.preview_url === "string" &&
+    value.preview_url.startsWith("/v1/files/")
+  ) {
+    const url = value.preview_url;
+    if (!temporaryPreviews.has(url))
+      temporaryPreviews.set(
+        url,
+        (async () => {
+          const response = await api(url);
+          const blob = await response.blob();
+          if (temporarySession !== session)
+            throw new DOMException("Temporary chat closed", "AbortError");
+          return await new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () =>
+              temporarySession === session
+                ? resolve(reader.result)
+                : reject(
+                    new DOMException("Temporary chat closed", "AbortError"),
+                  );
+            reader.onerror = () =>
+              reject(Error("Couldn't display the temporary image."));
+            reader.readAsDataURL(blob);
+          });
+        })(),
+      );
+    value.preview_url = await temporaryPreviews.get(url);
+  }
+  for (const child of Object.values(value))
+    await hydrateTemporaryPreviews(child, session);
 }
 
 const post = (path, value) =>
@@ -1923,7 +2000,11 @@ function setBusy(value) {
   $("access-mode").disabled = value;
   $("access-trigger").disabled = value;
   $("attach").disabled = value || uploads > 0 || !canUpload() || !selected();
-  $("new").disabled = submitting || cancelling || loading || uploads > 0;
+  $("new").disabled =
+    temporaryStarting || submitting || cancelling || loading || uploads > 0;
+  $("close-temporary-chat").disabled = $("new").disabled;
+  $("new-temporary").disabled = $("new").disabled;
+  $("composer-temporary").disabled = $("new").disabled;
   updateComposer();
   renderFiles();
 }
@@ -2674,6 +2755,7 @@ function notifyAttention(data = {}) {
 }
 // The permission prompt comes with the first message, when the user has a run to wait for.
 function askNotificationPermission() {
+  if (temporarySession) return;
   if (
     typeof Notification === "undefined" ||
     Notification.permission !== "default"
@@ -3392,16 +3474,27 @@ function syncExecutionMode() {
 function newConversation(
   title = "New Conversation",
   projectId = $("project").value,
-  { resetExecutionMode = false, restoreHomeDraft = false } = {},
+  {
+    resetExecutionMode = false,
+    restoreHomeDraft = false,
+    keepTemporary = false,
+  } = {},
 ) {
-  if (submitting || cancelling || loading || uploads) {
+  if (
+    (temporaryStarting && !keepTemporary) ||
+    submitting ||
+    cancelling ||
+    loading ||
+    uploads
+  ) {
     status(
       "Wait for the current send to finish before starting another conversation.",
     );
     return;
   }
+  if (!keepTemporary && !leaveTemporaryChat()) return false;
   clearProjectTrust();
-  saveView();
+  saveOutgoingView();
   const draftProject = $("project").value;
   const changedProject = projectId !== draftProject;
   $("project").value = projectId;
@@ -3486,7 +3579,7 @@ function newConversation(
 }
 function chooseProject(id) {
   if (busy || loading || uploads) return;
-  newConversation("New Conversation", id);
+  if (newConversation("New Conversation", id) === false) return;
   renderProjects();
   history();
   closeSidebar();
@@ -4908,7 +5001,7 @@ function showWorkflowRecovery(run) {
         ).join("");
       workflowResumeKeys.set(run.id, key);
       try {
-        sessionStorage.setItem(storageKey, key);
+        if (!temporarySession) sessionStorage.setItem(storageKey, key);
       } catch {}
       if (!resumedConversation) {
         const child = await json(
@@ -5528,9 +5621,10 @@ async function watch(retries = 0) {
   }
 }
 async function load(id, legacy = false, restoredView = null, scrollTop) {
+  if (temporarySession && id !== conversation && !leaveTemporaryChat()) return;
   if (submitting || cancelling || uploads) return;
   clearProjectTrust();
-  if (!loading && !restoredView) saveView();
+  if (!loading && !restoredView) saveOutgoingView();
   let savedDraft = restoredView;
   if (!savedDraft) {
     savedDraft = readDraft("conversation-draft:" + id);
@@ -5773,6 +5867,7 @@ async function load(id, legacy = false, restoredView = null, scrollTop) {
 // The Files chip offers the last uploads again; this tab's memory is enough for that.
 const RECENT_UPLOADS_KEY = "keepharness-recent-uploads";
 function recentUploads() {
+  if (temporarySession) return [];
   try {
     const saved = JSON.parse(
       sessionStorage.getItem(RECENT_UPLOADS_KEY) || "[]",
@@ -5783,6 +5878,7 @@ function recentUploads() {
   }
 }
 function rememberUpload(entry) {
+  if (temporarySession) return;
   try {
     sessionStorage.setItem(
       RECENT_UPLOADS_KEY,
@@ -5796,6 +5892,7 @@ function rememberUpload(entry) {
   } catch {}
 }
 async function upload(list) {
+  if (temporaryStarting) return;
   if (!canUpload()) {
     status("Couldn't attach: attachments are disabled in the admin panel.");
     return;
@@ -5930,6 +6027,7 @@ function startSendCooldown(milliseconds) {
 }
 async function send() {
   if (
+    temporaryStarting ||
     submitting ||
     cancelling ||
     loading ||
@@ -5940,6 +6038,15 @@ async function send() {
     $("prompt").disabled
   )
     return;
+  if (
+    temporarySession &&
+    !["codex", "claude", "deepseek", "local"].includes(selected()?.backend)
+  ) {
+    status(
+      "This provider does not support temporary chats. Choose Claude, Codex, DeepSeek or a local model.",
+    );
+    return;
+  }
   if (syncImageWarning()) {
     $("image-capability-choose").focus();
     return;
@@ -6019,6 +6126,7 @@ async function send() {
   };
   try {
     const data = {
+      ...(temporarySession ? { temporary: true } : {}),
       project_id: $("project").value,
       prompt,
       file_ids: files.map((f) => f.id),
@@ -6100,7 +6208,8 @@ async function send() {
     $("cancel").disabled = false;
     parent = job;
     if (!conversation) {
-      retireDraft("conversation-draft:new:" + $("project").value);
+      if (!temporarySession)
+        retireDraft("conversation-draft:new:" + $("project").value);
       conversation = job;
       setConversationTitle(prompt);
     }
@@ -6814,6 +6923,157 @@ $("cancel").onclick = async () => {
     setBusy(busy);
   }
 };
+// Temporary chats keep their token and drafts only in this document's memory.
+function deleteTemporarySession(id) {
+  return fetch("/v1/temporary/" + encodeURIComponent(id), {
+    method: "DELETE",
+    keepalive: true,
+  }).catch(() => {});
+}
+function leaveTemporaryChat() {
+  if (!temporarySession) return true;
+  if (submitting || cancelling || loading || uploads) return false;
+  if (
+    !window.confirm(
+      "Close temporary chat? Messages and attachments will be discarded. Nothing is saved in KeepHarness.",
+    )
+  )
+    return false;
+  discardTemporaryChat();
+  return true;
+}
+function discardTemporaryChat() {
+  const id = temporarySession;
+  viewDiscarded = true;
+  clearInterval(temporaryHeartbeat);
+  if (controller) controller.abort();
+  controller = null;
+  streamDisconnected = false;
+  conversationLoad++;
+  clearSubmission();
+  files = [];
+  resourceSelections = [];
+  invalidResourceTokens.clear();
+  closeResourceMenu();
+  setActivePersona(null);
+  document
+    .querySelectorAll(".image-modal")
+    .forEach((dialog) => dialog.remove());
+  status("");
+  queuedTurns = [];
+  job = "";
+  parent = null;
+  conversation = "";
+  active = null;
+  $("prompt").value = "";
+  $("messages").replaceChildren(welcomeTemplate.cloneNode(true));
+  resetActivity();
+  temporarySession = "";
+  temporaryPreviews.clear();
+  $("temporary-chat-notice").hidden = true;
+  document.body.classList.remove("temporary-chat");
+  renderFiles();
+  setBusy(false);
+  setConversationTitle("New Conversation");
+  void deleteTemporarySession(id);
+}
+async function renewTemporaryChat() {
+  const id = temporarySession;
+  if (!id) return;
+  try {
+    await json("/v1/temporary/" + encodeURIComponent(id));
+  } catch (error) {
+    if (temporarySession === id)
+      status("Temporary chat connection: " + error.message);
+  }
+}
+async function startTemporaryChat() {
+  if (temporaryStarting || submitting || cancelling || loading || uploads)
+    return;
+  const replacing = !!temporarySession;
+  if (!leaveTemporaryChat()) return;
+  if (!replacing) {
+    saveView();
+    temporaryPreviousDraft = readDraft(
+      "conversation-draft:" + (conversation || "new:" + $("project").value),
+    );
+  }
+  temporaryStarting = true;
+  setBusy(busy);
+  try {
+    const session = await post("/v1/temporary", {});
+    if (!session.id) throw Error("The server did not create a temporary chat.");
+    temporarySession = session.id;
+    temporaryHeartbeat = setInterval(renewTemporaryChat, 15000);
+    $("prompt").value = "";
+    files = [];
+    newConversation("Temporary chat", $("project").value, {
+      resetExecutionMode: true,
+      keepTemporary: true,
+    });
+    document.body.classList.add("temporary-chat");
+    $("temporary-chat-notice").hidden = false;
+    const route = new URL(location.href);
+    route.searchParams.delete("conversation");
+    window.history.replaceState(window.history.state, "", route);
+    closeSidebar();
+    $("prompt").focus();
+  } catch (error) {
+    temporaryStarting = false; // newConversation refuses to run while a start is pending
+    if (replacing) await returnFromTemporaryChat();
+    temporaryPreviousDraft = null;
+    status("Couldn't start temporary chat: " + error.message);
+  } finally {
+    temporaryStarting = false;
+    setBusy(busy);
+  }
+}
+$("new-temporary").onclick = startTemporaryChat;
+$("composer-temporary").onclick = startTemporaryChat;
+// Back to where the temporary chat was opened: its conversation, or the Home draft of its project.
+async function returnFromTemporaryChat() {
+  const origin = temporaryPreviousDraft;
+  temporaryPreviousDraft = null;
+  if (
+    origin?.conversation &&
+    (await navigate(
+      { kind: "conversation", id: origin.conversation },
+      { record: false },
+    )) !== false
+  )
+    return;
+  // A failed load already consumed the discard mark and left its error: re-arm the mark so the
+  // leftover temporary view is not saved over the Home draft, and keep the error visible.
+  const message = $("status").textContent;
+  viewDiscarded = true;
+  newConversation("New Conversation", $("project").value, {
+    restoreHomeDraft: true,
+  });
+  status(message);
+}
+$("close-temporary-chat").onclick = async () => {
+  if (!leaveTemporaryChat()) return;
+  await returnFromTemporaryChat();
+  $("prompt").focus();
+};
+addEventListener("pagehide", () => {
+  if (temporarySession) discardTemporaryChat();
+});
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden) void renewTemporaryChat();
+});
+document.addEventListener("keydown", (event) => {
+  if (
+    (event.ctrlKey || event.metaKey) &&
+    event.shiftKey &&
+    !event.altKey &&
+    event.key.toLowerCase() === "n" &&
+    !foreignModalOpen()
+  ) {
+    event.preventDefault();
+    void startTemporaryChat();
+  }
+});
 $("new").onclick = () => void navigate({ kind: "home" });
 function startNewConversation(resetExecutionMode = false) {
   const loose = Array.from($("project").options).some(
@@ -6832,6 +7092,10 @@ function startNewConversation(resetExecutionMode = false) {
   closeSidebar();
 }
 $("project").onchange = () => {
+  if (temporarySession && !leaveTemporaryChat()) {
+    $("project").value = composerProjectId;
+    return;
+  }
   const destination = $("project").value,
     draft = $("prompt").value,
     stale = [
@@ -7076,7 +7340,11 @@ $("files-new-chat").onclick = async () => {
   const selection = { root_id: fileTree.rootId, paths: [...fileTree.selected] },
     previous = conversation;
   if (!selection.paths.length) return;
-  newConversation(undefined, undefined, { resetExecutionMode: true });
+  if (
+    newConversation(undefined, undefined, { resetExecutionMode: true }) ===
+    false
+  )
+    return;
   if (previous && conversation === previous) return;
   await attachSelectedProjectFiles(selection);
   $("prompt").focus({ preventScroll: true });
@@ -8538,7 +8806,7 @@ function flushDrafts() {
   return !dirty;
 }
 window.addEventListener("beforeunload", (event) => {
-  if (!flushDrafts()) {
+  if (temporarySession || !flushDrafts()) {
     event.preventDefault();
     event.returnValue = "";
   }
@@ -8554,7 +8822,15 @@ function retireDraft(key) {
     sessionStorage.removeItem(key);
   } catch {}
 }
+// The view a closed temporary chat leaves behind is not a draft: saving it would overwrite the real
+// draft of the conversation or Home it came from, and persist private temporary text.
+function saveOutgoingView() {
+  const discarded = viewDiscarded;
+  viewDiscarded = false;
+  return discarded || saveView();
+}
 function readDraft(key) {
+  if (temporarySession) return null;
   try {
     return JSON.parse(
       draftViews.get(key) || sessionStorage.getItem(key) || "null",
@@ -8564,6 +8840,7 @@ function readDraft(key) {
   }
 }
 function saveView() {
+  if (temporarySession || temporaryStarting) return true;
   if (loading) return true;
   try {
     const route = new URL(location.href);
@@ -9654,6 +9931,7 @@ for (const [id, top] of prefs.get("conversation_scroll", []))
   if (typeof id === "string" && Number.isFinite(top))
     scrollByConversation.set(id, top);
 function rememberScroll() {
+  if (temporarySession) return;
   // While a conversation loads, #messages is not its content yet.
   if (!conversation || loading) return;
   const box = $("messages");
@@ -9685,7 +9963,7 @@ const sameView = (a, b) =>
   (a.section || null) === (b.section || null) &&
   (a.sub || null) === (b.sub || null);
 const currentBaseView = () =>
-  conversation
+  conversation && !temporarySession
     ? { kind: "conversation", id: conversation }
     : { kind: "home", project: $("project").value };
 const pressedSettings = () =>
@@ -9704,8 +9982,9 @@ const settingsView = (section, button) =>
         button,
       };
 const navigationBlocked = (view) =>
-  ["conversation", "home"].includes(view.kind) &&
-  (submitting || cancelling || loading || uploads > 0);
+  temporaryStarting ||
+  (["conversation", "home"].includes(view.kind) &&
+    (submitting || cancelling || loading || uploads > 0));
 function syncNavButtons() {
   const unavailable = (delta) =>
     !viewHistory[viewIndex + delta] ||
@@ -9811,7 +10090,8 @@ async function applyView(view, replay = false) {
   }
 }
 async function navigate(view, { record = true } = {}) {
-  if (navigationBlocked(view)) return;
+  if (navigationBlocked(view)) return false;
+  if (!leaveTemporaryChat()) return false;
   rememberScroll();
   if (record) recordView(view);
   const shown = await applyView(view, !record);
@@ -10220,7 +10500,11 @@ async function usePage(startChat) {
     title = $("page-title").value.trim() || "Untitled",
     file = pageFile(title, $("page-body").value);
   $("space-dialog").close();
-  if (startChat) newConversation(title, project, { resetExecutionMode: true });
+  if (
+    startChat &&
+    newConversation(title, project, { resetExecutionMode: true }) === false
+  )
+    return;
   await refreshProjectPermissions();
   await upload([file]);
   $("prompt").focus({ preventScroll: true });
@@ -11297,6 +11581,7 @@ const keyboardShortcuts = [
   ["Go back", [shortcutModifier, "["]],
   ["Go forward", [shortcutModifier, "]"]],
   ["Keyboard shortcuts", [shortcutModifier, "/"]],
+  ["New temporary chat", [shortcutModifier, "Shift", "N"]],
 ];
 let shortcutReturnFocus = null;
 function renderKeyboardShortcuts() {
@@ -11499,6 +11784,7 @@ function updateComposer() {
       : "Send message",
   );
   $("send").disabled =
+    temporaryStarting ||
     blocked ||
     submitting ||
     cancelling ||
@@ -11821,9 +12107,11 @@ function showGate(data) {
     );
     const key = gateChoiceKey(data.gate_id),
       snapshot = JSON.stringify(choices);
-    draftViews.set(key, snapshot);
-    unsavedDrafts.set(key, snapshot);
-    flushDrafts();
+    if (!temporarySession) {
+      draftViews.set(key, snapshot);
+      unsavedDrafts.set(key, snapshot);
+      flushDrafts();
+    }
     submit.disabled = !choices.length;
   };
   submit.onclick = async () => {

@@ -33,6 +33,7 @@
   const state = {
     tab: "Pipeline",
     run: "",
+    runSession: "",
     spans: [],
     selectedSpan: "",
     content: false,
@@ -504,6 +505,7 @@
     projectFilter.value = project.value;
     workFilter.value = "";
     state.run = job || "";
+    state.runSession = job ? temporarySession : "";
     state.followLatest = true;
     state.filteredJobs = null;
     state.content = false;
@@ -637,6 +639,7 @@
         (state.followLatest && conversation && jobs[0].job_id !== state.run))
     ) {
       state.run = jobs[0].job_id;
+      state.runSession = "";
       state.content = false;
       state.selectedSpan = "";
       state.spans = [];
@@ -663,8 +666,12 @@
       ["Agents", "Runs"].includes(state.tab) ||
       (!!state.run && state.tab !== "Logs");
   }
-  async function chooseRun(id) {
+  async function chooseRun(
+    id,
+    session = id === state.run ? state.runSession : "",
+  ) {
     state.run = id;
+    state.runSession = session;
     state.followLatest = false;
     state.content = false;
     state.detailTab = "Metrics";
@@ -691,6 +698,7 @@
           encodeURIComponent(id) +
           "/spans" +
           (content ? "?include_content=true" : ""),
+        { temporarySession: state.runSession },
       );
       if (
         id !== state.run ||
@@ -1114,6 +1122,7 @@
         );
       const data = await json(
         "/v1/jobs/" + encodeURIComponent(id) + "/events?" + params,
+        { temporarySession: state.runSession },
       );
       if (sequence !== state.sequence || id !== state.run) return;
       const known = new Set(state.logs.map((item) => item.id));
@@ -1150,12 +1159,6 @@
     const scrollLeft = oldViewport?.scrollLeft || 0;
     const tableScrollTop = oldViewport?.scrollTop || 0;
     const scrollTop = body.scrollTop;
-    const toolbar = el("div", null, "run-console-controls");
-    toolbar.append(
-      field("Search logs", logSearch),
-      field("Event type", logType),
-      field("Log order", logOrder),
-    );
     const table = el("table", null, "run-table run-log-list");
     const head = el("thead"),
       titles = el("tr"),
@@ -1164,11 +1167,7 @@
       titles.append(el("th", title));
     head.append(titles);
     table.append(head, list);
-    const viewport = el("div", null, "run-log-scroll");
-    viewport.tabIndex = 0;
-    viewport.setAttribute("role", "region");
-    viewport.setAttribute("aria-label", "Log table");
-    viewport.append(table);
+    const viewport = oldViewport || el("div", null, "run-log-scroll");
     const search = logSearch.value.toLowerCase();
     for (const event of [...state.logs].sort((a, b) =>
       logOrder.value === "oldest" ? a.id - b.id : b.id - a.id,
@@ -1213,20 +1212,34 @@
       );
       list.append(row);
     }
-    const more = button(
-      state.logLoading ? "Loading events…" : "Load more events",
-      () => loadLogs(),
-    );
+    // Keep the focused scroll region attached when live events arrive.
+    if (!oldViewport) {
+      const toolbar = el("div", null, "run-console-controls");
+      toolbar.append(
+        field("Search logs", logSearch),
+        field("Event type", logType),
+        field("Log order", logOrder),
+      );
+      viewport.tabIndex = 0;
+      viewport.setAttribute("role", "region");
+      viewport.setAttribute("aria-label", "Log table");
+      const more = button("Load more events", () => loadLogs());
+      more.classList.add("run-log-more");
+      body.replaceChildren(
+        toolbar,
+        el("p", "", "run-log-count"),
+        viewport,
+        more,
+      );
+    }
+    viewport.replaceChildren(table);
+    body.querySelector(".run-log-count").textContent =
+      `${state.logs.length} events loaded · search applies to loaded events`;
+    const more = body.querySelector(".run-log-more");
+    more.textContent = state.logLoading
+      ? "Loading events…"
+      : "Load more events";
     more.disabled = !state.run || state.logLoading || !state.more;
-    body.replaceChildren(
-      toolbar,
-      el(
-        "p",
-        `${state.logs.length} events loaded · search applies to loaded events`,
-      ),
-      viewport,
-      more,
-    );
     restoringLogFocus = true;
     (focusedControl || (viewportFocused ? viewport : null))?.focus({
       preventScroll: true,
@@ -1344,6 +1357,7 @@
         await api(
           "/v1/jobs/" + encodeURIComponent(item.job_id) + "/work-item",
           {
+            temporarySession: "",
             method: "PATCH",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ work_item: key.value.trim() || null }),
@@ -1716,11 +1730,12 @@
     },
     attachAnswer(target, id) {
       if (!id) return;
+      const session = temporarySession;
       const view = button("View run", async () => {
         syncContext();
         toggle(true);
         setTab("Pipeline");
-        await chooseRun(id);
+        await chooseRun(id, session);
       });
       view.prepend(HarnessUI.icon("trace"));
       target.append(view);

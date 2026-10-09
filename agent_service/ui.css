@@ -10640,3 +10640,54 @@ body.panel-order-reversed #sidebar .sidebar-tree {
   margin: 0;
   overflow-wrap: anywhere;
 }
+
+#temporary-chat-notice {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 0 0 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--tone-4);
+  border-radius: 8px;
+  color: var(--tone-0);
+  background: var(--tone-5);
+  font-size: 12px;
+  line-height: 1.5;
+}
+#temporary-chat-notice[hidden] {
+  display: none;
+}
+#temporary-chat-notice button {
+  flex-shrink: 0;
+  min-height: 28px;
+}
+#composer-temporary {
+  flex: none;
+  min-height: 24px;
+  font-size: 11px;
+  white-space: nowrap;
+}
+/* One row: the entry must not add height to the composer, or the Run console is pushed over the status bar.
+   A visible note (draft limit, provider carry-over) takes its own full-width row instead. */
+.composer-context:has(#composer-temporary):not(
+    :has(.route-carryover:not([hidden]), .draft-limit:not([hidden]))
+  ) {
+  flex-wrap: nowrap;
+}
+.composer-context:has(#composer-temporary) #context-meter {
+  flex: 1 1 0;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.temporary-chat #composer-temporary {
+  display: none;
+}
+@media (max-width: 600px) {
+  #temporary-chat-notice {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 4px;
+  }
+}

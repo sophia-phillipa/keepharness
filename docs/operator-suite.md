@@ -19,6 +19,10 @@ Code: `tests/operator/` (`run-operator.cjs`, `lib/`, `areas/`, `fixture/`,
 - `xvfb-run` for headless runs; `xprop` for the desktop icon check (optional).
 - For the desktop area: the packaged app (`--app`, `$KEEPHARNESS_DESKTOP_BIN`, or
   `dist/keepharness-<version>-linux-x64/keepharness-bin`). Without it that area is skipped.
+  The production package turns the Electron `EnableNodeCliInspectArguments` fuse off, so
+  Playwright cannot attach to it and the suite refuses it. Use a copy with that fuse
+  turned on (`flipFuses` from `@electron/fuses` on the copied `keepharness-bin`); never
+  ship or install the copy.
 
 ## Run it
 
@@ -83,13 +87,32 @@ reported, not failed.
 
 ## Areas
 
-One file per area in `tests/operator/areas/`; run a few with `--areas <id>`.
+Each file in `tests/operator/areas/` is one area; the id is what `--areas` takes.
 
-- `hooks-rules` (`22-hooks-rules.cjs`): the admin Hooks and Rules sections (#61). Seeds a hook
-  with secrets, an env entry, an http hook with headers and a long rule file in the fixture's
-  Claude home, then checks masking (page text and provider-state JSON), names-only env and
-  headers, the capped rule preview, no switches, the source path and the changed marker. Codex
-  and DeepSeek steps are skipped: the fixture has only Claude and Gemini stand-ins.
+- `01-shell.cjs` (`shell`): app shell, rail and tour.
+- `02-sidebar.cjs` (`sidebar`): chats, projects, search.
+- `03-new-chat.cjs` (`new-chat`): providers, model, effort, access.
+- `04-composer.cjs` (`composer`): attachments, palettes, chips.
+- `05-conversation.cjs` (`conversation`): the conversation view.
+- `06-run-console.cjs` (`run-console`): pipeline, timeline, logs, runs, agents.
+- `07-approvals.cjs` (`approvals`): approvals, needs you, attention.
+- `08-agents.cjs` (`agents`): user agents.
+- `09-space.cjs` (`space`): space pages.
+- `10-scheduled.cjs` (`scheduled`): scheduled tasks.
+- `11-plugins.cjs` (`plugins`): plugins and connectors.
+- `12-files-code.cjs` (`files-code`): files panel and Code mode.
+- `13-settings.cjs` (`settings`): settings.
+- `14-admin.cjs` (`admin`): standalone admin pages.
+- `15-keyboard.cjs` (`keyboard`): keyboard shortcuts.
+- `16-window-sizes.cjs` (`window-sizes`): window sizes 1440, 1024, 800 and 390.
+- `17-themes.cjs` (`themes`): light and dark themes.
+- `18-desktop.cjs` (`desktop`): the packaged desktop app.
+- `19-desktop-wp18.cjs` (`desktop-wp18`): desktop WP-18 journeys.
+- `20-chat-real-providers.cjs` (`chat-real`): chat with real providers; a self-run area.
+- `21-temporary-chat.cjs` (`temporary-chat`): temporary chat; nothing saved, discard and return. Providers the fixture lacks (Codex, DeepSeek) are skipped.
+- `22-hooks-rules.cjs` (`hooks-rules`): the admin Hooks and Rules sections (#61): secret
+  masking in page text and provider-state JSON, names-only env and headers, capped rule
+  preview, no switches, source path and the changed marker. Codex and DeepSeek skip (no stand-in).
 
 ## Add a step
 
