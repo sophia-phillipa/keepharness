@@ -120,7 +120,7 @@ def _opaque(text: str) -> bool:
 def _is_path(value: str) -> bool:
     if not value.startswith(_PATH_PREFIXES):
         return False
-    segments = value.split("/")
+    segments = (value[2:] if value.startswith("~/") else value).split("/")
     # A secret can itself contain slashes, so the whole path is checked as well as each segment.
     return not _opaque("".join(segments)) and all(
         _SEGMENT.fullmatch(seg) and not _opaque(seg) for seg in segments

@@ -359,3 +359,8 @@ def test_aws_access_key_ids_are_redacted_from_free_text():
         "AKIAABCDEFGHIJKLMNOP"
         not in safe_details({"prompt": "use AKIAABCDEFGHIJKLMNOP now"})["prompt"]
     )
+
+
+def test_home_relative_paths_are_kept():
+    assert mask_command("~/bin/run ~/scripts/check") == "~/bin/run ~/scripts/check"
+    assert mask_command("~/bin/run ~/.config/x") == "~/bin/run ~/.config/x"
