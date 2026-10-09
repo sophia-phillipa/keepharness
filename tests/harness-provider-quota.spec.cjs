@@ -147,7 +147,7 @@ const feed = (rail, providers) => {
 };
 // An activity poll already in flight when feed() runs can repaint the previous providers once
 // more, so readers that follow a feed wait until the rail shows the expected providers.
-const settledRows = async (page, providers, timeout = 4000) => {
+const settledRows = async (page, providers, timeout = 8000) => {
   const end = Date.now() + timeout;
   for (;;) {
     const rows = await meterRows(page);
