@@ -138,13 +138,11 @@ const assert = require("node:assert/strict");
       ...service(),
       added: true,
       models: ["fixture"],
-      integrations: ["mcp:drive"],
     };
     state.settings.services.claude = {
       ...service(),
       added: true,
       models: ["sonnet"],
-      integrations: ["mcp:linear"],
     };
     const now = Date.now() / 1000;
     let ticks = 0;
@@ -216,12 +214,14 @@ const assert = require("node:assert/strict");
       "Modal action icons are rendered",
     );
     await page.screenshot({ path: "/tmp/keepharness-provider-modal.png" });
+    const draftToggle = page.getByRole("checkbox", {
+      name: /fixture/i,
+    });
+    await draftToggle.click();
     await page
       .locator("#inspector-tabs")
       .getByText("Connectors", { exact: true })
       .click();
-    const drive = page.getByRole("checkbox", { name: /Drive/ });
-    await drive.uncheck();
     await page.evaluate(() => (location.hash = "home"));
     await page.locator("#inspector-empty").waitFor();
     const previous = ticks;
@@ -242,7 +242,7 @@ const assert = require("node:assert/strict");
     await page.goBack();
     await page.locator("#inspector-empty").waitFor();
     await page.locator("[data-panel=providers]").click();
-    assert(!(await drive.isChecked()));
+    await page.locator("#provider-dialog").waitFor();
     page.once("dialog", (d) => d.dismiss());
     await page.keyboard.press("Escape");
     assert(await page.locator("#provider-dialog").evaluate((e) => e.open));

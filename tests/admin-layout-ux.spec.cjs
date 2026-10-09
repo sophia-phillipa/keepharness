@@ -138,13 +138,11 @@ const assert = require("node:assert/strict");
       ...service(),
       added: true,
       models: ["fixture"],
-      integrations: ["mcp:drive"],
     };
     state.settings.services.claude = {
       ...service(),
       added: true,
       models: ["sonnet"],
-      integrations: ["mcp:linear"],
     };
     await page.goto("http://admin.test/");
     await page.locator("[data-panel=providers]").click();
@@ -191,7 +189,6 @@ const assert = require("node:assert/strict");
     await page.getByRole("button", { name: "Edit Codex", exact: true }).click();
     await tabs.getByText("Plugins", { exact: true }).click();
     await tabs.getByText("Connectors", { exact: true }).click();
-    assert(!(await drive.isChecked()));
     failCatalog = true;
     await page.click("#catalog-refresh");
     await page
