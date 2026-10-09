@@ -50,13 +50,16 @@ def execution_failed(provider, error=None):
 
 
 class RPC:
-    def __init__(self, process, idle_timeout_seconds=300, config=None, provider="codex"):
+    def __init__(
+        self, process, idle_timeout_seconds=300, config=None, provider="codex", event=None
+    ):
         self.process = process
         self.watchdog = IdleWatchdog(
             {"idle_timeout_seconds": idle_timeout_seconds, **(config or {})}
         )
         self.sequence = 0
         self.provider = provider
+        self.event = event
 
     async def send(self, method, params=None, request=True):
         self.sequence += 1
@@ -76,6 +79,21 @@ class RPC:
             raise RuntimeError("codex_connection_closed")
         item = json.loads(line)
         kind = item.get("method")
+        if kind in ("warning", "configWarning") and self.event is not None:
+            params = item.get("params", {})
+            self.event(
+                "provider_warning",
+                {
+                    "backend": self.provider,
+                    "message": provider_message(
+                        {
+                            **params,
+                            "message": params.get("message") or params.get("summary"),
+                            "additionalDetails": params.get("details"),
+                        }
+                    ),
+                },
+            )
         content = item.get("params", {}).get("item", {})
         if kind in ("item/started", "item/completed") and content.get("type") in (
             "mcpToolCall",
@@ -151,7 +169,7 @@ async def connection(
         pass_fds=pass_fds,
     )
     async with process_diagnostics(proc, provider, event, env, kill_on_error=kill_on_error):
-        rpc = RPC(proc, config=config, provider=provider)
+        rpc = RPC(proc, config=config, provider=provider, event=event)
         await rpc.initialize()
         yield rpc
 

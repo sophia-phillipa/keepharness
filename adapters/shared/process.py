@@ -243,3 +243,24 @@ async def process_diagnostics(
                     failure.error_detail = text
                 if event is not None:
                     event("provider_stderr", {"provider": provider, "text": text})
+                    if (
+                        provider == "codex"
+                        and "hook" in text.lower()
+                        and any(
+                            marker in text.lower()
+                            for marker in (
+                                "pending review",
+                                "not trusted",
+                                "untrusted",
+                                "trust required",
+                            )
+                        )
+                    ):
+                        event(
+                            "provider_warning",
+                            {
+                                "backend": provider,
+                                "code": "hooks_pending_review",
+                                "message": "Codex hooks pending review. Review hook trust in the Codex CLI; KeepHarness does not bypass it.",
+                            },
+                        )

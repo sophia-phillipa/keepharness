@@ -181,7 +181,7 @@ def test_queued_recovery_resolves_current_workflow_revision(tmp_path):
             asyncio.run(service.execute(service.job(identity, job)))
         scope, owner = service.resource_scope(identity[0], data)
         assert owner is True  # every client is the owner (D-040)
-        assert "personal_setup" in scope  # the run's own resource scope, as at submit time
+        assert scope == service.config  # recovery uses the same owner scope as admission
         resolve.assert_called_once_with(
             scope,
             "p",

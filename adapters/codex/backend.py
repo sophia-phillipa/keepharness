@@ -1,9 +1,10 @@
 """Public entry points for the Codex provider."""
 
+import asyncio
 import json
 import tempfile
 
-from adapters.shared.provider_setup import child_source, command_permissions
+from adapters.shared.provider_setup import child_source, command_permissions, version_notice
 from adapters.shared.resources import copy_resource
 from adapters.shared.workspace import prepare_workspace
 
@@ -17,6 +18,7 @@ __all__ = ["SPEC_REVISION", "run_native"]
 async def run_native(config, prompt, event, project, model, effort, session_dir, approve):
     workspace = prepare_workspace(project, prompt, session_dir)
     environment = child_source(config, "codex")
+    await asyncio.to_thread(version_notice, config["binary"], "codex", event, environment)
     command = build_command(
         config["binary"],
         command_permissions(config, workspace.permissions),

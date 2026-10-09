@@ -2131,6 +2131,7 @@ function updateModelPermissions() {
       (m.permissions.shell ? "Terminal allowed" : "Terminal disabled");
 }
 function updateEfforts() {
+  syncAccessMode();
   updateModelPermissions();
   renderQuotaIdentity();
   const m = selected();
@@ -4467,6 +4468,7 @@ function activityTitle(e) {
     data.backend,
   );
   if (condition) return condition.title;
+  if (type === "provider_warning") return data.message || "Provider warning";
   if (type === "hook_scope") {
     return (
       {
@@ -7743,7 +7745,8 @@ function integrationRow(item, sharedReason = "") {
     name = document.createElement("strong"),
     meta = document.createElement("small");
   open.type = "button";
-  open.className = "integration-row" + (item.effective ? "" : " unavailable");
+  open.className =
+    "integration-row" + (item.effective === false ? " unavailable" : "");
   open.dataset.integrationId = item.id;
   open.title = "Show details";
   open.onclick = () => showIntegrationDetail(item);
@@ -7812,7 +7815,14 @@ function showIntegrationDetail(item) {
     "In this conversation",
     item.effective ? "Available" : item.reason || "Not available",
   );
-  fact("Allowed for this provider", item.allowed ? "Yes" : "No");
+  fact(
+    "Allowed for this provider",
+    item.allowed === null
+      ? "Controlled by the native CLI"
+      : item.allowed
+        ? "Yes"
+        : "No",
+  );
   fact(
     "Installed",
     item.status === "installed" || item.status === "configured"
@@ -7828,7 +7838,7 @@ function showIntegrationDetail(item) {
   fact("Tools used", (item.used?.tools || []).join(", "));
   fact(
     "Approvals",
-    item.effective
+    item.effective !== false
       ? data.effective_note || "Follows the conversation's access mode."
       : "",
   );
@@ -7873,7 +7883,8 @@ async function renderPluginsMenu() {
     const elsewhere = Array.isArray(data.elsewhere) ? data.elsewhere : [],
       items = Array.isArray(data.items) ? data.items : [],
       effective = items.filter((item) => item.effective),
-      others = items.filter((item) => !item.effective),
+      configured = items.filter((item) => item.effective === null),
+      others = items.filter((item) => item.effective === false),
       parts = [];
     if (data.effective_note) {
       const note = document.createElement("p");
@@ -7910,13 +7921,16 @@ async function renderPluginsMenu() {
       );
       return wrap;
     };
-    parts.push(
-      section(
-        "Available in this conversation",
-        effective,
-        "None for this project and model.",
-      ),
-    );
+    if (configured.length)
+      parts.push(section("Configured in the native CLI", configured, ""));
+    else
+      parts.push(
+        section(
+          "Available in this conversation",
+          effective,
+          "None for this project and model.",
+        ),
+      );
     if (others.length)
       parts.push(section("Installed, not available here", others, ""));
     if (elsewhere.length)
@@ -12621,6 +12635,20 @@ function syncAccessMode() {
   if ($("access-mode").value === "full" && !fullAccessOffered)
     $("access-mode").value = "ask";
   const mode = $("access-mode").value;
+  const nativeModes = selected()?.access_modes;
+  for (const item of $("access-menu").querySelectorAll("[data-access]")) {
+    let label = item.querySelector(".access-native-mode");
+    if (!label) {
+      label = document.createElement("small");
+      label.className = "access-native-mode";
+      item.querySelector("strong").after(label);
+    }
+    const native = nativeModes?.[item.dataset.access];
+    label.textContent =
+      native?.permissionMode ||
+      (native?.sandbox ? native.sandbox + " · " + native.approvalPolicy : "");
+    label.hidden = !label.textContent;
+  }
   $("access-label").textContent = accessLabel();
   $("access-mode-notice").textContent =
     "Access: " + $("access-label").textContent;
@@ -12628,7 +12656,10 @@ function syncAccessMode() {
   $("header-access").textContent = accessLabel();
   const option = $("access-menu").querySelector('[data-access="' + mode + '"]'),
     optionIcon = option?.querySelector(".access-option-icon"),
-    description = option?.querySelector("small")?.textContent || "";
+    description = [...(option?.querySelectorAll("small") || [])]
+      .map((node) => node.textContent)
+      .filter(Boolean)
+      .join(" · ");
   if (optionIcon) {
     const icon = optionIcon.cloneNode(true);
     icon.id = "access-trigger-icon";
@@ -12638,8 +12669,10 @@ function syncAccessMode() {
   $("access-trigger").title = description;
   for (const item of $("access-menu").querySelectorAll("[data-access]")) {
     item.setAttribute("aria-selected", String(item.dataset.access === mode));
-    const help = item.querySelector("small");
-    if (help) item.title = help.textContent;
+    item.title = [...item.querySelectorAll("small")]
+      .map((node) => node.textContent)
+      .filter(Boolean)
+      .join(" · ");
   }
 }
 function syncComposerPickers() {

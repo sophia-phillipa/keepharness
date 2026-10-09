@@ -19,8 +19,8 @@ def test_native_session_receives_the_harness_conversation_title(tmp_path, monkey
     )
     executable.chmod(0o700)
     (tmp_path / "home").mkdir()
-    monkeypatch.setattr(native, "configurations", lambda: {"claude": {}})
-    monkeypatch.setattr(native, "inventory", lambda: {"claude": []})
+    monkeypatch.setattr("control.integrations.configurations", lambda: {"claude": {}})
+    monkeypatch.setattr("control.integrations.inventory", lambda: {"claude": []})
 
     result = asyncio.run(
         native.run(

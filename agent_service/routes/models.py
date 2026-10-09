@@ -2,6 +2,8 @@
 
 from starlette.responses import JSONResponse
 
+from adapters.shared.provider_setup import claude_access_settings, codex_access_settings
+
 from .. import approval_policy
 from . import api_route
 
@@ -31,6 +33,24 @@ async def models(request, service, identity):
     )
     service.project(identity, project_id)
     models = await service.models_with_context(project_id)
+    for model in models:
+        backend = model.get("backend")
+        if backend not in ("codex", "claude"):
+            continue
+        access_modes = {}
+        for mode in ("ask", "auto", "full", "read_only"):
+            permissions = approval_policy.effective_permissions(model.get("permissions", {}), mode)
+            unrestricted = config.get(backend, {}).get("unrestricted") is True
+            access_modes[mode] = (
+                codex_access_settings(
+                    mode,
+                    permissions,
+                    unrestricted and mode == "full" and bool(permissions.get("shell")),
+                )
+                if backend == "codex"
+                else claude_access_settings(mode, permissions, unrestricted)
+            )
+        model["access_modes"] = access_modes
     service.project(service.identity(request, revalidate=True), project_id)
     return JSONResponse(
         {

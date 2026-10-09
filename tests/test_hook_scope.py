@@ -20,8 +20,8 @@ from adapters.claude.native import build_command
     ],
 )
 def test_hook_setting_sources(tmp_path, monkeypatch, hooks, personal_setup, source):
-    monkeypatch.setattr("adapters.claude.native.configurations", lambda: {"claude": {}})
-    monkeypatch.setattr("adapters.claude.native.inventory", lambda: {"claude": []})
+    monkeypatch.setattr("control.integrations.configurations", lambda: {"claude": {}})
+    monkeypatch.setattr("control.integrations.inventory", lambda: {"claude": []})
     command = build_command(
         {"binary": "claude", "personal_setup": personal_setup},
         "haiku",
@@ -31,6 +31,6 @@ def test_hook_setting_sources(tmp_path, monkeypatch, hooks, personal_setup, sour
         "ask",
         [],
     )
-    assert command[command.index("--setting-sources") + 1] == source
+    assert "--setting-sources" not in command
     settings = json.loads(command[command.index("--settings") + 1])
-    assert settings["disableAllHooks"] is not hooks
+    assert "disableAllHooks" not in settings

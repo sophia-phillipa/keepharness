@@ -59,8 +59,8 @@ def run_claude(executable, home, cwd):
 
 @pytest.fixture
 def claude_home(tmp_path, monkeypatch):
-    monkeypatch.setattr(native, "configurations", lambda: {"claude": {}})
-    monkeypatch.setattr(native, "inventory", lambda: {"claude": []})
+    monkeypatch.setattr("control.integrations.configurations", lambda: {"claude": {}})
+    monkeypatch.setattr("control.integrations.inventory", lambda: {"claude": []})
     home = tmp_path / "home"
     home.mkdir()
     (home / "claude-session.json").write_text('{"id": "old-session"}')

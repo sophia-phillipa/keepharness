@@ -122,7 +122,8 @@ import json, subprocess, sys
 from pathlib import Path
 args=sys.argv
 settings=json.loads(args[args.index('--settings')+1])
-servers=json.loads(Path(args[args.index('--mcp-config')+1]).read_text())['mcpServers']
+servers=json.loads(Path('.mcp.json').read_text())['mcpServers']
+servers.update(json.loads(Path(args[args.index('--mcp-config')+1]).read_text())['mcpServers'])
 for name, server in servers.items():
     if name not in settings.get('disabledMcpjsonServers', []) and name not in settings.get('disabledMcpServers', []):
         subprocess.run([server['command'], *server.get('args', [])], check=True)

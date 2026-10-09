@@ -1289,7 +1289,7 @@ class ConversationService:
 
     def resource_scope(self, client, data):
         """The config and owner flag a run of ``client`` resolves resources with (decision D01)."""
-        return resources.run_config(self.config, data, owner=True), True
+        return self.config, True
 
     def selected_resources(self, data, *, canonical=None, owner=False):
         # "read" guards project and catalog files; a Harness agent's persona is harness-kept text.
@@ -2689,7 +2689,11 @@ class ConversationService:
         if approval_policy.mode_disabled(self.config, mode):
             raise APIError("full_access_disabled", 403)
         # Unattended runs have no internet unless their task opts in (D03).
-        offline_schedule = data.get("schedule_id") and data.get("schedule_internet") is not True
+        offline_schedule = (
+            backend not in ("codex", "claude")
+            and data.get("schedule_id")
+            and data.get("schedule_internet") is not True
+        )
         if offline_schedule:
             permissions["internet"] = False
         if backend == "claude":
