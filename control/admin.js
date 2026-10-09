@@ -300,12 +300,10 @@ const DEVICE_CODE_NOTE =
 // The providers' sign-in pages: a sign-in URL on any other host gets no Copy or Open button.
 const AUTH_HOSTS = new Set([
   "auth.openai.com",
-  "chatgpt.com",
-  "platform.openai.com",
+  "claude.com",
+  "platform.claude.com",
   "claude.ai",
   "console.anthropic.com",
-  "accounts.google.com",
-  "antigravity.google",
 ]);
 function loginUrlRow(raw) {
   let url;
@@ -334,11 +332,7 @@ function loginUrlRow(raw) {
       say("Copy is not available here. Select the link in the field instead.");
     }
   };
-  const open = element(
-    "button",
-    url.hostname === "antigravity.google" ? "Open migration guide" : "Open",
-    "button secondary",
-  );
+  const open = element("button", "Open", "button secondary");
   open.onclick = () => window.open(url.href, "_blank", "noopener");
   row.append(field, copy, open);
   return row;

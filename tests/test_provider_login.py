@@ -488,6 +488,7 @@ def sleeps(monkeypatch):
     """Record the polling delays and skip the waiting."""
     delays = []
     real_sleep = asyncio.sleep
+    monkeypatch.setattr("control.operations.EXIT_GRACE", 0.05)
 
     async def fake(delay, *args):
         if delay < 1:  # the tests' own short waits stay real
@@ -528,6 +529,7 @@ def test_login_url_is_parsed_into_its_own_field_and_dropped_when_the_job_ends(tm
         await asyncio.gather(*operations.tasks, return_exceptions=True)
         assert job["state"] == "cancelled"
         assert "login_url" not in job
+        assert "one-time-secret" not in job["output"]
 
     asyncio.run(exercise())
     assert not any(LOGIN_URL.encode() in p.read_bytes() for p in tmp_path.rglob("*") if p.is_file())
@@ -584,7 +586,7 @@ def test_an_interactive_login_polls_only_after_the_code_is_pasted(sleeps):
             [sys.executable, "-c", URL_THEN_WAIT], timeout=60, interactive=True, signed_in=status
         )
         await asyncio.sleep(0.3)
-        assert len(status.calls) == 1 and job["state"] == "running"
+        assert not status.calls and job["state"] == "running"
         await operations.send_input(job["id"], "pasted-code-1")
         await asyncio.wait_for(asyncio.gather(*operations.tasks), 20)
         assert job["state"] == "completed"
@@ -602,6 +604,66 @@ def test_a_login_already_signed_in_is_left_to_the_cli_to_finish():
         )
         await asyncio.wait_for(asyncio.gather(*operations.tasks), 20)
         assert job["state"] == "completed" and len(status.calls) == 1
+
+    asyncio.run(exercise())
+
+
+def test_an_interactive_renewal_completes_once_the_code_is_pasted(sleeps):
+    """Claude's CLI never exits on its own: an account signed in before must still finish."""
+
+    async def exercise():
+        operations = Operations()
+        status, finished = flips_on_call(1), AsyncMock()
+        job = operations.launch(
+            [sys.executable, "-c", URL_THEN_WAIT],
+            timeout=60,
+            interactive=True,
+            on_success=finished,
+            signed_in=status,
+        )
+        await asyncio.sleep(0.3)
+        assert not status.calls  # no baseline: signed in before is not "done"
+        await operations.send_input(job["id"], "pasted-code-1")
+        await asyncio.wait_for(asyncio.gather(*operations.tasks), 20)
+        assert job["state"] == "completed"
+        finished.assert_awaited_once()
+
+    asyncio.run(exercise())
+
+
+def test_the_cli_gets_a_grace_period_to_exit_by_itself_once_signed_in(
+    tmp_path, sleeps, monkeypatch
+):
+    """It finishes writing its credentials and exits: it is not signalled, and the job completes."""
+    done, signalled = tmp_path / "done", []
+    monkeypatch.setattr("control.operations.EXIT_GRACE", 5)
+    monkeypatch.setattr("control.operations.terminate", signalled.append)
+    script = f"import time; time.sleep(0.5); open({str(done)!r}, 'w').close()"
+
+    async def exercise():
+        operations = Operations()
+        job = operations.launch(
+            [sys.executable, "-c", script], timeout=60, signed_in=flips_on_call(2)
+        )
+        await asyncio.wait_for(asyncio.gather(*operations.tasks), 20)
+        assert job["state"] == "completed"
+
+    asyncio.run(exercise())
+    assert done.exists() and signalled == []
+
+
+def test_the_sign_in_link_is_expired_in_the_output_once_the_login_ends(sleeps):
+    async def exercise():
+        operations = Operations()
+        job = operations.launch(
+            [sys.executable, "-c", URL_THEN_WAIT],
+            timeout=60,
+            signed_in=flips_on_call(2),
+        )
+        await asyncio.wait_for(asyncio.gather(*operations.tasks), 20)
+        assert job["state"] == "completed"
+        assert "one-time-secret" not in job["output"] and "oauth" not in job["output"]
+        assert "https://claude.ai/… (link expired)" in job["output"]
 
     asyncio.run(exercise())
 

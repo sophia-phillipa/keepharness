@@ -148,6 +148,25 @@ const path = require("node:path");
     assert.equal(await popup.evaluate(() => window.opener), null, "noopener");
     await popup.close();
 
+    // Claude Code's authorize pages (claude.com, platform.claude.com) get the same field and buttons.
+    job.provider = "claude";
+    for (const host of ["claude.com/cai", "platform.claude.com"]) {
+      job.login_url = `https://${host}/oauth/authorize?code=true&state=one-time`;
+      await page.evaluate(() => pollOperations());
+      await field.waitFor();
+      assert.equal(await field.inputValue(), job.login_url);
+      assert.equal(
+        await operation.getByRole("button", { name: /^(Copy|Open)$/ }).count(),
+        2,
+        host,
+      );
+    }
+    await operation.getByRole("button", { name: "Copy" }).click();
+    await page.waitForFunction(
+      (url) => navigator.clipboard.readText().then((text) => text === url),
+      job.login_url,
+    );
+
     // A host outside the providers' sign-in domains is plain text: no field, no buttons.
     job.login_url = "https://evil.example/login?state=one-time";
     await page.evaluate(() => pollOperations());
