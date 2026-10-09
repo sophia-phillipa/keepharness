@@ -175,8 +175,8 @@ def test_native_run_uses_the_selected_auth_source(tmp_path, monkeypatch, use_cli
     executable.chmod(0o700)
     home = tmp_path / "home"
     home.mkdir()
-    monkeypatch.setattr(native, "configurations", lambda: {"claude": {}})
-    monkeypatch.setattr(native, "inventory", lambda: {"claude": []})
+    monkeypatch.setattr("control.integrations.configurations", lambda: {"claude": {}})
+    monkeypatch.setattr("control.integrations.inventory", lambda: {"claude": []})
     result = asyncio.run(
         native.run(
             {"binary": str(executable), "use_cli_login": use_cli_login},

@@ -16,7 +16,7 @@ from pathlib import Path
 from types import MappingProxyType
 
 from adapters.deepseek import account as deepseek
-from adapters.shared.provider_setup import credential_file, homes_root
+from adapters.shared.provider_setup import homes_root
 from agent_service.errors import UserMessageError
 
 from . import local_access
@@ -174,14 +174,11 @@ def build_cli_provider(cfg, provider, spec, checked, info, state):
     models = catalog_models(cfg, provider, spec["models"], checked["models"])
     cfg[provider] = {
         "binary": str(binary),
-        "auth_file": info["auth_file"],
         "python": sys.executable,
         "integrations": spec.get("integrations", []),
     }
-    if provider in ("codex", "claude"):
-        # Logins and sessions live in the harness-owned home, never the terminal's (D02).
-        cfg[provider]["provider_homes"] = str(homes_root(state))
-        cfg[provider]["auth_file"] = str(credential_file(state, provider))
+    if provider not in ("codex", "claude"):
+        cfg[provider]["auth_file"] = info["auth_file"]
     if provider == "claude" and (state / "claude-cli-login").exists():
         cfg[provider]["use_cli_login"] = True
     cfg[provider + "_models"] = (

@@ -59,7 +59,7 @@ def setup(tmp_path, monkeypatch):
         git(
             catalog, "-c", "user.email=f@example.invalid", "-c", "user.name=F", "commit", "-qm", "x"
         )
-        put_skill(manager.state / "providers/home/.codex/skills", "mine", "Personal skill")
+        put_skill(tmp_path / "real-home/skills", "mine", "Personal skill")
         with TestClient(app, base_url="http://127.0.0.1:8094") as client:
             sign_in(client).get("/")
             yield client, tmp_path

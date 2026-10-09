@@ -95,9 +95,9 @@ Discovery does not grant permissions. DeepSeek supports bringing your own API ke
 
 ## 🔌 Connectors and plugins
 
-Register an MCP HTTPS server or a stdio command in JSON from the interface. Choose Codex or Claude, run the operation and follow its result. The **Authorize** action starts the official MCP login; OAuth links appear in Operations. Afterward, select the integration on each service's card. The local backend shares Codex's MCP/plugin ecosystem.
+Register an MCP HTTPS server or a stdio command in JSON from the interface. Choose Codex or Claude, run the operation and follow its result. The **Authorize** action starts the official MCP login; OAuth links appear in Operations. Enable the integration in the selected provider's CLI configuration through the Plugins controls. The local backend shares Codex's MCP/plugin ecosystem.
 
-Gmail, Drive and GitHub can be connected through MCP servers/plugins compatible with the CLI and the account's permissions. The panel does not invent endpoints, credentials or OAuth permissions. Integrations exclusive to web apps are not automatically portable to the CLIs. This version registers the native transports; configuring a vendor-specific secret HTTP header still has to be done in the CLI. OpenAI account apps that are not selected are disabled in the executor; use explicit MCP instead.
+Gmail, Drive and GitHub can be connected through MCP servers/plugins compatible with the CLI and the account's permissions. The panel does not invent endpoints, credentials or OAuth permissions. Integrations exclusive to web apps are not automatically portable to the CLIs. This version registers the native transports; configuring a vendor-specific secret HTTP header still has to be done in the CLI. Native Codex and Claude runs load the owner's CLI configuration, including its enabled apps, MCP servers and plugins. Access presets select the CLI's permission modes; Read only does not turn integrations off.
 
 Installing/removing integrations modifies this user's CLI profile. Authentication operations may open the browser automatically. The panel also shows the link; flows that require an interactive terminal are not emulated. No account password is ever requested by the panel.
 

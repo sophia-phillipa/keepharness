@@ -94,8 +94,8 @@ print(json.dumps({"type":"result", "subtype":"success", "result":"done"}), flush
         "#!" + sys.executable + "\n" + script.replace("CAPTURE", repr(str(captured)))
     )
     executable.chmod(0o700)
-    monkeypatch.setattr("adapters.claude.native.configurations", lambda: {"claude": {}})
-    monkeypatch.setattr("adapters.claude.native.inventory", lambda: {"claude": []})
+    monkeypatch.setattr("control.integrations.configurations", lambda: {"claude": {}})
+    monkeypatch.setattr("control.integrations.inventory", lambda: {"claude": []})
 
     async def approve(kind, gate):
         assert kind == "gate"

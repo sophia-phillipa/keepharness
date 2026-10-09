@@ -154,6 +154,8 @@ def test_codex_initialization_is_bounded_and_child_is_reaped(monkeypatch):
 def test_claude_native_approval_wait_exceeds_idle_and_cancellation_works(tmp_path, monkeypatch):
     from adapters.claude import native
 
+    monkeypatch.setattr(native, "version_notice", lambda *args: None)
+
     # This fixture models Claude process timing, not the independent Codex state transport.
     monkeypatch.setattr(
         "adapters.codex.state.CodexStateAdapter._is_project_trusted", lambda self, root: False
@@ -191,7 +193,7 @@ def test_claude_native_approval_wait_exceeds_idle_and_cancellation_works(tmp_pat
         )
         task = asyncio.create_task(
             native.run(
-                {"idle_timeout_seconds": 0.01},
+                {"binary": "fixture-never-executed", "idle_timeout_seconds": 0.01},
                 "hello",
                 lambda *_: None,
                 tmp_path,

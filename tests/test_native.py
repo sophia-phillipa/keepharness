@@ -123,8 +123,8 @@ class AskModeTest(unittest.IsolatedAsyncioTestCase):
                 ),
                 False,
             )
-        self.assertTrue(params["config"]["mcp_servers"]["fixture"]["enabled"])
-        self.assertEqual(params["config"]["plugins"], {"tool": {"enabled": True}})
+        self.assertNotIn("fixture", params["config"]["mcp_servers"])
+        self.assertNotIn("plugins", params["config"])
 
     async def test_codex_other_modes_keep_their_sandbox(self):
         # Automatic is project-bounded since D11: tests/test_access_mode_bounds.py.
@@ -189,8 +189,8 @@ class AskModeTest(unittest.IsolatedAsyncioTestCase):
     def test_claude_ask_never_bypasses_and_asks_before_changes(self):
         with tempfile.TemporaryDirectory() as d:
             with (
-                patch("adapters.claude.native.configurations", return_value={"claude": {}}),
-                patch("adapters.claude.native.inventory", return_value={"claude": []}),
+                patch("control.integrations.configurations", return_value={"claude": {}}),
+                patch("control.integrations.inventory", return_value={"claude": []}),
             ):
                 command = claude_command(
                     {"binary": "claude", "unrestricted": True},
@@ -204,23 +204,20 @@ class AskModeTest(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("bypassPermissions", command)
         self.assertEqual(command[command.index("--permission-mode") + 1], "default")
         settings = claude_settings(command)
-        self.assertEqual(
-            settings["permissions"]["ask"],
-            ["Edit", "Write", "NotebookEdit", "Bash", "mcp__*"],
-        )
-        self.assertIs(settings["sandbox"]["autoAllowBashIfSandboxed"], False)
+        self.assertNotIn("permissions", settings)
+        self.assertNotIn("sandbox", settings)
 
     def test_claude_other_modes_are_unchanged(self):
         # Automatic is project-bounded since D11: tests/test_access_mode_bounds.py.
         expected = {
             "full": "bypassPermissions",
-            "read_only": "dontAsk",
+            "read_only": "plan",
         }
         for mode, permission_mode in expected.items():
             with tempfile.TemporaryDirectory() as d:
                 with (
-                    patch("adapters.claude.native.configurations", return_value={"claude": {}}),
-                    patch("adapters.claude.native.inventory", return_value={"claude": []}),
+                    patch("control.integrations.configurations", return_value={"claude": {}}),
+                    patch("control.integrations.inventory", return_value={"claude": []}),
                 ):
                     command = claude_command(
                         {"binary": "claude", "unrestricted": True},
@@ -234,7 +231,7 @@ class AskModeTest(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(command[command.index("--permission-mode") + 1], permission_mode)
             settings = claude_settings(command)
             self.assertNotIn("permissions", settings, mode)
-            self.assertEqual(settings["sandbox"], {"enabled": False}, mode)
+            self.assertNotIn("sandbox", settings, mode)
 
 
 class NativeTest(unittest.IsolatedAsyncioTestCase):
@@ -505,8 +502,8 @@ print(json.dumps({'type':'result','subtype':'success','result':decision,'session
                 return {"approved": True}
 
             with (
-                patch("adapters.claude.native.configurations", return_value={"claude": {}}),
-                patch("adapters.claude.native.inventory", return_value={"claude": []}),
+                patch("control.integrations.configurations", return_value={"claude": {}}),
+                patch("control.integrations.inventory", return_value={"claude": []}),
             ):
                 result = await run(
                     {"binary": str(exe)},

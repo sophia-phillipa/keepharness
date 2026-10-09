@@ -88,8 +88,8 @@ def test_native_configs_use_owned_server_and_disable_host_impersonation(tmp_path
         "harness_effects": {"command": "host-should-not-run"},
         "external": {"command": "fixture"},
     }
-    monkeypatch.setattr("adapters.claude.native.configurations", lambda: {"claude": host})
-    monkeypatch.setattr("adapters.claude.native.inventory", lambda: {"claude": []})
+    monkeypatch.setattr("control.integrations.configurations", lambda: {"claude": host})
+    monkeypatch.setattr("control.integrations.inventory", lambda: {"claude": []})
     config = {"binary": "fixture", "_effect_capability": capability}
     build_command(config, "fixture", tmp_path, {}, ["mcp:harness_effects"], "full", [])
     assert json.loads((tmp_path / "mcp.json").read_text())["mcpServers"]["harness_effects"] == owned
@@ -111,7 +111,16 @@ def test_native_configs_use_owned_server_and_disable_host_impersonation(tmp_path
         RuntimeOptions([]),
         False,
     )
-    assert params["config"]["mcp_servers"]["harness_effects"]["enabled"] is False
+    assert "harness_effects" not in params["config"]["mcp_servers"]
+    import os
+
+    from adapters.codex.native import build_command as codex_command
+
+    home = Path(os.environ["CODEX_HOME"])
+    (home / "config.toml").write_text(
+        '[mcp_servers.harness_effects]\ncommand="host-should-not-run"\n'
+    )
+    assert "mcp_servers.harness_effects.enabled=false" in codex_command("fixture", {})
 
 
 def test_real_stdio_mcp_exposes_prepare_only(tmp_path):

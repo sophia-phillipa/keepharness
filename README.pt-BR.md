@@ -95,9 +95,9 @@ A descoberta não concede permissões. O DeepSeek permite usar sua própria chav
 
 ## 🔌 Connectors and plugins
 
-Cadastre um servidor MCP HTTPS ou um comando stdio em JSON pela interface. Escolha Codex ou Claude, execute a operação e acompanhe o resultado. A ação **Autorizar** inicia o login MCP oficial; links OAuth aparecem em Operações. Depois, selecione a integração no cartão de cada serviço. O backend local compartilha o ecossistema MCP/plugins do Codex.
+Cadastre um servidor MCP HTTPS ou um comando stdio em JSON pela interface. Escolha Codex ou Claude, execute a operação e acompanhe o resultado. A ação **Autorizar** inicia o login MCP oficial; links OAuth aparecem em Operações. Habilite a integração na configuração de CLI do fornecedor selecionado pelos controles de Plugins. O backend local compartilha o ecossistema MCP/plugins do Codex.
 
-Gmail, Drive e GitHub podem ser conectados por servidores MCP/plugins compatíveis com o CLI e com as permissões da conta. O painel não inventa endpoints, credenciais ou permissões OAuth. Integrações exclusivas dos aplicativos web não são automaticamente portáveis para os CLIs. Esta versão cadastra os transportes nativos; configurar um cabeçalho HTTP secreto específico de um fornecedor ainda deve ser feito no CLI. Os apps de conta OpenAI não selecionados ficam desabilitados no executor; use MCP explícito nesse caso.
+Gmail, Drive e GitHub podem ser conectados por servidores MCP/plugins compatíveis com o CLI e com as permissões da conta. O painel não inventa endpoints, credenciais ou permissões OAuth. Integrações exclusivas dos aplicativos web não são automaticamente portáveis para os CLIs. Esta versão cadastra os transportes nativos; configurar um cabeçalho HTTP secreto específico de um fornecedor ainda deve ser feito no CLI. As execuções nativas do Codex e do Claude carregam a configuração de CLI da proprietária, incluindo apps, servidores MCP e plugins habilitados. As opções de acesso selecionam os modos de permissão do CLI; Somente leitura não desativa integrações.
 
 Instalar/remover integrações modifica o perfil de CLI deste usuário. Operações de autenticação podem abrir o navegador automaticamente. O painel também mostra o link; fluxos que exigem um terminal interativo não são emulados. Nenhuma senha de conta é pedida pelo painel.
 

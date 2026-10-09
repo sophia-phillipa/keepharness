@@ -6,9 +6,13 @@ import json
 from pathlib import Path
 
 from adapters.shared.process import child_environment, process_diagnostics
-from adapters.shared.provider_setup import child_source, instructions
+from adapters.shared.provider_setup import (
+    child_source,
+    claude_access_settings,
+    instructions,
+    version_notice,
+)
 from agent_service.tools import ToolError
-from control.integrations import configurations, inventory
 
 from .stream import Stream
 
@@ -16,21 +20,9 @@ MISSING_SESSION = "No conversation found with session ID:"
 
 
 def build_command(config, model, home, permissions, selected, access_mode, additional_roots):
-    """Configure only selected tools and connectors for this Claude process."""
-    if access_mode == "read_only":
-        selected = []  # Read only never starts a connector or plugin (decisions D04, D12).
-    personal = config.get("personal_setup") is True
-    # The owner's MCP servers and plugins are part of the personal setup (decision D01).
-    servers = configurations()["claude"] if personal else {}
-    selected_servers = {
-        k: v for k, v in servers.items() if "mcp:" + k in selected and k != "harness_effects"
-    }
+    """Select a native permission mode and add only KeepHarness-owned servers."""
+    selected_servers = {}
     policy = config.get("_project_security", {})
-    if policy:
-        # Until the real-home migration, strict MCP still needs explicit approved definitions.
-        for name in policy["project_servers"]:
-            selected_servers.pop(name, None)
-        selected_servers.update(policy["approved_servers"])
     if config.get("_effect_capability"):
         from agent_service.effect_transport import server_spec
 
@@ -38,47 +30,11 @@ def build_command(config, model, home, permissions, selected, access_mode, addit
     mcp = home / "mcp.json"
     mcp.write_text(json.dumps({"mcpServers": selected_servers}))
     mcp.chmod(0o600)
-    plugins = {
-        p["id"].split(":", 1)[1]: p["id"] in selected
-        for p in (inventory()["claude"] if personal else [])
-        if p["kind"] == "plugin"
-    }
-    tools = ["AskUserQuestion"]
-    if permissions.get("read"):
-        tools += ["Read", "Glob", "Grep"]
-    if permissions.get("delegate"):
-        tools += ["Task"]
-    if permissions.get("read") and config.get("resource_skills"):
-        tools += ["Skill"]
-    if permissions.get("write"):
-        tools += ["Edit", "Write", "NotebookEdit"]
-    if permissions.get("shell"):
-        tools += ["Bash"]
-    if permissions.get("internet"):
-        tools += ["WebFetch", "WebSearch"]
-    sandbox = {"enabled": False} if config.get("unrestricted") else {}
-    settings = {
-        "enabledPlugins": plugins,
-        "disableAllHooks": not permissions.get("hooks", False),
-    }
-    if permissions.get("hooks") and personal:
-        settings["hooks"] = config.get("personal_hooks", {})
-    if access_mode == "ask":
-        # Ask rules win over any user "allow" rule and over "acceptEdits".
-        settings["permissions"] = {"ask": ["Edit", "Write", "NotebookEdit", "Bash", "mcp__*"]}
-        sandbox["autoAllowBashIfSandboxed"] = False
-    elif access_mode == "auto":
-        # Automatic (D11): "acceptEdits" accepts edits inside the working directories (the
-        # project and --add-dir roots) and asks for anything outside them. Claude Code has no
-        # folder sandbox for commands here, so every command and connector call asks.
-        settings["permissions"] = {"ask": ["Bash", "mcp__*"]}
-    if sandbox:
-        settings["sandbox"] = sandbox
+    settings = {}
     if policy:
         settings["disabledMcpjsonServers"] = policy["disabled_servers"]
         if not policy["trusted"]:
             settings["disableAllHooks"] = True
-            settings.pop("hooks", None)
     command = [
         config["binary"],
         "--print",
@@ -94,28 +50,19 @@ def build_command(config, model, home, permissions, selected, access_mode, addit
         "host",
         "--model",
         model,
-        "--tools",
-        ",".join(tools),
-        "--strict-mcp-config",
         "--mcp-config",
         str(mcp),
-        "--setting-sources",
-        "user"
-        if policy and not policy["trusted"]
-        else "user,project"
-        if permissions.get("hooks") and personal
-        else "project",
         "--settings",
         json.dumps(settings),
     ]
-    if access_mode == "ask":
-        command += ["--permission-mode", "default"]
-    elif access_mode == "auto":
-        command += ["--permission-mode", "acceptEdits"]
-    elif config.get("unrestricted") and access_mode == "full" and permissions.get("shell"):
-        command += ["--permission-mode", "bypassPermissions"]
-    elif access_mode in ("full", "read_only"):
-        command += ["--permission-mode", "dontAsk"]
+    if policy and not policy["trusted"]:
+        command += ["--setting-sources", "user"]
+    command += [
+        "--permission-mode",
+        claude_access_settings(access_mode, permissions, config.get("unrestricted"))[
+            "permissionMode"
+        ],
+    ]
     if additional_roots:
         command += ["--add-dir", *additional_roots]
     if permissions.get("delegate"):
@@ -235,6 +182,9 @@ async def run(
         **config,
         "_project_security": await asyncio.to_thread(project_security, config, Path(cwd)),
     }
+    await asyncio.to_thread(
+        version_notice, config["binary"], "claude", event, child_source(config, "claude")
+    )
     command = build_command(
         config, model, home, permissions, selected, access_mode, additional_roots
     )
@@ -246,13 +196,7 @@ async def run(
     ]
     event(
         "hook_scope",
-        {
-            "scope": "global_and_project"
-            if permissions.get("hooks") and config.get("personal_setup") is True
-            else "project"
-            if permissions.get("hooks")
-            else "disabled"
-        },
+        {"scope": "global_and_project" if config["_project_security"]["trusted"] else "disabled"},
     )
     marker = home / "claude-session.json"
     if marker.exists():

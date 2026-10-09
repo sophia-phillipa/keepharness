@@ -94,8 +94,7 @@ def test_child_environment_allowlist(monkeypatch):
     assert child_environment({**os.environ, **homes}) == {**listed, **homes}
 
 
-def test_provider_home_is_harness_owned(tmp_path, monkeypatch):
-    from adapters.codex.native import build_command
+def test_native_homes_are_inherited_and_deepseek_home_is_separate(tmp_path, monkeypatch):
     from adapters.shared import provider_setup
     from control.runtime_config import build_cli_provider, build_deepseek
 
@@ -117,29 +116,15 @@ def test_provider_home_is_harness_owned(tmp_path, monkeypatch):
     build_deepseek(
         cfg, "deepseek", {"models": []}, {"models": {}}, {"binary": "/usr/bin/true"}, state
     )
-    homes = {}
-    for provider in ("codex", "claude", "deepseek"):
-        assert cfg[provider]["provider_homes"] == str(state / "providers")
-        homes[provider] = provider_setup.environment(cfg[provider], provider)
-        for path in homes[provider].values():
-            assert Path(path).is_relative_to(state / "providers")
-            assert Path(path).stat().st_mode & 0o077 == 0
-    assert set(homes["codex"]) == {"HOME", "CODEX_HOME"}
-    assert set(homes["deepseek"]) == {"HOME", "CODEX_HOME"}
-    assert set(homes["claude"]) == {"HOME", "CLAUDE_CONFIG_DIR"}
-    # DeepSeek keeps its own Codex home: the ChatGPT login of the Codex home is not its own.
-    assert homes["deepseek"]["CODEX_HOME"] != homes["codex"]["CODEX_HOME"]
-    # Isolated runs copy the login the admin wrote into the harness home, not the terminal's.
-    assert cfg["codex"]["auth_file"] == str(Path(homes["codex"]["CODEX_HOME"]) / "auth.json")
-    assert cfg["claude"]["auth_file"] == str(
-        Path(homes["claude"]["CLAUDE_CONFIG_DIR"]) / ".credentials.json"
-    )
-    # Hooks follow the hooks grant only for an owner who opted into the personal setup.
-    granted = {"hooks": True}
-    for personal, expected in ((False, "false"), (True, "true")):
-        effective = provider_setup.command_permissions({"personal_setup": personal}, granted)
-        assert "features.hooks=" + expected in build_command("codex", effective, host_config=False)
-    assert provider_setup.command_permissions({"personal_setup": True}, {}) == {}
+    for provider in ("codex", "claude"):
+        assert "provider_homes" not in cfg[provider]
+        assert "auth_file" not in cfg[provider]
+        assert provider_setup.environment(cfg[provider], provider) == {}
+    homes = provider_setup.environment(cfg["deepseek"], "deepseek")
+    assert set(homes) == {"HOME", "CODEX_HOME"}
+    for path in homes.values():
+        assert Path(path).is_relative_to(state / "providers")
+        assert Path(path).stat().st_mode & 0o077 == 0
     assert list(fake_home.iterdir()) == []
 
 
@@ -170,7 +155,7 @@ def test_personal_setup_is_an_owner_opt_in_off_by_default(tmp_path):
     assert personal({}) is False
 
 
-def test_admin_sign_in_and_checks_use_the_harness_home(tmp_path, monkeypatch):
+def test_admin_sign_in_and_checks_use_the_owner_home(tmp_path, monkeypatch):
     from unittest.mock import AsyncMock, patch
 
     from control.operations import Operations
@@ -197,8 +182,8 @@ def test_admin_sign_in_and_checks_use_the_harness_home(tmp_path, monkeypatch):
     with patch.object(Operations, "launch", launch):
         for provider in ("codex", "claude"):
             asyncio.run(login_provider(None, manager, {"provider": provider}))
-    assert Path(launched["/fixture/codex"]["CODEX_HOME"]).is_relative_to(providers)
-    assert Path(launched["/fixture/claude"]["CLAUDE_CONFIG_DIR"]).is_relative_to(providers)
+    assert launched["/fixture/codex"]["CODEX_HOME"] == str(tmp_path / "terminal-codex")
+    assert launched["/fixture/claude"]["CLAUDE_CONFIG_DIR"] == os.environ["CLAUDE_CONFIG_DIR"]
     assert "CLAUDE_CODE_OAUTH_TOKEN" not in launched["/fixture/claude"]
 
     with (
@@ -206,8 +191,8 @@ def test_admin_sign_in_and_checks_use_the_harness_home(tmp_path, monkeypatch):
         patch("control.manager.metadata", AsyncMock(return_value={"data": []})) as listing,
     ):
         asyncio.run(manager.check("codex"))
-    assert Path(command.call_args.kwargs["env"]["CODEX_HOME"]).is_relative_to(providers)
-    assert Path(listing.call_args.kwargs["env"]["CODEX_HOME"]).is_relative_to(providers)
+    assert command.call_args.kwargs["env"]["CODEX_HOME"] == str(tmp_path / "terminal-codex")
+    assert listing.call_args.kwargs["env"] is None
     with (
         patch(
             "control.discovery.command", AsyncMock(return_value=(0, '{"loggedIn":true}'))
@@ -218,5 +203,5 @@ def test_admin_sign_in_and_checks_use_the_harness_home(tmp_path, monkeypatch):
         ) as probe,
     ):
         asyncio.run(manager.check("claude"))
-    assert Path(command.call_args.kwargs["env"]["CLAUDE_CONFIG_DIR"]).is_relative_to(providers)
+    assert command.call_args.kwargs["env"]["CLAUDE_CONFIG_DIR"] == os.environ["CLAUDE_CONFIG_DIR"]
     assert probe.call_args.args[0]["provider_homes"] == str(providers)

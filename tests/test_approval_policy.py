@@ -147,6 +147,15 @@ def test_mcp_gating_matrix(tmp_path, provider, mode):
     }
     command, thread, turn = run_codex_route(tmp_path, provider, project)
     servers = thread["config"]["mcp_servers"]
+    if provider == "codex":
+        assert not set(HOST_SERVERS) & servers.keys()
+        assert "plugins" not in thread["config"]
+        assert (
+            thread["approvalPolicy"]
+            == turn["approvalPolicy"]
+            == ("never" if mode in ("full", "read_only") else "on-request")
+        )
+        return
     host = {name: servers[name] for name in HOST_SERVERS}
     if mode == "read_only":
         # Read only enables no host connector and no plugin; the harness reader replaces them.
@@ -167,11 +176,11 @@ def test_mcp_gating_matrix(tmp_path, provider, mode):
 
 
 @pytest.mark.parametrize("mode", ["ask", "auto", "full", "read_only"])
-def test_claude_read_only_loads_no_connector_or_plugin(tmp_path, mode):
+def test_claude_presets_leave_owner_connectors_and_plugins_to_cli(tmp_path, mode):
     with (
-        patch("adapters.claude.native.configurations", return_value={"claude": HOST_SERVERS}),
+        patch("control.integrations.configurations", return_value={"claude": HOST_SERVERS}),
         patch(
-            "adapters.claude.native.inventory",
+            "control.integrations.inventory",
             return_value={"claude": [{"id": "plugin:notes@market", "kind": "plugin"}]},
         ),
     ):
@@ -185,8 +194,7 @@ def test_claude_read_only_loads_no_connector_or_plugin(tmp_path, mode):
             [],
         )
     servers = json.loads((tmp_path / "mcp.json").read_text())["mcpServers"]
-    plugins = json.loads(command[command.index("--settings") + 1])["enabledPlugins"]
-    if mode == "read_only":
-        assert servers == {} and plugins == {"notes@market": False}
-    else:
-        assert set(servers) == set(HOST_SERVERS) and plugins == {"notes@market": True}
+    settings = json.loads(command[command.index("--settings") + 1])
+    assert "enabledPlugins" not in settings
+    assert servers == {}
+    assert "--strict-mcp-config" not in command
