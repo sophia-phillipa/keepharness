@@ -374,3 +374,9 @@ def test_token_like_env_and_header_names_are_masked():
     }
     assert safe_details({"env": {name: "v"}})["env"] == {PLACEHOLDER: PLACEHOLDER}
     assert PLACEHOLDER in safe_details({"allowedEnvVars": [name]})["allowedEnvVars"]
+
+
+def test_token_like_header_names_in_a_list_are_masked():
+    headers = ["ghp_" + "AbAb" * 9 + ": v", "AKIAIOSFODNN7EXAMPLE: v"]
+    assert safe_details({"headers": headers})["headers"] == [PLACEHOLDER, PLACEHOLDER]
+    assert mask_named_values(["Accept: v"]) == ["Accept:" + PLACEHOLDER]

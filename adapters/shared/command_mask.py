@@ -196,7 +196,8 @@ def mask_named_values(value: object) -> object:
         result = []
         for item in value[:_MAX_ITEMS]:
             named = _NAMED.match(item) if isinstance(item, str) else None
-            result.append(named.group(1) + named.group(2) + PLACEHOLDER if named else PLACEHOLDER)
+            keep = named is not None and is_name(named.group(1))
+            result.append(named.group(1) + named.group(2) + PLACEHOLDER if keep else PLACEHOLDER)
         return result
     return PLACEHOLDER
 
