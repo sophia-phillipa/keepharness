@@ -15,6 +15,14 @@ def validate_private_file(metadata):
         raise ToolError("unsafe_scoped_home")
 
 
+def trusted_state_root(state):
+    """Resolve the owner-configured state root (e.g. /home -> /var/home) before pinning it.
+
+    Only this root is resolved; components below it stay under O_NOFOLLOW.
+    """
+    return Path(state).resolve()
+
+
 @contextmanager
 def scoped_home_directory(home, *, create=True):
     """Pin every directory component; never follow worker-planted symlinks."""

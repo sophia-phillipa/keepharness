@@ -7,7 +7,11 @@ import subprocess
 import sys
 from pathlib import Path
 
-from adapters.shared.private_files import scoped_home_directory, scoped_home_read
+from adapters.shared.private_files import (
+    scoped_home_directory,
+    scoped_home_read,
+    trusted_state_root,
+)
 from agent_service.secret_vault import redact_secrets
 from agent_service.tools import ToolError
 from control.product import PRODUCT
@@ -57,7 +61,7 @@ def private_environment(config):
         key = Path(config["api_provider"]["key_file"])
         if not key.is_absolute() or ".." in key.parts:
             raise ValueError("invalid key location")
-        state = key.parent
+        state = trusted_state_root(key.parent)
         home = state / "providers" / "deepseek"
         if not home.is_dir():
             raise ValueError("missing home")
