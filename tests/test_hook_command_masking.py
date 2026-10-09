@@ -380,3 +380,26 @@ def test_token_like_header_names_in_a_list_are_masked():
     headers = ["ghp_" + "AbAb" * 9 + ": v", "AKIAIOSFODNN7EXAMPLE: v"]
     assert safe_details({"headers": headers})["headers"] == [PLACEHOLDER, PLACEHOLDER]
     assert mask_named_values(["Accept: v"]) == ["Accept:" + PLACEHOLDER]
+
+
+@pytest.mark.parametrize(
+    "fields",
+    [
+        {"tool": "xK9mQ2pL7vR4tY8w"},
+        {"pluginId": "abcd1234efgh5678ijkl"},
+        {"server": "hunter2"},
+        {"status": "qwertyuiopasdfg"},
+        {"handlerType": "mysupersecretpasswordthatislongerthan"},
+        {"trustStatus": "Hunter2"},
+        {"type": "hunter"},
+        {"sourcePath": "relative/hunter2"},
+    ],
+)
+def test_plain_keys_and_enums_mask_secret_looking_values(fields):
+    assert safe_details(fields) == {key: PLACEHOLDER for key in fields}
+
+
+def test_closed_enum_values_pass():
+    hook = {"type": "mcp_tool", "handlerType": "agent", "trustStatus": "modified"}
+    hook |= {"status": "pending review", "source": "sessionFlags", "model": "claude-sonnet-5-5"}
+    assert safe_details(hook) == hook

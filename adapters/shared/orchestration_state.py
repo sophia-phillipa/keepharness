@@ -11,6 +11,8 @@ from pathlib import Path
 from adapters.shared.command_mask import (
     PLACEHOLDER,
     is_name,
+    is_opaque,
+    is_path,
     mask_argv,
     mask_command,
     mask_matcher,
@@ -42,9 +44,32 @@ _NUMBER_KEYS = frozenset(
     key.lower() for key in "timeout timeoutSec displayOrder additionalContextLimit".split()
 )
 _BOOL_KEYS = frozenset(key.lower() for key in "async enabled isManaged disableAllHooks".split())
-_ENUM_KEYS = frozenset(key.lower() for key in "type handlerType trustStatus source status".split())
+# Closed value lists: type/handlerType/trustStatus are protocol enums, source and status are the
+# values produced by the Claude and Codex adapters (adapters/*/state.py).
+_ENUMS = {
+    "type": frozenset({"command", "prompt", "agent", "http", "mcp_tool"}),
+    "handlertype": frozenset({"command", "prompt", "agent", "http", "mcp_tool"}),
+    "trustStatus".lower(): frozenset({"trusted", "untrusted", "modified", "managed"}),
+    "source": frozenset(
+        {
+            "user",
+            "project",
+            "local",
+            "managed",
+            "plugin",
+            "system",
+            "mdm",
+            "sessionFlags",
+            "unknown",
+        }
+    ),
+    "status": frozenset(
+        {"configured", "enabled", "disabled", "pending review", "pending project trust", "unknown"}
+    ),
+}
+_NAME_PATTERN = re.compile(r"[A-Za-z0-9_.@:-]{1,64}")
 _PLAIN_KEYS = frozenset(
-    key.lower() for key in "event eventName sourcePath pluginId origin server tool model".split()
+    key.lower() for key in "event eventName pluginId origin server tool".split()
 )
 _TEXT_KEYS = frozenset({"prompt", "statusmessage", "description"})
 _FIELD_CHARS = 300
@@ -217,16 +242,32 @@ def _safe_field(value, key):
     return _safe_shaped(value, lower)
 
 
+def _plain_name(value, *, model=False):
+    """Identifier-shaped and not token-like. Names refuse digits ("hunter2"); a model id such as
+    ``claude-sonnet-5-5`` keeps them, so only its dash-separated parts are checked for tokens."""
+    if not isinstance(value, str) or not _NAME_PATTERN.fullmatch(value):
+        return False
+    if model:
+        return not any(is_opaque(part) for part in re.split("[-.:@]", value))
+    return not is_opaque(value) and not any(char.isdigit() for char in value)
+
+
 def _safe_shaped(value, lower):
     """Plain fields pass only with the shape of their kind: number, bool or enum-like name."""
     if lower in _NUMBER_KEYS:
         shaped = isinstance(value, (int, float)) and not isinstance(value, bool)
     elif lower in _BOOL_KEYS:
         shaped = isinstance(value, bool)
-    elif lower in _ENUM_KEYS:
-        shaped = isinstance(value, str) and is_name(value)
+    elif lower in _ENUMS:
+        shaped = isinstance(value, str) and value in _ENUMS[lower]
+    elif lower == "sourcepath":
+        shaped = isinstance(value, str) and is_path(value)
+    elif lower == "model":
+        shaped = _plain_name(value, model=True)
+    elif lower in _PLAIN_KEYS:
+        shaped = _plain_name(value)
     else:
-        return _safe_scalar(value) if lower in _PLAIN_KEYS else PLACEHOLDER
+        return PLACEHOLDER
     return value if shaped else PLACEHOLDER
 
 

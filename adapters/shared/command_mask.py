@@ -107,7 +107,7 @@ def _mask_option(word: _Word) -> str:
     return name if not tail and not word.quoted else name + PLACEHOLDER
 
 
-def _opaque(text: str) -> bool:
+def is_opaque(text: str) -> bool:
     """True for text that looks like a token: a known prefix, a long hex run, a word of 16+
     characters mixing letters and digits, or 20+ characters of camel-cased base64."""
     mixed = len(text) >= 20 and len(re.findall("[a-z][A-Z]", text)) >= 3
@@ -119,25 +119,25 @@ def _opaque(text: str) -> bool:
 
 def is_name(text: str) -> bool:
     """True for an identifier-shaped name (env var, header, field) that does not look like a token."""
-    return bool(_NAME.fullmatch(text)) and not _opaque(text)
+    return bool(_NAME.fullmatch(text)) and not is_opaque(text)
 
 
-def _is_path(value: str) -> bool:
+def is_path(value: str) -> bool:
     if not value.startswith(_PATH_PREFIXES):
         return False
     segments = (value[2:] if value.startswith("~/") else value).split("/")
     # A secret can itself contain slashes, so the whole path is checked as well as each segment.
-    return not _opaque("".join(segments)) and all(
-        _SEGMENT.fullmatch(seg) and not _opaque(seg) for seg in segments
+    return not is_opaque("".join(segments)) and all(
+        _SEGMENT.fullmatch(seg) and not is_opaque(seg) for seg in segments
     )
 
 
 def _is_literal(value: str, *, executable: bool) -> bool:
-    if _is_path(value):
+    if is_path(value):
         return True
     if executable:
-        return bool(_EXECUTABLE.fullmatch(value)) and not _opaque(value)
-    return bool(_SUBCOMMAND.fullmatch(value)) and not _opaque(value)
+        return bool(_EXECUTABLE.fullmatch(value)) and not is_opaque(value)
+    return bool(_SUBCOMMAND.fullmatch(value)) and not is_opaque(value)
 
 
 def _mask_words(words: Iterable[_Word]) -> list[str]:
@@ -153,11 +153,11 @@ def _mask_words(words: Iterable[_Word]) -> list[str]:
         elif (
             not masked
             and not word.quoted
-            and (subcommands < _MAX_SUBCOMMANDS or _is_path(word.value))
+            and (subcommands < _MAX_SUBCOMMANDS or is_path(word.value))
             and _is_literal(word.value, executable=position == 0)
         ):
             out.append(word.value)
-            subcommands += position > 0 and not _is_path(word.value)
+            subcommands += position > 0 and not is_path(word.value)
         else:
             out.append(PLACEHOLDER)
             masked = True
@@ -183,7 +183,7 @@ def mask_matcher(value: object) -> str:
     if not isinstance(value, str):
         return PLACEHOLDER
     parts = value.split("|") if value else []
-    plain = all(_MATCHER.fullmatch(part) and not _opaque(part) for part in parts)
+    plain = all(_MATCHER.fullmatch(part) and not is_opaque(part) for part in parts)
     return value if plain else PLACEHOLDER
 
 
