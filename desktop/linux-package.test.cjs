@@ -159,6 +159,10 @@ test('current_unlinked_target_untouched', () => {
   const f = fixture(); f.invoke(); const link = path.join(f.opt,'keepharness/current'); fs.unlinkSync(link); fs.symlinkSync(f.pkg,link);
   f.invoke('--uninstall','--yes'); assert.ok(fs.existsSync(f.pkg)); assert.ok(!fs.existsSync(link));
 });
+test('install_over_a_dangling_current_link', () => {
+  const f = fixture(); f.invoke(); const installed = current(f); fs.rmSync(installed, {recursive:true});
+  f.invoke(); assert.equal(current(f), installed); assert.ok(fs.existsSync(path.join(installed, 'keepharness'))); assert.ok(fs.existsSync(f.entry));
+});
 test('uninstall_skips_unmarked_keepharness_dir', () => {
   const f = fixture(); f.invoke(); const extra = path.join(f.opt,'keepharness-9.0.0/precious'); put(extra);
   f.invoke('--uninstall','--yes'); assert.equal(fs.readFileSync(extra,'utf8'),'sentinel');
