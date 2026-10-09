@@ -44,16 +44,17 @@ async function catalog(op) {
   return op.page.evaluate(() => fetch("/v1/models").then((r) => r.json()));
 }
 
-// Fixture: the named model. Real mode: the cheapest sensible choice, Claude before Codex.
+// Fixture: the named model. Real mode: the cheapest sensible choice from the providers in
+// OPERATOR_REAL_BACKENDS (comma list, in order; default Claude before Codex).
 async function chooseModel(op, wanted) {
   let id = wanted;
   if (!id || !op.fixtureMode) {
     const { models } = await catalog(op);
     const usable = models;
+    const order = (process.env.OPERATOR_REAL_BACKENDS || "claude,codex").split(",").map((b) => b.trim());
     const pick =
-      usable.find((m) => m.backend === "claude" && /sonnet|haiku/.test(m.id)) ||
-      usable.find((m) => m.backend === "claude") ||
-      usable.find((m) => m.backend === "codex") ||
+      usable.find((m) => order[0] === "claude" && m.backend === "claude" && /sonnet|haiku/.test(m.id)) ||
+      order.map((b) => usable.find((m) => m.backend === b)).find(Boolean) ||
       usable[0];
     if (!pick) op.skip("no model is configured");
     if (!wanted || !usable.some((m) => m.id === wanted)) id = pick.id;

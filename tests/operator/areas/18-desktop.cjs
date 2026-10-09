@@ -71,7 +71,8 @@ module.exports = {
         await op.click(page.locator("#settings"));
         await op.click(page.locator("#settings-menu").getByRole("menuitem", { name: "Providers", exact: true }));
         await op.until(async () => page.frames().some((f) => f.url().startsWith(op.options.adminUrl)), "Settings did not show the admin; the frames are " + page.frames().map((f) => f.url()).join(", "));
-        await op.see(page.frameLocator("#admin-frame").getByRole("link", { name: "Providers", exact: true }));
+        // Framed in Settings, the admin hides its own navigation and shows the Providers page.
+        await op.see(page.frameLocator("#admin-frame").getByRole("heading", { name: "AI Providers" }));
       });
 
       await op.step("admin-back", "Open harness brings the chat back", async () => {
@@ -94,7 +95,8 @@ module.exports = {
         await desktop.close();
         desktop.closed = true;
         const response = await fetch(base + "/v1/version").catch(() => null);
-        op.check(response && response.ok, "the harness stopped when the window closed");
+        // /v1/version needs a session on a real instance (401); any HTTP answer means it is still up.
+        op.check(response && response.status < 500, "the harness stopped when the window closed");
       }, { lint: false });
     } finally {
       if (desktop && !desktop.closed && own) await desktop.close();
