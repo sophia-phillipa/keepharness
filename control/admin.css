@@ -2087,6 +2087,11 @@ html[data-embedded] #main {
   background: color-mix(in srgb, var(--th-text) 8%, transparent);
   color: var(--th-text);
   font-size: 18px;
+  line-height: 1;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 .plugin-card-action:hover {
   background: color-mix(in srgb, var(--th-text) 13%, transparent);
