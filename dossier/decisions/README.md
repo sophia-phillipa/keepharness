@@ -36,3 +36,6 @@ Spec: [Codex-app parity design](../codex-parity-design.md).
 | [D-044](d-044-scoped-sandbox-under-facade.md) | Retire Codex/Claude scoped execution for 1.0; retain native presets and Local isolation | accepted for implementation |
 | [D-046](d-046-cloud-isolation-ui-retirement.md) | Bring cloud isolation UI retirement ahead of #45/#46; re-validate their checks when they land | accepted |
 | [D-048](d-048-fail-closed-hook-command-masking.md) | Mask hook command values by default instead of guessing secrets (#61) | accepted |
+| [D-050](d-050-desktop-tray-and-window-menu.md) | Desktop tray (SNI) and window-menu items, Always on top in the WP6 store (#18) | accepted |
+| [D-051](d-051-scripted-install-with-desktop-package.md) | `install.sh` installs the desktop package through the existing desktop installer | accepted |
+| [D-052](d-052-first-run-wizard-in-admin.md) | First-run wizard in the admin with a status-only provider scan | accepted |
