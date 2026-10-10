@@ -16,6 +16,7 @@ from pydantic import SecretStr
 from adapters.deepseek import account, backend
 from adapters.deepseek.credentials import keyring_entry_exists
 from adapters.deepseek.state import DeepSeekStateAdapter
+from adapters.shared.provider_state import ProviderStateSchemaError
 from agent_service.errors import UserMessageError
 from agent_service.tools import ToolError
 
@@ -397,6 +398,25 @@ def test_set_api_key_on_symlinked_state_root_stores_in_real_home(tmp_path):
     assert (real / "providers" / "deepseek").stat().st_mode & 0o777 == 0o700
 
 
+def _fake_codex_on_path(monkeypatch):
+    fake = Path(__file__).parent / "fixtures" / "fake-codex"
+    monkeypatch.setenv("PATH", f"{fake}{os.pathsep}{os.environ['PATH']}")
+
+
+def test_listing_through_symlinked_parent_state_root_succeeds(tmp_path, monkeypatch):
+    _fake_codex_on_path(monkeypatch)
+    real = tmp_path / "real"
+    home = real / "providers" / "deepseek"
+    home.mkdir(mode=0o700, parents=True)
+    (home / "fake-app-server.json").write_text(
+        json.dumps({"plugins": [{"id": "private", "name": "Private"}]})
+    )
+    linked = tmp_path / "link"
+    linked.symlink_to(real, target_is_directory=True)
+    snapshot = DeepSeekStateAdapter(linked).read_state(None)
+    assert any(item.id == "plugin:private" for item in snapshot.items)
+
+
 @pytest.mark.parametrize("via_link", [False, True])
 def test_symlink_planted_under_state_is_refused(tmp_path, monkeypatch, via_link):
     real = tmp_path / "real"
@@ -420,4 +440,22 @@ def test_symlink_planted_under_state_is_refused(tmp_path, monkeypatch, via_link)
     }
     with pytest.raises(ToolError, match="^deepseek_credential_isolation$"):
         backend.runtime_options(config, {})
+    assert list(elsewhere.iterdir()) == []
+
+
+@pytest.mark.parametrize("via_link", [False, True])
+def test_listing_refuses_symlink_planted_under_state_root(tmp_path, monkeypatch, via_link):
+    _fake_codex_on_path(monkeypatch)
+    real = tmp_path / "real"
+    (real / "providers").mkdir(mode=0o700, parents=True)
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir(mode=0o700)
+    (real / "providers" / "deepseek").symlink_to(elsewhere, target_is_directory=True)
+    state = tmp_path / "link"
+    if via_link:
+        state.symlink_to(real, target_is_directory=True)
+    else:
+        state = real
+    with pytest.raises(ProviderStateSchemaError, match="must not contain symlinks"):
+        DeepSeekStateAdapter(state).read_state(None)
     assert list(elsewhere.iterdir()) == []

@@ -17,8 +17,10 @@ class DeepSeekStateAdapter(CodexStateAdapter):
     # Its HOME is private, so its shared root is DeepSeek-only: no other provider reads it.
     shared_root_readers: tuple[str, ...] = ()
 
-    def __init__(self, state):
-        self.state = Path(state)
+    def __init__(self, state: str | Path) -> None:
+        # Resolve only the owner-configured root (e.g. /home -> /var/home). Symlinks below
+        # it are still refused by _environment.
+        self.state = trusted_state_root(state)
         home = str(self.state / "providers" / "deepseek")
         super().__init__(environment={"HOME": home, "CODEX_HOME": home})
 
@@ -66,4 +68,4 @@ class DeepSeekStateAdapter(CodexStateAdapter):
         }
 
     def set_api_key(self, secret: SecretStr) -> None:
-        store_key(trusted_state_root(self.state), secret.get_secret_value())
+        store_key(self.state, secret.get_secret_value())
