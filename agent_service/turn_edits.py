@@ -1,6 +1,5 @@
 """Normalized file edits of one turn: the ``turn_edit`` records stored on the turn's job (D-053)."""
 
-import functools
 import os
 from pathlib import PurePath
 
@@ -13,7 +12,6 @@ CLAUDE_EDIT_TOOLS = ("Edit", "MultiEdit", "Write", "NotebookEdit")
 CODEX_OPS = {"add": "created", "update": "modified", "delete": "deleted"}
 
 
-@functools.lru_cache(maxsize=32)
 def resolved_root(root):
     """The realpath of the trusted project root, or None when it cannot be resolved (#80, D-053)."""
     try:

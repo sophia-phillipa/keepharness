@@ -244,6 +244,19 @@ def test_reported_paths_are_never_resolved_only_the_root_is(tmp_path, monkeypatc
     assert resolved == [str(root)]
 
 
+
+def test_retargeted_root_link_maps_the_new_physical_path(tmp_path):
+    base = tmp_path.resolve()
+    for name in ("a", "b"):
+        (base / name / "p").mkdir(parents=True)
+    link = base / "L"
+    link.symlink_to(base / "a")
+    root = link / "p"
+    assert normalize_codex(codex(f"{base}/a/p/x.txt", "add", "+x\n"), root)["path"] == "x.txt"
+    link.unlink()
+    link.symlink_to(base / "b")
+    assert normalize_codex(codex(f"{base}/b/p/x.txt", "add", "+x\n"), root)["path"] == "x.txt"
+
 # --- diff text and caps ------------------------------------------------------------------
 
 
