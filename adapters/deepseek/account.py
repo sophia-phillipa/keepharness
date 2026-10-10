@@ -93,7 +93,7 @@ async def fetch_balance(key_path):
     """The raw ``/user/balance`` answer for the stored key, or None when it cannot be read."""
     key = Path(key_path)
     try:
-        token = scoped_home_read(trusted_state_root(key.parent), key.name)
+        token = scoped_home_read(trusted_state_root(key.parent), key.name, create=False)
         if not token or not token.strip():
             return None
         async with httpx.AsyncClient(
@@ -138,8 +138,10 @@ def balance_summary(answer):
 
 async def check(state):
     try:
-        token = scoped_home_read(state, key_file(state).name)
-    except (OSError, ToolError):
+        token = scoped_home_read(
+            trusted_state_root(state), key_file(state).name, create=False
+        )
+    except (OSError, ValueError, ToolError):
         token = None
     if not token or not token.strip():
         raise UserMessageError("Add your DeepSeek key in the assistant.")

@@ -413,3 +413,74 @@ def test_fetch_balance_never_sends_unsafe_key(tmp_path, monkeypatch, link):
     assert asyncio.run(account.fetch_balance(str(key))) is None
     assert sent == []
     assert host.read_text() == "fixture-linked-key-123"
+
+
+DEEPSEEK_KEY = "fixture-regular-key-123"
+
+
+def _mock_deepseek_api(monkeypatch):
+    sent = []
+    original = httpx.AsyncClient
+
+    def respond(request):
+        sent.append(request.headers["Authorization"])
+        if request.url.path == "/models":
+            return httpx.Response(200, json={"data": [{"id": "deepseek-test"}]})
+        return httpx.Response(200, json={"is_available": True, "balance_infos": []})
+
+    monkeypatch.setattr(
+        account.httpx,
+        "AsyncClient",
+        lambda **kw: original(**kw, transport=httpx.MockTransport(respond)),
+    )
+    return sent
+
+
+def _run_reader(reader, root):
+    if reader == "check":
+        return asyncio.run(account.check(root))
+    return asyncio.run(account.fetch_balance(str(root / "deepseek.key")))
+
+
+@pytest.mark.parametrize("aliased", [False, True])
+@pytest.mark.parametrize("reader", ["check", "fetch_balance"])
+def test_reader_sends_regular_key_under_plain_or_aliased_root(
+    tmp_path, monkeypatch, reader, aliased
+):
+    real = tmp_path / "real" / "state"
+    real.mkdir(parents=True)
+    (real / "deepseek.key").write_text(DEEPSEEK_KEY)
+    root = real
+    if aliased:
+        (tmp_path / "alias").symlink_to(tmp_path / "real", target_is_directory=True)
+        root = tmp_path / "alias" / "state"
+    sent = _mock_deepseek_api(monkeypatch)
+    _run_reader(reader, root)
+    assert sent
+    assert set(sent) == {"Bearer " + DEEPSEEK_KEY}
+
+
+def test_check_treats_undecodable_key_as_missing(tmp_path, monkeypatch):
+    state = tmp_path / "state"
+    state.mkdir()
+    (state / "deepseek.key").write_bytes(b"\xff\xfe\xfa-not-utf8-key-123")
+    sent = _mock_deepseek_api(monkeypatch)
+    with pytest.raises(UserMessageError, match="Add your DeepSeek key"):
+        asyncio.run(account.check(state))
+    assert sent == []
+
+
+def test_check_on_missing_root_creates_nothing(tmp_path, monkeypatch):
+    sent = _mock_deepseek_api(monkeypatch)
+    with pytest.raises(UserMessageError, match="Add your DeepSeek key"):
+        asyncio.run(account.check(tmp_path / "missing" / "state"))
+    assert sent == []
+    assert not (tmp_path / "missing").exists()
+
+
+def test_fetch_balance_on_missing_root_creates_nothing(tmp_path, monkeypatch):
+    sent = _mock_deepseek_api(monkeypatch)
+    root = tmp_path / "missing" / "state"
+    assert asyncio.run(account.fetch_balance(str(root / "deepseek.key"))) is None
+    assert sent == []
+    assert not (tmp_path / "missing").exists()
