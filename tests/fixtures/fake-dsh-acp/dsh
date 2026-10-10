@@ -183,6 +183,8 @@ class Agent:
 
     def prompt_with_permission(self, session_id: str) -> dict[str, Any]:
         self.message_chunk(session_id, f"tool:{self.ask_permission(session_id)}")
+        if os.environ.get("FAKE_DSH_CRASH_MID_STREAM") == "1":
+            os._exit(CRASH_STATUS)
         return {"stopReason": "end_turn"}
 
     def prompt_chunks(self, session_id: str) -> dict[str, Any]:
