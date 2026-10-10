@@ -1,5 +1,7 @@
 """Normalized file edits of one turn: the ``turn_edit`` records stored on the turn's job (D-053)."""
 
+import functools
+import os
 from pathlib import PurePath
 
 from agent_service.secret_vault import redact_secrets
@@ -11,10 +13,39 @@ CLAUDE_EDIT_TOOLS = ("Edit", "MultiEdit", "Write", "NotebookEdit")
 CODEX_OPS = {"add": "created", "update": "modified", "delete": "deleted"}
 
 
+@functools.lru_cache(maxsize=32)
+def resolved_root(root):
+    """The realpath of the trusted project root, or None when it cannot be resolved (#80, D-053)."""
+    try:
+        return os.path.realpath(root)
+    except OSError:
+        return None
+
+
+def root_forms(root):
+    """The stored root, then its realpath when that differs. Only the trusted root is resolved."""
+    stored = PurePath(root)
+    real = resolved_root(str(root))
+    if real is None or PurePath(real) == stored:
+        return (stored,)
+    return (stored, PurePath(real))
+
+
+def relative_to_root(path, root):
+    """``path`` relative to the stored root or its realpath, or None when it is under neither."""
+    for form in root_forms(root):
+        try:
+            return path.relative_to(form)
+        except ValueError:
+            continue
+    return None
+
+
 def project_path(value, root):
     """A project-relative POSIX path, or None when it is not a string or leaves the project.
 
-    Lexical only: no disk access, no symlink resolution. A ``..`` segment is rejected outright.
+    Lexical only: reported paths are never resolved, they are compared with the stored root and
+    its realpath (#80). A ``..`` segment is rejected outright.
     """
     if root is None or not isinstance(value, str) or not value or "\0" in value:
         return None
@@ -22,9 +53,8 @@ def project_path(value, root):
     if ".." in path.parts:
         return None
     if path.is_absolute():
-        try:
-            path = path.relative_to(PurePath(root))
-        except ValueError:
+        path = relative_to_root(path, root)
+        if path is None:
             return None
     text = path.as_posix()
     return None if text in ("", ".") else text

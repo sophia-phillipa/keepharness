@@ -5,6 +5,7 @@ edit items only when the prompt contains ``FAKE-EDITS``; plain prompts emit none
 """
 
 import asyncio
+import os
 from pathlib import Path
 from unittest.mock import patch
 
@@ -193,6 +194,54 @@ def test_paths_are_resolved_lexically_without_touching_the_disk():
     missing_root = Path("/definitely/not/here/project")
     record = normalize_codex(codex(f"{missing_root}/a.py"), missing_root)
     assert record["path"] == "a.py"
+
+
+def make_symlinked_home(base):
+    """A physical ``phys/proj`` and a ``logical`` symlink to ``phys`` (like /home -> /var/home)."""
+    (base / "phys" / "proj").mkdir(parents=True)
+    (base / "phys" / "other").mkdir()
+    (base / "logical").symlink_to(base / "phys", target_is_directory=True)
+
+
+def test_physical_report_maps_to_relative_when_project_is_stored_logical(tmp_path):
+    base = tmp_path.resolve()
+    make_symlinked_home(base)
+    root = base / "logical" / "proj"
+    record = normalize_codex(codex(f"{base}/phys/proj/a.txt", "add", "+x\n"), root)
+    assert (record["path"], record["op"], record["diff_state"]) == ("a.txt", "created", "diff")
+
+
+def test_physical_path_of_a_sibling_stays_outside_the_project(tmp_path):
+    base = tmp_path.resolve()
+    make_symlinked_home(base)
+    root = base / "logical" / "proj"
+    record = normalize_codex(codex(f"{base}/phys/other/x.txt", "add", "+x\n"), root)
+    assert (record["path"], record["diff"], record["diff_state"]) == (None, None, "unavailable")
+
+
+def test_logical_report_under_a_physical_stored_root_is_still_shown_outside(tmp_path):
+    base = tmp_path.resolve()
+    make_symlinked_home(base)
+    root = base / "phys" / "proj"
+    record = normalize_claude(
+        "Write", {"file_path": f"{base}/logical/proj/a.txt", "content": "x\n"}, root
+    )[0]
+    assert (record["path"], record["diff"], record["diff_state"]) == (None, None, "unavailable")
+
+
+def test_reported_paths_are_never_resolved_only_the_root_is(tmp_path, monkeypatch):
+    root = tmp_path.resolve() / "proj"
+    root.mkdir()
+    resolved = []
+    real_realpath = os.path.realpath
+
+    def spy(path, *args, **kwargs):
+        resolved.append(os.fspath(path))
+        return real_realpath(path, *args, **kwargs)
+
+    monkeypatch.setattr(os.path, "realpath", spy)
+    normalize_codex(codex(f"{root}/a.txt", "add", "+x\n"), root)
+    assert resolved == [str(root)]
 
 
 # --- diff text and caps ------------------------------------------------------------------
