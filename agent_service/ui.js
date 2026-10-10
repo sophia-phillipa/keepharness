@@ -4946,10 +4946,12 @@ function renderTurnReview(slot, data) {
 }
 
 // Fetches once per job and only for a terminal state; renders nothing when the
-// job captured no files (state "none" or an empty list).
-async function loadTurnReview(answer, jobId, state) {
+// job captured no files (state "none" or an empty list). hasEdits is the
+// conversation payload's has_turn_edits flag; a turn without it (a live turn read
+// from /v1/jobs/{id}) is fetched as before, so a streaming turn still gets its list.
+async function loadTurnReview(answer, jobId, state, hasEdits = true) {
   const slot = answer.review;
-  if (!TURN_REVIEW_TERMINAL.includes(state) || slot.dataset.job === jobId)
+  if (!hasEdits || !TURN_REVIEW_TERMINAL.includes(state) || slot.dataset.job === jobId)
     return;
   slot.dataset.job = jobId;
   let data;
@@ -5582,7 +5584,8 @@ async function result(
     : (activityIcons[r.state] || "•") + " " + (labels[r.state] || r.state);
   if (active) {
     active.chip.textContent = $("activity-state").textContent;
-    loadTurnReview(active, expectedJob, r.state);
+    // A live read (no snapshot) has no has_turn_edits: fetch as before.
+    loadTurnReview(active, expectedJob, r.state, snapshot ? r.has_turn_edits : true);
     const data = r.result || {};
     if (data.context_usage) paintContext(data.context_usage, data.metrics);
     else if (data.metrics) paintLocalUsage(data.metrics);
@@ -5900,7 +5903,7 @@ async function load(id, legacy = false, restoredView = null, scrollTop) {
         messageResourceChips(userMessage, r.request?.resource_selections);
       }
       active = assistant(r.id, model, !["queued", "running"].includes(r.state));
-      loadTurnReview(active, r.id, r.state);
+      loadTurnReview(active, r.id, r.state, snapshot ? r.has_turn_edits : true);
       restoreGates(r.gates);
       const planCard = active.el.querySelector(".maestro-plan-card");
       if (planCard) renderPlanOutcome(planCard, r.state);

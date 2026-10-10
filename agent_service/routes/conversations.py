@@ -225,6 +225,7 @@ async def conversation(request, service, identity):
                     "gates": gate_records(service, r["id"]),
                     "workflow_checkpoint": service.has_workflow_checkpoint(r),
                     "workflow_completed_steps": service.workflow_completed_steps(r),
+                    "has_turn_edits": bool(r["has_turn_edits"]),
                     "request": json.loads(r["payload"]),
                     "result": json.loads(r["result"] or "{}"),
                 }

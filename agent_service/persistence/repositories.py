@@ -28,8 +28,10 @@ class ConversationRepository:
 
     def owned(self, owner, projects):
         marks = ",".join("?" for _ in projects)
+        # has_turn_edits: one indexed EXISTS per job (events_job_terminal), no extra round trip.
         return self.db.execute(
-            f"SELECT * FROM jobs WHERE owner=? AND project IN ({marks}) ORDER BY created,id",
+            "SELECT jobs.*, EXISTS(SELECT 1 FROM events WHERE job=jobs.id AND type='turn_edit') "
+            f"AS has_turn_edits FROM jobs WHERE owner=? AND project IN ({marks}) ORDER BY created,id",
             [owner, *projects],
         ).fetchall()
 
