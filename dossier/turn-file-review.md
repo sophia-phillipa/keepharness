@@ -141,6 +141,7 @@ The review reads no file. Capture is lexical only (section 2.4). A path that rea
 ### 2.9 UI entry point
 
 - **Summary** under the completed answer in `agent_service/ui.js`, fetched once when the job reaches a terminal state and on reload: count, op label (text, not colour alone), path (long paths wrap or ellipsize with the full path in the accessible name); max 10 visible with "and N more". Hidden when `state: "none"`. Shows "stopped before finishing" for non-completed jobs and "Shell commands may have changed other files" when `shell_unattributed`.
+- **Flag**: each turn of `GET /v1/conversations/{id}` carries `has_turn_edits` (true when the job has a stored `turn_edit`, one `EXISTS` in the conversation query); the Summary fetches file-changes only for turns with it true, while a live turn without the flag is fetched as before.
 - **Review**: each file is a native disclosure button that expands its diff inline, labelled with its `diff_state` ("partial: fragments only", "binary", "too large to show", "not available"). No panel opens; the side panel, conversation, draft, project, attachments, provider, model, access mode and selection do not change.
 - **Keyboard**: Tab reaches each disclosure; Enter or Space toggles it.
 - **Theme**: existing `--th-*` tokens only (D-020); text contrast at least 4.5:1.

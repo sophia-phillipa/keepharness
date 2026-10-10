@@ -359,6 +359,17 @@ def test_repository_reads_only_the_job_turn_edit_rows_in_order(api):
     assert messages.ran_shell("turn-a") is False
 
 
+def test_conversation_payload_flags_only_the_turns_with_recorded_edits(api):
+    add_job(api, "turn-a")
+    add_job(api, "turn-b", extra={"parent_job_id": "turn-a"})
+    store(api, "turn-a", edit("src/a.py"))
+
+    turns = {turn["id"]: turn for turn in api.get("/v1/conversations/turn-a").json()["turns"]}
+
+    assert turns["turn-a"]["has_turn_edits"] is True
+    assert turns["turn-b"]["has_turn_edits"] is False
+
+
 def test_a_moved_file_reports_its_old_path_only_when_moved():
     from agent_service.turn_edits import shown_edit
 

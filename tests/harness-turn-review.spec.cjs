@@ -229,6 +229,26 @@ runPersona("harness-turn-review", [
         );
       },
     },
+    {
+      title: `${provider.name}: reloaded conversation asks file-changes only for turns with edits`,
+      async run(page) {
+        const s = await mockTurns(page, provider, [EDITING, NONE]);
+        await openHarness(page);
+        await send(page, "FAKE-EDITS change the files", 1);
+        await send(page, "Only answer, no edits", 2);
+        s.turns[0].has_turn_edits = true;
+        s.turns[1].has_turn_edits = false;
+        const requested = [];
+        page.on("request", (request) => {
+          const { pathname } = new URL(request.url());
+          if (pathname.endsWith("/file-changes")) requested.push(pathname);
+        });
+        await page.reload();
+        await page.locator('[data-testid="turn-review-toggle"]').waitFor();
+        await page.waitForTimeout(300);
+        assert.deepEqual(requested, ["/v1/jobs/job-1/file-changes"]);
+      },
+    },
   ]),
   {
     title:
