@@ -11,6 +11,8 @@ const PROVIDERS = [
 ];
 
 const LONG_PATH = "deep/" + "segment-".repeat(22) + "end.ts";
+// Exactly 200 characters: the long-path case of dossier/turn-file-review.md (#79).
+const PATH_200 = "deep/" + "segment-".repeat(24) + ".ts";
 
 const EDITING = {
   job_state: "completed",
@@ -128,7 +130,7 @@ async function send(page, text, count) {
     .waitFor();
 }
 
-async function mockTurns(page, provider, changes) {
+async function mockTurns(page, provider, changes, extra = {}) {
   const model = {
     id: provider.id,
     backend: provider.backend,
@@ -146,6 +148,7 @@ async function mockTurns(page, provider, changes) {
     },
     "GET /v1/jobs/job-1/file-changes": { json: changes[0] },
     "GET /v1/jobs/job-2/file-changes": { json: changes[1] || NONE },
+    ...extra,
   });
 }
 
@@ -229,7 +232,81 @@ runPersona("harness-turn-review", [
         );
       },
     },
+    {
+      title: `${provider.name}: reloaded conversation asks file-changes only for turns with edits`,
+      async run(page) {
+        const s = await mockTurns(page, provider, [EDITING, NONE]);
+        await openHarness(page);
+        await send(page, "FAKE-EDITS change the files", 1);
+        await send(page, "Only answer, no edits", 2);
+        s.turns[0].has_turn_edits = true;
+        s.turns[1].has_turn_edits = false;
+        const requested = [];
+        page.on("request", (request) => {
+          const { pathname } = new URL(request.url());
+          if (pathname.endsWith("/file-changes")) requested.push(pathname);
+        });
+        await page.reload();
+        await page.locator('[data-testid="turn-review-toggle"]').waitFor();
+        await page.waitForTimeout(300);
+        assert.deepEqual(requested, ["/v1/jobs/job-1/file-changes"]);
+      },
+    },
   ]),
+  {
+    title:
+      "live turn that starts running fetches its file-changes once, after it completes",
+    async run(page) {
+      const errors = allowedErrors(page);
+      const requested = [];
+      page.on("request", (request) => {
+        const { pathname } = new URL(request.url());
+        if (pathname.endsWith("/file-changes")) requested.push(pathname);
+      });
+      let eventStreams = 0;
+      const s = await mockTurns(page, PROVIDERS[0], [NONE, EDITING], {
+        "GET /v1/jobs/job-2/events": (route) => {
+          eventStreams++;
+          const job = s.turns[1];
+          if (eventStreams === 1) {
+            // Still running: the conversation payload has no edits recorded yet.
+            Object.assign(job, { state: "running", has_turn_edits: false });
+            delete job.result;
+          } else {
+            // The reconnect finds the job completed; the payload still says false here.
+            Object.assign(job, {
+              state: "completed",
+              result: { answer: "Fixture response." },
+            });
+          }
+          return route.fulfill({
+            status: 200,
+            contentType: "text/event-stream",
+            body: "",
+          });
+        },
+        "GET /v1/jobs/job-2/file-changes": (route) => {
+          // The edits become visible in the conversation payload only after this review is read,
+          // so a stale false would reach the completion read of /v1/jobs/{id} first.
+          s.turns[1].has_turn_edits = true;
+          return route.fulfill({ json: EDITING });
+        },
+      });
+      await openHarness(page);
+      await send(page, "Only answer, no edits", 1);
+      await send(page, "FAKE-EDITS change the files live", 2);
+      const toggle = page.locator('[data-testid="turn-review-toggle"]');
+      await toggle.waitFor();
+      await page.waitForTimeout(300);
+      assert.equal(eventStreams, 2, "the running turn was read again after it finished");
+      assert.equal(await toggle.textContent(), "6 files changed");
+      assert.deepEqual(
+        requested.filter((p) => p === "/v1/jobs/job-2/file-changes"),
+        ["/v1/jobs/job-2/file-changes"],
+      );
+      assert.deepEqual(errors, []);
+    },
+  },
   {
     title:
       "keyboard opens and closes the summary and a file with visible focus",
@@ -331,6 +408,61 @@ runPersona("harness-turn-review", [
         before,
       );
       assert.equal(s.posts.length, 1);
+    },
+  },
+  {
+    title:
+      "a 200-character path does not widen the assistant bubble or overflow it (#79)",
+    async run(page) {
+      assert.equal(PATH_200.length, 200);
+      const changes = {
+        ...EDITING,
+        files: [
+          {
+            path: PATH_200,
+            op: "created",
+            edits: [
+              {
+                op: "created",
+                diff_state: "diff",
+                diff: "+x\n",
+                tool: "fileChange",
+                source: "codex",
+              },
+            ],
+          },
+        ],
+      };
+      await mockTurns(page, PROVIDERS[0], [changes]);
+      await openHarness(page);
+      await send(page, "FAKE-EDITS change the files", 1);
+      await page.locator('[data-testid="turn-review-toggle"]').click();
+      const measured = await page.evaluate(() => {
+        const answer = document.querySelector(
+          "#messages .message.assistant",
+        );
+        const list = answer.querySelector('[data-testid="turn-review-list"]');
+        const chat = document.querySelector("#messages");
+        return {
+          answerWidth: answer.getBoundingClientRect().width,
+          answerScroll: answer.scrollWidth,
+          answerClient: answer.clientWidth,
+          listWidth: list.getBoundingClientRect().width,
+          chatWidth: chat.clientWidth,
+        };
+      });
+      assert.ok(
+        measured.answerScroll <= measured.answerClient,
+        `answer overflows: scrollWidth ${measured.answerScroll} > clientWidth ${measured.answerClient}`,
+      );
+      assert.ok(
+        measured.answerWidth <= measured.chatWidth + 0.5,
+        `answer wider than chat: ${measured.answerWidth} > ${measured.chatWidth}`,
+      );
+      assert.ok(
+        measured.listWidth <= measured.answerWidth + 0.5,
+        `list wider than answer: ${measured.listWidth} > ${measured.answerWidth}`,
+      );
     },
   },
 ]);

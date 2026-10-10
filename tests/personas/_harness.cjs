@@ -147,7 +147,10 @@ async function mockHarness(page, over = {}) {
       if (pathname.startsWith("/v1/jobs/")) {
         const id = pathname.split("/")[3];
         const found = s.turns.find((t) => t.id === id);
-        return found || { id, state: "completed", result: {} };
+        // The real job endpoint has no has_turn_edits: only the conversation payload carries it.
+        const job = structuredClone(found || { id, state: "completed", result: {} });
+        delete job.has_turn_edits;
+        return job;
       }
       if (pathname.startsWith("/v1/conversations/"))
         return { title: pathname.split("/").at(-1), turns: s.turns };

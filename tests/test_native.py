@@ -205,6 +205,93 @@ class AskModeTest(unittest.IsolatedAsyncioTestCase):
 
 
 class NativeTest(unittest.IsolatedAsyncioTestCase):
+    async def test_tool_item_event_keeps_the_turn_clock(self):
+        # Regression for #77: a tool item/started event must not overwrite the turn start.
+        clock = [100.0]
+        scripted = [
+            (
+                102.0,
+                {
+                    "method": "item/started",
+                    "params": {
+                        "item": {
+                            "type": "commandExecution",
+                            "id": "cmd-1",
+                            "command": "ls",
+                            "status": "inProgress",
+                        }
+                    },
+                },
+            ),
+            (
+                103.0,
+                {
+                    "method": "item/completed",
+                    "params": {
+                        "item": {
+                            "type": "commandExecution",
+                            "id": "cmd-1",
+                            "command": "ls",
+                            "status": "completed",
+                        }
+                    },
+                },
+            ),
+            (105.0, {"method": "thread/tokenUsage/updated", "params": {"tokenUsage": {}}}),
+            (110.0, {"method": "turn/completed", "params": {"turn": {"status": "completed"}}}),
+        ]
+
+        class Stdin:
+            def write(self, value):
+                pass
+
+            async def drain(self):
+                pass
+
+        class RPC:
+            process = SimpleNamespace(stdin=Stdin())
+            events = iter(scripted)
+
+            async def call(self, *args):
+                return {"thread": {"id": "fixture"}}
+
+            async def send(self, *args):
+                pass
+
+            async def receive(self):
+                at, message = next(self.events)
+                clock[0] = at
+                return message
+
+        @asynccontextmanager
+        async def connection(*args, **kwargs):
+            yield RPC()
+
+        events = []
+
+        async def approve(*args):
+            return {"approved": False}
+
+        with (
+            tempfile.TemporaryDirectory() as d,
+            patch("adapters.codex.native.connection", connection),
+            patch("adapters.codex.native.time", SimpleNamespace(monotonic=lambda: clock[0])),
+        ):
+            result = await run(
+                {"binary": "fixture"},
+                "fixture",
+                lambda kind, data: events.append((kind, data)),
+                {"permissions": {}},
+                "fixture",
+                "configured",
+                Path(d) / "session",
+                "codex",
+                approve,
+            )
+        usage = next(data for kind, data in events if kind == "context_usage")
+        self.assertEqual(usage["metrics"]["inference_seconds"], 5.0)
+        self.assertEqual(result["metrics"]["inference_seconds"], 10.0)
+
     async def test_codex_approval_stream_and_resume(self):
         with tempfile.TemporaryDirectory() as d:
             root = Path(d)

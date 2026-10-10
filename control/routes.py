@@ -671,7 +671,9 @@ async def read_logs(request, manager):
 async def read_provider_state(request, manager):
     query = request.query_params
     return await manager.provider_state.read(
-        query.get("provider", ""), query.get("project_id", NO_PROJECT)
+        query.get("provider", ""),
+        query.get("project_id", NO_PROJECT),
+        fresh=query.get("refresh") == "1",
     )
 
 

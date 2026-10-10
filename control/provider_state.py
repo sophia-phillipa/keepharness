@@ -586,13 +586,17 @@ class ProviderStateService:
             self._record(provider, project_id, stat, snapshot, receipt=receipt)
         return snapshot
 
-    async def read(self, provider: str, project_id: str) -> dict | JSONResponse:
+    async def read(
+        self, provider: str, project_id: str, *, fresh: bool = False
+    ) -> dict | JSONResponse:
+        """The state; ``fresh`` (an explicit Refresh) skips the coalesce window."""
         root = self.resolve(provider, project_id)
         try:
             async with self.locks.setdefault(provider, asyncio.Lock()):
                 cached = self.cache.get((provider, project_id))
                 if (
-                    cached
+                    not fresh
+                    and cached
                     and self.clock() - cached[0] < COALESCE_SECONDS
                     and cached[1].project_root == (str(root) if root else None)
                 ):

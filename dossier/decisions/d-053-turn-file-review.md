@@ -43,3 +43,7 @@ After an editing turn, KeepHarness shows the answer but not a per-turn list of t
 - WP1 fixtures and capture (`task-execute-high-engineer`, Sonnet); WP2 read endpoint (`python-code-engineer`); WP3 inline UI and visible pass per D-029 (`frontend-code-engineer`). Details in the spec, section 3.4.
 - Revisit if a Codex release drops `changes` or `status` from completed `fileChange` items: supersede with a new record.
 - Revisit if Sophia wants a conversation-wide or workflow-wide changed-files index, an "Open file" action or shell-edit attribution: each needs a new decision.
+
+## Amendment (2026-10-10, #80)
+
+On hosts where /home links to /var/home, providers report physical paths (getcwd is physical) while projects are stored with the logical path, so every edit showed as outside the project. Capture now resolves the trusted project root (only) with realpath and compares reported paths lexically against the stored root and its resolved form. Reported paths are still never resolved, so the symlink rule of spec section 2.7 is unchanged. The reverse case (root stored physical, path reported logical) is not mapped and stays `path: null`. Decided by JEV (0.99) and an Opus review.

@@ -401,6 +401,40 @@ def test_get_coalesces_within_5s(client, app, codex_home):
     assert len(sessions(codex_home)) == 2
 
 
+def edit_github_enabled(home):
+    config = home / "config.toml"
+    text = config.read_text()
+    assert "enabled = false  # turned off in the terminal" in text
+    config.write_text(
+        text.replace("enabled = false  # turned off in the terminal", "enabled = true", 1)
+    )
+
+
+def test_passive_read_inside_the_window_ignores_outside_edits(client, app, codex_home):
+    seed(codex_home)
+    now = clocked(app)
+    first = get(client).json()
+    edit_github_enabled(codex_home)
+    now[0] += COALESCE_SECONDS - 0.1
+    assert get(client).json() == first
+    assert len(sessions(codex_home)) == 1
+
+
+def test_refresh_inside_the_window_rereads_the_cli(client, app, codex_home):
+    seed(codex_home)
+    now = clocked(app)
+    first = get(client).json()
+    assert row(first, GITHUB)["enabled"] is False
+    edit_github_enabled(codex_home)
+    now[0] += COALESCE_SECONDS - 0.1
+    refreshed = client.get(
+        "/api/provider-state",
+        params={"provider": "codex", "project_id": "sem-projeto", "refresh": "1"},
+    ).json()
+    assert row(refreshed, GITHUB)["enabled"] is True
+    assert len(sessions(codex_home)) == 2
+
+
 def test_post_refreshes_cache(client, app, codex_home):
     seed(codex_home)
     clocked(app)

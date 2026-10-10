@@ -88,7 +88,7 @@ Rules:
 
 - `binary`: the text contains a NUL byte or is not valid UTF-8; body dropped.
 - Caps, applied at capture by the adapter: 64 KiB per diff; 1 MiB of diff text per job; 200 records per job (JEV 0.88). Over the per-diff cap or the job budget the record keeps `diff_state: "oversized"` and no body. After 200 records the adapter writes one `{"truncated": true}` `turn_edit` marker and stops capturing for that job. The budget lives for one provider run: the rare in-job replay after `native_session_missing` starts a new run with a new budget, so such a job can hold up to two runs' worth of records and two truncation markers (review of 2026-10-09: accepted, since the replay fails before any edit in practice).
-- Paths: absolute paths are made relative to the job's project root lexically; a path outside the root, with a `..` segment, or not a string becomes `path: null`, `diff_state: "unavailable"`. No disk access at capture (no `stat`, no `resolve`).
+- Paths: absolute paths are made relative to the job's project root lexically; a path outside the root, with a `..` segment, or not a string becomes `path: null`, `diff_state: "unavailable"`. No disk access for reported paths (no `stat`, no `resolve`); only the trusted project root is resolved with realpath at capture, and reported paths are compared lexically against the stored root and its resolved form. A path reported by its logical name under a root stored in physical form stays `path: null` (#80, D-053 amendment 2026-10-10).
 - Diff text passes through `redact_secrets` like every event; a redacted diff is shown as stored.
 - Repeated records for one path are kept in order.
 
@@ -126,7 +126,7 @@ Rules:
 
 ### 2.7 Project-root boundary
 
-The review reads no file. Capture is lexical only (section 2.4). A path that reaches outside through a symlink inside the project is displayed as the provider reported it and is never opened. There is no "Open file" action in v1, so no new read path exists to bound.
+The review reads no file. Capture is lexical only (section 2.4). Only the trusted project root is resolved (realpath, at capture); reported paths are never resolved (#80, D-053 amendment 2026-10-10). A path that reaches outside through a symlink inside the project is displayed as the provider reported it and is never opened. There is no "Open file" action in v1, so no new read path exists to bound.
 
 ### 2.8 Failure modes
 
@@ -141,6 +141,7 @@ The review reads no file. Capture is lexical only (section 2.4). A path that rea
 ### 2.9 UI entry point
 
 - **Summary** under the completed answer in `agent_service/ui.js`, fetched once when the job reaches a terminal state and on reload: count, op label (text, not colour alone), path (long paths wrap or ellipsize with the full path in the accessible name); max 10 visible with "and N more". Hidden when `state: "none"`. Shows "stopped before finishing" for non-completed jobs and "Shell commands may have changed other files" when `shell_unattributed`.
+- **Flag**: each turn of `GET /v1/conversations/{id}` carries `has_turn_edits` (true when the job has a stored `turn_edit`, one `EXISTS` in the conversation query); the Summary fetches file-changes only for turns with it true, while a live turn without the flag is fetched as before.
 - **Review**: each file is a native disclosure button that expands its diff inline, labelled with its `diff_state` ("partial: fragments only", "binary", "too large to show", "not available"). No panel opens; the side panel, conversation, draft, project, attachments, provider, model, access mode and selection do not change.
 - **Keyboard**: Tab reaches each disclosure; Enter or Space toggles it.
 - **Theme**: existing `--th-*` tokens only (D-020); text contrast at least 4.5:1.
