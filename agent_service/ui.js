@@ -5903,7 +5903,7 @@ async function load(id, legacy = false, restoredView = null, scrollTop) {
         messageResourceChips(userMessage, r.request?.resource_selections);
       }
       active = assistant(r.id, model, !["queued", "running"].includes(r.state));
-      loadTurnReview(active, r.id, r.state, snapshot ? r.has_turn_edits : true);
+      loadTurnReview(active, r.id, r.state, r.has_turn_edits);
       restoreGates(r.gates);
       const planCard = active.el.querySelector(".maestro-plan-card");
       if (planCard) renderPlanOutcome(planCard, r.state);
