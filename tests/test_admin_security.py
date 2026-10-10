@@ -11,7 +11,17 @@ import httpx
 
 from agent_service.errors import UserMessageError
 from control import local_access
+from control.integration_catalog import CAPABILITY_MEMO, _memo_key, capabilities
 from control.server import ADMIN_BODY_LIMIT, ADMIN_OPERATION_LIMIT, create_app
+
+FAKE_CODEX = Path(__file__).parent / "fixtures" / "fake-codex" / "codex"
+MARKETPLACE_UNAVAILABLE = (
+    "Adding a marketplace is not available for this provider. Refresh Plugins and try again."
+)
+OPERATIONS_FOLDER_UNSAFE = (
+    "The operations folder must be an empty directory readable only by you. "
+    "Remove it and try again."
+)
 
 
 class AdminSecurityTest(unittest.IsolatedAsyncioTestCase):
@@ -256,6 +266,147 @@ class AdminSecurityTest(unittest.IsolatedAsyncioTestCase):
             ).status_code,
             200,
         )
+
+    async def test_marketplace_add_runs_in_the_empty_operations_folder(self):
+        manager = self.app.state.manager
+        manager.inventory = {"binaries": {"codex": str(FAKE_CODEX)}}
+        body = {"provider": "codex", "action": "marketplace_add", "source": "acme/plugins"}
+        with patch.dict(CAPABILITY_MEMO, {}, clear=True):
+            await capabilities("codex", str(FAKE_CODEX))
+            with (
+                patch.object(manager.operations, "launch", return_value={"id": "job"}) as launch,
+                patch.object(manager, "audit") as audit,
+            ):
+                response = await self.client.post(
+                    "/api/integration", json=body, headers=self.headers
+                )
+        self.assertEqual(response.status_code, 200)
+        launch.assert_called_once()
+        self.assertEqual(
+            launch.call_args.args[0],
+            [str(FAKE_CODEX), "plugin", "marketplace", "add", "acme/plugins"],
+        )
+        folder = manager.state / "operations-cwd"
+        self.assertEqual(launch.call_args.kwargs["cwd"], folder)
+        self.assertTrue(folder.is_dir())
+        self.assertEqual(folder.stat().st_mode & 0o777, 0o700)
+        self.assertEqual(list(folder.iterdir()), [])
+        audit.assert_called_once_with("integration:marketplace_add")
+
+    async def _refuse_marketplace_add_in(self, folder: Path) -> None:
+        manager = self.app.state.manager
+        manager.inventory = {"binaries": {"codex": str(FAKE_CODEX)}}
+        body = {"provider": "codex", "action": "marketplace_add", "source": "acme/plugins"}
+        with patch.dict(CAPABILITY_MEMO, {}, clear=True):
+            await capabilities("codex", str(FAKE_CODEX))
+            with patch.object(manager.operations, "launch", return_value={"id": "job"}) as launch:
+                response = await self.client.post(
+                    "/api/integration", json=body, headers=self.headers
+                )
+        self.assertEqual(response.status_code, 400)
+        self.assertIn(OPERATIONS_FOLDER_UNSAFE, response.text)
+        self.assertNotIn(str(folder), response.text)
+        launch.assert_not_called()
+
+    async def test_marketplace_add_refuses_an_operations_folder_symlink(self):
+        manager = self.app.state.manager
+        target = Path(self.folder.name) / "elsewhere"
+        target.mkdir(mode=0o700)
+        folder = manager.state / "operations-cwd"
+        folder.symlink_to(target, target_is_directory=True)
+        await self._refuse_marketplace_add_in(folder)
+
+    async def test_marketplace_add_refuses_a_world_accessible_operations_folder(self):
+        manager = self.app.state.manager
+        folder = manager.state / "operations-cwd"
+        folder.mkdir(mode=0o700)
+        folder.chmod(0o755)
+        await self._refuse_marketplace_add_in(folder)
+
+    async def test_marketplace_add_refuses_a_non_empty_operations_folder(self):
+        manager = self.app.state.manager
+        folder = manager.state / "operations-cwd"
+        folder.mkdir(mode=0o700)
+        (folder / "stale.json").write_text("{}", encoding="utf-8")
+        await self._refuse_marketplace_add_in(folder)
+
+    async def test_marketplace_add_refuses_an_operations_path_that_is_a_file(self):
+        manager = self.app.state.manager
+        folder = manager.state / "operations-cwd"
+        folder.write_text("not a directory", encoding="utf-8")
+        await self._refuse_marketplace_add_in(folder)
+
+    async def test_marketplace_add_without_a_cached_capability_is_refused(self):
+        manager = self.app.state.manager
+        manager.inventory = {"binaries": {"codex": "/fake/bin/codex"}}
+        body = {"provider": "codex", "action": "marketplace_add", "source": "acme/plugins"}
+        with (
+            patch.dict(CAPABILITY_MEMO, {}, clear=True),
+            patch.object(manager.operations, "launch", return_value={"id": "job"}) as launch,
+            patch.object(manager, "audit") as audit,
+        ):
+            response = await self.client.post("/api/integration", json=body, headers=self.headers)
+        self.assertEqual(response.status_code, 400)
+        self.assertIn(MARKETPLACE_UNAVAILABLE, response.text)
+        self.assertNotIn("/fake/bin/codex", response.text)
+        self.assertNotIn("acme/plugins", response.text)
+        launch.assert_not_called()
+        audit.assert_not_called()
+        self.assertFalse((manager.state / "operations-cwd").exists())
+
+    async def test_marketplace_add_with_a_memo_lacking_the_verb_is_refused(self):
+        manager = self.app.state.manager
+        binary = Path(self.folder.name) / "codex"
+        binary.write_text("#!/bin/sh\n")
+        binary.chmod(0o755)
+        manager.inventory = {"binaries": {"codex": str(binary)}}
+        body = {"provider": "codex", "action": "marketplace_add", "source": "acme/plugins"}
+        memo = {_memo_key("codex", str(binary)): frozenset()}
+        with (
+            patch.dict(CAPABILITY_MEMO, memo, clear=True),
+            patch.object(manager.operations, "launch", return_value={"id": "job"}) as launch,
+        ):
+            response = await self.client.post("/api/integration", json=body, headers=self.headers)
+        self.assertEqual(response.status_code, 400)
+        self.assertIn(MARKETPLACE_UNAVAILABLE, response.text)
+        launch.assert_not_called()
+        self.assertFalse((manager.state / "operations-cwd").exists())
+
+    async def test_other_integration_actions_skip_the_capability_gate(self):
+        manager = self.app.state.manager
+        manager.inventory = {"binaries": {"codex": "/fake/bin/codex"}}
+        body = {"provider": "codex", "action": "plugin_install", "name": "acme-tools"}
+        with (
+            patch.dict(CAPABILITY_MEMO, {}, clear=True),
+            patch.object(manager.operations, "launch", return_value={"id": "job"}) as launch,
+            patch.object(manager, "audit"),
+        ):
+            response = await self.client.post("/api/integration", json=body, headers=self.headers)
+        self.assertEqual(response.status_code, 200)
+        launch.assert_called_once()
+        self.assertNotIn("cwd", launch.call_args.kwargs)
+
+    async def test_marketplace_add_is_owner_only(self):
+        manager = self.app.state.manager
+        manager.inventory = {"binaries": {"codex": "/fake/bin/codex"}}
+        body = {"provider": "codex", "action": "marketplace_add", "source": "acme/plugins"}
+        with patch.object(manager.operations, "launch") as launch:
+            self.client.cookies.clear()
+            self.assertEqual(
+                (await self.client.post("/api/integration", json=body, headers=self.headers)).status_code,
+                401,
+            )
+            self.assertEqual(
+                (
+                    await self.client.post(
+                        "/api/integration",
+                        json=body,
+                        headers={**self.headers, "Host": "evil.test:8094"},
+                    )
+                ).status_code,
+                403,
+            )
+            launch.assert_not_called()
 
     async def test_csp_allows_data_images_for_the_select_chevron(self):
         for path in ("/", "/api/state"):

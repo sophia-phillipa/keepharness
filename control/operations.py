@@ -10,6 +10,8 @@ from urllib.parse import urlsplit
 
 from agent_service.errors import UserMessageError
 
+from .integration_catalog import public_source
+
 # CSI (colours, cursor), OSC (hyperlinks, titles), and ordinary terminal escape sequences.
 # An OSC never spans a line: a newline ends a bogus one so the text after it is not held back.
 ANSI_ESCAPE = re.compile(
@@ -88,6 +90,7 @@ class Operations:
         timeout=300,
         *,
         env=None,
+        cwd=None,
         on_success=None,
         interactive=False,
         signed_in=None,
@@ -152,6 +155,7 @@ class Operations:
                     stderr=asyncio.subprocess.STDOUT,
                     start_new_session=True,
                     env=env,
+                    cwd=cwd,
                 )
                 if interactive:
                     self.stdin[jid] = proc.stdin
@@ -245,10 +249,46 @@ class Operations:
         await asyncio.gather(*self.tasks, return_exceptions=True)
 
 
+MARKETPLACE_SHORTHAND = re.compile(r"[A-Za-z0-9][A-Za-z0-9-]{0,38}/[A-Za-z0-9._-]{1,100}")
+MARKETPLACE_REFUSED = (
+    "Use a GitHub owner/repo or a public HTTPS address, without credentials, query or fragment."
+)
+
+
+def marketplace_source(value: object) -> str:
+    """Return a marketplace source unchanged; refuse anything but owner/repo or public HTTPS."""
+    if isinstance(value, str) and _marketplace_form(value):
+        return value
+    raise UserMessageError(MARKETPLACE_REFUSED)
+
+
+def _marketplace_form(value: str) -> bool:
+    if value.startswith("https://"):
+        # The sanitizer returns the URL only when it needs no change: no userinfo, query or local host.
+        return public_source(value) == value
+    if not MARKETPLACE_SHORTHAND.fullmatch(value):
+        return False
+    repository = value.split("/", 1)[1]
+    return not repository.startswith(".") and not repository.endswith(".json")
+
+
+def _is_local_path_form(name: str) -> bool:
+    """True when the name would be read by the provider CLI as a local path, not an identifier."""
+    return name.startswith(("./", "../", "/", "~")) or any(
+        segment in (".", "..") for segment in name.split("/")
+    )
+
+
 def operation(binary, provider, data):
     action = data.get("action")
+    if action == "marketplace_add":  # before the name check: this action has no name
+        return [binary, "plugin", "marketplace", "add", marketplace_source(data.get("source"))]
     name = data.get("name", "")
-    if not re.fullmatch(r"[A-Za-z0-9_@./:-]{1,160}", name) or name.startswith("-"):
+    if (
+        not re.fullmatch(r"[A-Za-z0-9_@./:-]{1,160}", name)
+        or name.startswith("-")
+        or _is_local_path_form(name)
+    ):
         raise UserMessageError("Invalid name.")
     if action == "login":
         return [binary, "mcp", "login", name]

@@ -8,6 +8,7 @@ import re
 import secrets
 import shutil
 import socket
+import stat
 import sys
 import uuid
 from contextlib import nullcontext
@@ -36,6 +37,7 @@ from .first_run import (
     reset_first_run,
     scan_first_run,
 )
+from .integration_catalog import capability_cached
 from .integration_catalog import catalog as integration_catalog
 from .integrations import inventory
 from .local_models import (
@@ -215,7 +217,7 @@ async def read_state(request, manager):
         "operations": list(manager.operations.jobs.values()),
         "local_profile": load_profile(manager.state),
         "local_profiles": load_profiles(manager.state),
-        "credentials": {"deepseek": deepseek.key_file(manager.state).exists()},
+        "credentials": {"deepseek": deepseek.has_key(manager.state)},
     }
 
 
@@ -469,6 +471,31 @@ async def read_integration_catalog(request, manager, data):
     return result
 
 
+OPERATIONS_FOLDER_UNSAFE = (
+    "The operations folder must be an empty directory readable only by you. "
+    "Remove it and try again."
+)
+
+
+def operations_folder(state: Path) -> Path:
+    """Return the empty, owner-only working directory for CLI operations."""
+    folder = state / "operations-cwd"
+    try:
+        folder.mkdir(mode=0o700, exist_ok=True)
+    except FileExistsError:
+        # exist_ok does not vouch for what is already there; the lstat check decides.
+        pass
+    st = os.lstat(folder)
+    if (
+        stat.S_ISLNK(st.st_mode)
+        or not stat.S_ISDIR(st.st_mode)
+        or st.st_mode & 0o077
+        or any(folder.iterdir())
+    ):
+        raise UserMessageError(OPERATIONS_FOLDER_UNSAFE)
+    return folder
+
+
 async def change_integration(request, manager, data):
     provider = data.get("provider")
     if provider not in ("codex", "claude"):
@@ -476,7 +503,16 @@ async def change_integration(request, manager, data):
     binary = manager.inventory["binaries"][provider]
     if not binary:
         raise UserMessageError("CLI not installed.")
-    result = manager.operations.launch(operation(binary, provider, data))
+    args = operation(binary, provider, data)
+    if data.get("action") == "marketplace_add":
+        if "marketplace_add" not in (capability_cached(provider, binary) or ()):
+            raise UserMessageError(
+                "Adding a marketplace is not available for this provider. "
+                "Refresh Plugins and try again."
+            )
+        result = manager.operations.launch(args, cwd=operations_folder(manager.state))
+    else:
+        result = manager.operations.launch(args)
     manager.audit("integration:" + data.get("action", ""))
     return result
 

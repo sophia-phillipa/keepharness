@@ -33,6 +33,7 @@ const CATALOGS = {
       { id: "mcp:drive", name: "Drive", kind: "mcp", status: "installed" },
     ],
     warnings: [],
+    actions: [],
   },
   claude: {
     items: [
@@ -51,6 +52,7 @@ const CATALOGS = {
       },
     ],
     warnings: [],
+    actions: [],
   },
 };
 
@@ -129,6 +131,7 @@ const contrast = (a, b) => {
     };
     const apiCalls = [];
     const posts = [];
+    let addFailure = null; // the next integration POST answers 400 with this body
     let catalogInFlight = 0,
       maxCatalogInFlight = 0;
     let catalogCalls = 0,
@@ -139,6 +142,11 @@ const contrast = (a, b) => {
       apiCalls.push(name);
       if (route.request().method() === "POST" && name === "integration") {
         posts.push(route.request().postDataJSON());
+        if (addFailure) {
+          const body = addFailure;
+          addFailure = null;
+          return route.fulfill({ status: 400, json: body });
+        }
         return route.fulfill({ json: { id: "op-1" } });
       }
       if (name === "provider-state") {
@@ -562,6 +570,131 @@ const contrast = (a, b) => {
       );
       assert(overflow <= 0, width + "px overflow " + overflow);
     }
+
+    // Add menu (#27): entries come from each CLI's catalog actions; Refresh re-reads them.
+    await page.setViewportSize({ width: 1440, height: 1000 });
+    const addButton = page.locator("#plugins-add");
+    const menuItems = page.locator('[data-testid="plugins-add-menu"] [role="menuitem"]');
+    const dialog = page.locator("#plugins-add-dialog");
+    const refreshWith = async (codexActions, claudeActions) => {
+      CATALOGS.codex.actions = codexActions;
+      CATALOGS.claude.actions = claudeActions;
+      await panel.locator('[data-testid="plugins-refresh"]').click();
+      await page.waitForFunction(
+        () =>
+          document
+            .querySelector('[data-testid="plugins-list"]')
+            ?.getAttribute("aria-busy") === "false",
+      );
+    };
+
+    // (a) no action anywhere: no Add button in the DOM.
+    await refreshWith([], []);
+    assert.equal(await addButton.count(), 0);
+
+    // (b) one provider: one button, one item without the provider name.
+    await refreshWith(["marketplace_add"], []);
+    assert.equal(await addButton.count(), 1);
+    await addButton.click();
+    assert.deepEqual(await menuItems.allInnerTexts(), [
+      "Add a marketplace",
+    ]);
+    await page.keyboard.press("Escape");
+
+    // (c) two providers: one item each, labelled with the provider name.
+    await refreshWith(["marketplace_add"], ["marketplace_add"]);
+    await addButton.click();
+    const named = await menuItems.allInnerTexts();
+    assert.equal(named.length, 2);
+    assert.match(named[0], /^Add a marketplace to Codex/);
+    assert.match(named[1], /^Add a marketplace to Claude/);
+    await page.keyboard.press("Escape");
+
+    // (d) submit posts exactly the trimmed source and the marketplace action.
+    await refreshWith(["marketplace_add"], []);
+    const postsBefore = posts.length;
+    await addButton.click();
+    await menuItems.first().click();
+    assert.equal(await dialog.evaluate((el) => el.open), true);
+    await page
+      .locator('[data-testid="plugins-add-source"]')
+      .fill("  owner/repo  ");
+    await page.locator('[data-testid="plugins-add-submit"]').click();
+    await page.waitForFunction(
+      () => !document.querySelector("#plugins-add-dialog").open,
+    );
+    assert.deepEqual(posts.slice(postsBefore), [
+      { provider: "codex", action: "marketplace_add", source: "owner/repo" },
+    ]);
+
+    // (e) a 400 shows its message inline and keeps the dialog open.
+    addFailure = {
+      error: "invalid_request",
+      message: "Source is not a marketplace.",
+    };
+    await addButton.click();
+    await menuItems.first().click();
+    await page
+      .locator('[data-testid="plugins-add-source"]')
+      .fill("not a source");
+    await page.locator('[data-testid="plugins-add-submit"]').click();
+    const addError = page.locator('[data-testid="plugins-add-error"]');
+    await page.waitForFunction(
+      () =>
+        document.querySelector('[data-testid="plugins-add-error"]')
+          ?.textContent.length > 0,
+    );
+    assert.equal(
+      await addError.innerText(),
+      "The request is missing required data. Check the fields and try again. Source is not a marketplace.",
+    );
+    assert.equal(await dialog.evaluate((el) => el.open), true);
+    await page.locator('[data-testid="plugins-add-cancel"]').click();
+    assert.equal(await dialog.evaluate((el) => el.open), false);
+
+    // (f) keyboard: Enter opens, ArrowUp/ArrowDown wrap, Escape closes and restores focus.
+    await refreshWith(["marketplace_add", "connector_add"], []);
+    const focusedText = () =>
+      page.evaluate(() => document.activeElement?.textContent);
+    await addButton.focus();
+    await page.keyboard.press("Enter");
+    assert.equal(await focusedText(), "Add a marketplace");
+    await page.keyboard.press("ArrowUp");
+    assert.equal(await focusedText(), "Add MCP server", "ArrowUp wraps to last");
+    await page.keyboard.press("ArrowDown");
+    assert.equal(await focusedText(), "Add a marketplace", "ArrowDown wraps to first");
+    await page.keyboard.press("ArrowDown");
+    assert.equal(await focusedText(), "Add MCP server");
+    await page.keyboard.press("Escape");
+    assert.equal(
+      await page.locator('[data-testid="plugins-add-menu"]').count(),
+      0,
+    );
+    assert.equal(
+      await page.evaluate(() => document.activeElement?.id),
+      "plugins-add",
+      "focus returns to the Add button",
+    );
+    assert.equal(await addButton.getAttribute("aria-expanded"), "false");
+
+    // (g) the Add button is absent off the Plugins chip.
+    await refreshWith(["marketplace_add"], []);
+    await panel.locator('[data-testid="plugins-chip-apps"]').click();
+    assert.equal(await page.locator("#plugins-add").count(), 0);
+    await panel.locator('[data-testid="plugins-chip-plugins"]').click();
+    assert.equal(await addButton.count(), 1);
+
+    // (h) the Add rules use theme tokens only: no hex, rgb() or hsl() literal.
+    const css = await fs.readFile(
+      path.join(__dirname, "../control/admin.css"),
+      "utf8",
+    );
+    const addRules = css.match(/\.plugins-add[^{]*\{[^}]*\}/g) || [];
+    assert(addRules.length >= 10, "Add rules found: " + addRules.length);
+    assert.deepEqual(
+      addRules.filter((rule) => /#[0-9a-f]{3,8}\b|\b(?:rgb|hsl)a?\(/i.test(rule)),
+      [],
+    );
 
     assert.deepEqual(errors, []);
     console.log("admin plugins page checks passed");

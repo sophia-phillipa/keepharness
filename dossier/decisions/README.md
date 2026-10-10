@@ -26,7 +26,7 @@ Spec: [Codex-app parity design](../codex-parity-design.md).
 | [D-031](d-031-retry-failed-turns.md) | Retry failed or interrupted turns, and image-capability guidance | accepted |
 | [D-032](d-032-wp8-quota-meter-contract.md) | WP8 quota meter contract: passive activity, non-null quota, DeepSeek balance | accepted |
 | [D-033](d-033-right-panel-accordion.md) | Right panel: Activities first, accordions, Project and System files | accepted |
-| [D-034](d-034-wp3-customize-product-answers.md) | WP3 Customize: allow-list switches, provider-only Add actions, "Plugins" label, marketplace grouping | accepted |
+| [D-034](d-034-wp3-customize-product-answers.md) | WP3 Customize: allow-list switches, provider-only Add actions, "Plugins" label, marketplace grouping | accepted; §1 superseded by D-038 (#25 wording by D-045) |
 | [D-035](d-035-rail-meters-provider-logos.md) | Rail quota meters show provider logos instead of names | accepted |
 | [D-036](d-036-wp9-interface-language.md) | WP9 interface language: per-locale JSON catalogs and a DOM-attribute runtime | proposed |
 | [D-037](d-037-chat-code-views-of-one-conversation.md) | Chat and Code are two views of one conversation (records ledger D45) | accepted |
@@ -41,3 +41,4 @@ Spec: [Codex-app parity design](../codex-parity-design.md).
 | [D-052](d-052-first-run-wizard-in-admin.md) | First-run wizard in the admin with a status-only provider scan | accepted |
 | [D-054](d-054-remove-chat-code-switch.md) | Remove the Chat \| Code switch; the side-panel toggle stays; D-037 superseded | accepted |
 | [D-055](d-055-workspace-toggles.md) | Terminal, file editor and wide layout as three independent toggles stored in ui-state; no mode | proposed (per option) |
+| [D-056](d-056-provider-add-actions.md) | Provider pass-through Add actions: marketplace (owner/repo, HTTPS), MCP server, probed capabilities; Create plugin pending | proposed |

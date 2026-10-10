@@ -64,6 +64,18 @@ def scoped_home_open_read(home, name, *, create=False):
             yield stream
 
 
+def has_safe_key(root: str | Path, name: str) -> bool:
+    """True only for a regular, single-link file; never follows links, reads or creates."""
+    if Path(name).name != name or name in ("", ".", ".."):
+        return False
+    try:
+        with scoped_home_directory(trusted_state_root(root), create=False) as directory:
+            info = os.stat(name, dir_fd=directory, follow_symlinks=False)
+    except OSError:
+        return False
+    return stat.S_ISREG(info.st_mode) and info.st_nlink == 1
+
+
 def scoped_home_read(home, name, *, create=True):
     with scoped_home_open_read(home, name, create=create) as stream:
         if stream is None:
