@@ -114,11 +114,5 @@ module.exports = {
       await op.see(page.locator("#needs-you-toggle"));
     });
 
-    await op.step("view-switch", "Switch between Chat and Code views", async () => {
-      await op.click(page.getByRole("tab", { name: "Code" }));
-      await op.until(async () => (await page.locator("#view-code").getAttribute("aria-selected")) === "true", "Code was not selected");
-      await op.click(page.getByRole("tab", { name: "Chat" }));
-      await op.until(async () => (await page.locator("#view-chat").getAttribute("aria-selected")) === "true", "Chat was not selected");
-    });
   },
 };

@@ -320,10 +320,6 @@ async function assertEmptyStateGrouped(page, selector) {
     const filesMenu = page.locator("#files-menu");
     await page.click("#files-chip");
     await filesMenu.waitFor({ state: "visible" });
-    assert.equal(
-      await page.locator("#view-chat").getAttribute("aria-selected"),
-      "true",
-    );
     assert.equal(await page.locator("#activity-panel").isHidden(), true);
     assert.equal(
       await page.locator("#files-chip").getAttribute("aria-expanded"),
@@ -339,10 +335,7 @@ async function assertEmptyStateGrouped(page, selector) {
     );
     assert.equal(uploadBodies.length, uploadsBefore + 1);
     assert.equal(uploadBodies.at(-1), "# Brief\n\nEdited after the last use");
-    assert.equal(
-      await page.locator("#view-chat").getAttribute("aria-selected"),
-      "true",
-    );
+    assert.equal(await page.locator("#activity-panel").isHidden(), true);
     await page
       .getByRole("button", { name: "Remove attachment Photo-brief.md" })
       .click();
@@ -366,10 +359,7 @@ async function assertEmptyStateGrouped(page, selector) {
       filesMenu.getByTestId("files-menu-upload").click(),
     ]);
     assert.equal(chooser.isMultiple(), true);
-    assert.equal(
-      await page.locator("#view-chat").getAttribute("aria-selected"),
-      "true",
-    );
+    assert.equal(await page.locator("#activity-panel").isHidden(), true);
 
     // Pages belong to a project.
     await page.click("#rail-space");

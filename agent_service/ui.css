@@ -6912,40 +6912,6 @@ main > header #active-project-badge {
   background: transparent;
   color: var(--th-quiet);
 }
-.view-switch {
-  position: absolute;
-  left: 50%;
-  top: 10px;
-  transform: translateX(-50%);
-  display: inline-flex;
-  height: 36px;
-  padding: 0;
-  border-radius: 9999px;
-  background: color-mix(in srgb, var(--th-text) 5%, transparent);
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--th-text) 7%, transparent);
-}
-.view-switch button {
-  width: 113px;
-  height: 36px;
-  min-height: 0;
-  padding: 0;
-  border: 0;
-  border-radius: 9999px;
-  background: transparent;
-  color: var(--th-quiet);
-  font-size: 13px;
-  font-weight: 500;
-}
-.view-switch button[aria-selected="true"] {
-  background: color-mix(in srgb, var(--th-text) 10%, var(--th-bg));
-  color: var(--th-text);
-  box-shadow: inset 0 0 0 1px
-    color-mix(in srgb, var(--th-text) 12%, transparent);
-}
-.view-switch button:focus-visible {
-  outline: 2px solid var(--th-accent);
-  outline-offset: 2px;
-}
 #welcome h1 {
   font-size: 28px;
   line-height: 34px;
@@ -7310,16 +7276,6 @@ main > header h1 {
     display: none !important;
   }
 }
-@container chatpane (max-width: 760px) {
-  main > header .view-switch {
-    position: static;
-    transform: none;
-    margin-left: auto;
-  }
-  main > header .view-switch button {
-    width: 76px;
-  }
-}
 @container chatpane (max-width: 640px) {
   main > header h1 {
     display: none;
@@ -7459,9 +7415,6 @@ main > header h1 {
   body.panel-order-reversed .run-status-strip {
     left: 0;
     right: 0;
-  }
-  .view-switch button {
-    width: 84px;
   }
   .attention-popover {
     top: calc(var(--th-app-topbar-height) + 6px);
@@ -8837,9 +8790,6 @@ main > header {
   min-height: 48px;
   padding: 6px 16px;
 }
-main > header .view-switch {
-  top: 6px;
-}
 /* Console header stays compact so the body keeps its baseline height. */
 .run-console-header {
   min-height: 38px;
@@ -8980,13 +8930,6 @@ main > header .view-switch {
 }
 main > header #conversation-title {
   max-width: calc(50% - 250px);
-}
-/* Narrow chat pane: title first, then the conversation-mode chip and the Chat/Code switch at the right. */
-@container chatpane (max-width: 760px) {
-  main > header .view-switch {
-    order: 99;
-    margin-left: 8px;
-  }
 }
 @container chatpane (max-width: 760px) {
   main > header #conversation-title {

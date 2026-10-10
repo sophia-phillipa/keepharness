@@ -155,10 +155,6 @@ const path = require("node:path");
       true,
       "the chip does not open the panel",
     );
-    assert.equal(
-      await page.locator("#view-chat").getAttribute("aria-selected"),
-      "true",
-    );
     for (const name of ["Upload…", "Browse project files…"])
       assert(await filesMenu.getByRole("button", { name }).isVisible(), name);
     assert.match(

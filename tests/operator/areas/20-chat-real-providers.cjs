@@ -27,6 +27,11 @@ const ADMIN_PORT = "18641";
 const HARNESS_PORT = "18640";
 const APP = process.env.CHAT_APP || path.join(instance.paths.root, "app/keepharness-bin"); // inspect-enabled copy of the packaged build (see plan.md)
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+// The side-panel toggle is the only way to show files and run activity beside the chat.
+const setSidePanel = async (op, open) => {
+  const expanded = await op.page.locator("#panel-toggle").getAttribute("aria-expanded");
+  if ((expanded === "true") !== open) await op.click(op.page.locator("#panel-toggle"));
+};
 const playwright = () => require(process.env.PLAYWRIGHT_MODULE || "playwright");
 const LIMIT = /quota|credit|rate.?limit|usage.?limit|limit reached|too many requests|insufficient|billing|exhausted/i;
 const harnessUrl = `http://127.0.0.1:${HARNESS_PORT}`;
@@ -258,14 +263,14 @@ const SCENARIOS = {
       await ask(op, "s1-06-file", "Read the file facts/alpha.txt in this project and tell me what it says. If this project has no files, say so plainly.", /\S/);
       c.ok(!/Failed|Interrupted/.test(ctx.last.pill), `the file request ended as ${ctx.last.pill}`);
       c.ok(await op.page.locator("#messages article.assistant").count() === 2, "the history does not show 2 assistant messages");
-      await op.click(op.page.locator("#view-code"));
+      await setSidePanel(op, true);
       await sleep(1200);
       // The Files panel of a folder-less project says no root is authorized; the "Browse authorized server folders" tree below it is a server-wide browser, not the project's tree.
       const noRoot = await op.page.getByText(/No project root is authorized/).filter({ visible: true }).count();
       await op.page.screenshot({ path: path.join(ctx.out, "shots", "s1-06-code-view.png"), timeout: 15000 }).catch(() => {});
       record({ scenario: "s1-06", no_root_notice: noRoot });
       c.ok(noRoot > 0, "the Files panel of the folder-less project does not say that no project root is authorized");
-      await op.click(op.page.locator("#view-chat"));
+      await setSidePanel(op, false);
       c.done();
     }, { lint: false });
   },
@@ -331,12 +336,12 @@ const SCENARIOS = {
       await chooseEffort(op, "Medium");
       const counts = () => op.page.evaluate(() => ({ user: document.querySelectorAll("#messages article.user").length, assistant: document.querySelectorAll("#messages article.assistant").length, userTexts: [...document.querySelectorAll("#messages article.user")].map((a) => a.innerText.trim().slice(0, 60)) }));
       await ask(op, "s1-09-chat", "Name one primary color. Reply with one word.", /\S/);
-      await op.click(op.page.locator("#view-code"));
+      await setSidePanel(op, true);
       await sleep(1000);
       const title = await op.page.locator("#conversation-title").innerText();
       await ask(op, "s1-09-code", "Name one planet of the solar system. Reply with one word.", /\S/);
       const inCode = await counts();
-      await op.click(op.page.locator("#view-chat"));
+      await setSidePanel(op, false);
       await sleep(1000);
       const back = await counts();
       c.ok((await op.page.locator("#conversation-title").innerText()) === title, "the conversation title changed between Code and Chat");

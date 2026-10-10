@@ -1,6 +1,6 @@
 # D-037 — Chat and Code are two views of one conversation
 
-Status: accepted (recorded 2026-10-06 from ledger decision D45, 0.15.0 WP-20); open for discussion with Sophia. Decided by: Sophia (D45, option A). Spec: [Codex-style shell](../../docs/codex-style-shell.md). Related: [D-033](d-033-right-panel-accordion.md).
+Status: superseded by [D-054](d-054-remove-chat-code-switch.md) (decided 2026-10-09). It was accepted on 2026-10-06 from ledger decision D45, 0.15.0 WP-20. Decided by: Sophia (D45, option A). Spec: [Codex-style shell](../../docs/codex-style-shell.md). Related: [D-033](d-033-right-panel-accordion.md).
 
 ## Context
 
