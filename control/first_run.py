@@ -30,7 +30,7 @@ def _row(provider, found, signed_in, detail):
 async def _probe(manager, provider, info):
     """One provider's row; failures become a row, never an exception."""
     if provider == "deepseek":
-        saved = deepseek.key_file(manager.state).is_file()
+        saved = deepseek.has_key(manager.state)
         return _row(
             provider,
             saved,

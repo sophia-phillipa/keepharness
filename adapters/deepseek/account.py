@@ -8,6 +8,7 @@ from pathlib import Path
 import httpx
 
 from adapters.shared.private_files import (
+    has_safe_key,
     scoped_home_directory,
     scoped_home_read,
     trusted_state_root,
@@ -22,9 +23,14 @@ def key_file(state):
     return Path(state) / "deepseek.key"
 
 
+def has_key(state):
+    """Presence only: a regular, single-link key file, checked without reading it."""
+    return has_safe_key(state, key_file(state).name)
+
+
 def ensure_private_home(state):
     """Create the private home for a saved key; never chmod or repair an existing folder."""
-    if not key_file(state).is_file():
+    if not has_key(state):
         return
     with scoped_home_directory(trusted_state_root(state) / "providers" / "deepseek"):
         pass
