@@ -8,6 +8,7 @@ import re
 import secrets
 import shutil
 import socket
+import stat
 import sys
 import uuid
 from contextlib import nullcontext
@@ -470,6 +471,31 @@ async def read_integration_catalog(request, manager, data):
     return result
 
 
+OPERATIONS_FOLDER_UNSAFE = (
+    "The operations folder must be an empty directory readable only by you. "
+    "Remove it and try again."
+)
+
+
+def operations_folder(state: Path) -> Path:
+    """Return the empty, owner-only working directory for CLI operations."""
+    folder = state / "operations-cwd"
+    try:
+        folder.mkdir(mode=0o700, exist_ok=True)
+    except FileExistsError:
+        # exist_ok does not vouch for what is already there; the lstat check decides.
+        pass
+    st = os.lstat(folder)
+    if (
+        stat.S_ISLNK(st.st_mode)
+        or not stat.S_ISDIR(st.st_mode)
+        or st.st_mode & 0o077
+        or any(folder.iterdir())
+    ):
+        raise UserMessageError(OPERATIONS_FOLDER_UNSAFE)
+    return folder
+
+
 async def change_integration(request, manager, data):
     provider = data.get("provider")
     if provider not in ("codex", "claude"):
@@ -484,9 +510,7 @@ async def change_integration(request, manager, data):
                 "Adding a marketplace is not available for this provider. "
                 "Refresh Plugins and try again."
             )
-        folder = manager.state / "operations-cwd"
-        folder.mkdir(mode=0o700, exist_ok=True)
-        result = manager.operations.launch(args, cwd=folder)
+        result = manager.operations.launch(args, cwd=operations_folder(manager.state))
     else:
         result = manager.operations.launch(args)
     manager.audit("integration:" + data.get("action", ""))

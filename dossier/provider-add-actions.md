@@ -56,7 +56,7 @@ Dialog submit ──POST /api/integration {provider, action:"marketplace_add", s
 **C4 `operations.marketplace_source(value: object) -> str`** (new, pure)
 - Accepts exactly one of:
   - GitHub shorthand: `^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})/[A-Za-z0-9._-]{1,100}$`, where the repository part is not `.` or `..`, does not start with `.` and does not end with `.json`;
-  - HTTPS URL: `value.startswith("https://")` and `integration_catalog._public_source(value) == value`. This rejects userinfo, query, fragment, controls, whitespace, backslashes, local or non-global hosts and anything over 500 characters, because the sanitizer would change or drop it.
+  - HTTPS URL: `value.startswith("https://")` and `integration_catalog.public_source(value) == value`. This rejects userinfo, query, fragment, controls, whitespace, backslashes, local or non-global hosts and anything over 500 characters, because the sanitizer would change or drop it.
 - Returns the value unchanged; raises `UserMessageError("Use a GitHub owner/repo or a public HTTPS address, without credentials, query or fragment.")` otherwise (non-string, empty, leading `-`, `/`, `~`, `.`, `file:`, `ssh:`, `git@`, `http:`).
 - Must-not: normalize or rewrite the input (no `.git` suffix, no URL expansion).
 
@@ -121,7 +121,7 @@ Score: 6+ files (+3), new behavior (+1), crosses the catalog/operations/routes/U
 | 2 | edge_case | Source `docs/notes` with a `docs/notes` folder in the admin cwd | CLI reads a local folder | empty `operations-cwd` (C7, C6) | safe |
 | 3 | invariant_violation | Source `../../etc` or `/home/x/mkt` or `~/mkt` | local path reaches the CLI | C4 regex (repo cannot start with `.`, owner must start alphanumeric) | safe |
 | 4 | invariant_violation | Source `-c=evil` or `--force` | option injection | C4 (no leading `-`, regex) | safe |
-| 5 | boundary | `https://u:p@host/r`, `https://host/r?x=1#f`, `https://127.0.0.1/r`, `https://host.local/r` | credentials or local hosts reach the CLI | C4 equality with `_public_source` | safe |
+| 5 | boundary | `https://u:p@host/r`, `https://host/r?x=1#f`, `https://127.0.0.1/r`, `https://host.local/r` | credentials or local hosts reach the CLI | C4 equality with `public_source` | safe |
 | 6 | error_path | `plugin --help` times out | catalog slower, or item disabled | gather keeps the 15 s bound; `None` → absent, not memoized (C2, C3) | safe |
 | 7 | edge_case | CLI upgraded while the admin runs | stale memo shows a removed verb | key includes size and mtime (C2); a stale tab is still refused by C7, which re-stats | safe |
 | 8 | concurrency | Two tabs submit at once | two CLI writes race on the CLI's config | existing `ADMIN_OPERATION_LIMIT` / 429; the CLI owns its file locking (D-038) | accepted residual |

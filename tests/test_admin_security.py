@@ -18,6 +18,10 @@ FAKE_CODEX = Path(__file__).parent / "fixtures" / "fake-codex" / "codex"
 MARKETPLACE_UNAVAILABLE = (
     "Adding a marketplace is not available for this provider. Refresh Plugins and try again."
 )
+OPERATIONS_FOLDER_UNSAFE = (
+    "The operations folder must be an empty directory readable only by you. "
+    "Remove it and try again."
+)
 
 
 class AdminSecurityTest(unittest.IsolatedAsyncioTestCase):
@@ -288,6 +292,49 @@ class AdminSecurityTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(folder.stat().st_mode & 0o777, 0o700)
         self.assertEqual(list(folder.iterdir()), [])
         audit.assert_called_once_with("integration:marketplace_add")
+
+    async def _refuse_marketplace_add_in(self, folder: Path) -> None:
+        manager = self.app.state.manager
+        manager.inventory = {"binaries": {"codex": str(FAKE_CODEX)}}
+        body = {"provider": "codex", "action": "marketplace_add", "source": "acme/plugins"}
+        with patch.dict(CAPABILITY_MEMO, {}, clear=True):
+            await capabilities("codex", str(FAKE_CODEX))
+            with patch.object(manager.operations, "launch", return_value={"id": "job"}) as launch:
+                response = await self.client.post(
+                    "/api/integration", json=body, headers=self.headers
+                )
+        self.assertEqual(response.status_code, 400)
+        self.assertIn(OPERATIONS_FOLDER_UNSAFE, response.text)
+        self.assertNotIn(str(folder), response.text)
+        launch.assert_not_called()
+
+    async def test_marketplace_add_refuses_an_operations_folder_symlink(self):
+        manager = self.app.state.manager
+        target = Path(self.folder.name) / "elsewhere"
+        target.mkdir(mode=0o700)
+        folder = manager.state / "operations-cwd"
+        folder.symlink_to(target, target_is_directory=True)
+        await self._refuse_marketplace_add_in(folder)
+
+    async def test_marketplace_add_refuses_a_world_accessible_operations_folder(self):
+        manager = self.app.state.manager
+        folder = manager.state / "operations-cwd"
+        folder.mkdir(mode=0o700)
+        folder.chmod(0o755)
+        await self._refuse_marketplace_add_in(folder)
+
+    async def test_marketplace_add_refuses_a_non_empty_operations_folder(self):
+        manager = self.app.state.manager
+        folder = manager.state / "operations-cwd"
+        folder.mkdir(mode=0o700)
+        (folder / "stale.json").write_text("{}", encoding="utf-8")
+        await self._refuse_marketplace_add_in(folder)
+
+    async def test_marketplace_add_refuses_an_operations_path_that_is_a_file(self):
+        manager = self.app.state.manager
+        folder = manager.state / "operations-cwd"
+        folder.write_text("not a directory", encoding="utf-8")
+        await self._refuse_marketplace_add_in(folder)
 
     async def test_marketplace_add_without_a_cached_capability_is_refused(self):
         manager = self.app.state.manager

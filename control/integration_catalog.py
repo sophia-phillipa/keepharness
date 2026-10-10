@@ -134,7 +134,7 @@ def _plugin_metadata(plugin):
     source = plugin.get("homepage") or plugin.get("repository")
     if isinstance(source, dict):
         source = source.get("url")
-    if isinstance(source, str) and (source := _public_source(source)):
+    if isinstance(source, str) and (source := public_source(source)):
         metadata["source"] = source
     for key in ("apps", "skills"):
         values = []
@@ -149,7 +149,7 @@ def _plugin_metadata(plugin):
     return metadata
 
 
-def _public_source(value):
+def public_source(value):
     """Return a public HTTP(S) source without credentials or request-specific data."""
     # urlsplit silently removes some controls; reject them before parsing.
     if (

@@ -41,7 +41,7 @@ CLI verbs per the prior mapping, not re-run against the real CLIs (their state m
 - Reusing `operation()`, `Operations.launch`, `/api/integration` and `/api/integration-catalog` adds one argv branch, one probe and one field to an existing response instead of a new route, process runner or store. The rendering contract of D-045 and the request allow list asserted in `admin-customize.spec.cjs` stay intact because the capabilities travel inside the catalog response.
 - Parsing `--help` lets the UI follow the installed CLI version: an older CLI without `marketplace` loses the item, a newer one gains it, and KeepHarness never claims an action the CLI cannot perform (D-034 §2). Memoizing per binary stamp keeps the cost to two extra processes per CLI upgrade, not per Refresh.
 - Hiding on probe failure, rather than disabling, is D-034 §2's rule. A broken probe can only remove an item, never enable a write.
-- The source allow list is the narrowest form both CLIs accept for a remote marketplace. Local paths and SSH would let a pasted string point the CLI at the owner's filesystem or keys. Checking HTTPS URLs means reusing `integration_catalog._public_source`, already reviewed for D-045, and accepting a URL only when the sanitizer returns it unchanged.
+- The source allow list is the narrowest form both CLIs accept for a remote marketplace. Local paths and SSH would let a pasted string point the CLI at the owner's filesystem or keys. Checking HTTPS URLs means reusing `integration_catalog.public_source`, already reviewed for D-045, and accepting a URL only when the sanitizer returns it unchanged.
 - The empty working directory closes the one ambiguity regex validation cannot: whether a CLI treats `docs/notes` as a GitHub repository or a relative folder. That parsing rule could not be verified here (the JEV abstained, confidence 0.28; see Alternatives).
 
 ## Alternatives considered
@@ -72,3 +72,10 @@ JEV: one `request_decision` (empty working directory vs verbatim vs URL expansio
 - Opus security review (P5) is a merge gate, per #27's acceptance.
 - Release notes entry in `dossier/releases/` for the version that ships it.
 - Revisit if a CLI adds an upload or MCP App verb (add a row and a probe token), if the CLIs change `--help` layout (the parser hides items; P2's fixture tests must be updated), or if Sophia asks for SSH or local marketplace sources.
+
+## Implementation notes (2026-10-10)
+
+Recorded while D-056 stays proposed; they do not change the decision.
+
+- **Add MCP server reuses the provider wizard (deviation from C8).** The shipped menu entry opens the provider wizard at its integrations step (`openWizard` + `showStep(3)`) instead of a separate dialog. The alternative above was rejected only because the form is hidden outside the wizard; opening the wizard brings it into view and avoids a second `connector_add` form that would drift. JEV chose this (option A, confidence 0.96). The P5 review found it safe: it is UI navigation only and posts through the existing `/api/integration` name checks.
+- **P5 security review (Opus): approved**, with 0 blockers and 0 majors. Fixed before merge: `operations-cwd` must be a real, empty 0700 directory and is refused otherwise (no symlink), and `_public_source` was renamed to `public_source`. Deferred: deduplicating `openAddMenu`/`openMenu` in `customize.js` (#84), and using the empty working directory for every `/api/integration` action (#85).

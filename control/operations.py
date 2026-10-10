@@ -10,7 +10,7 @@ from urllib.parse import urlsplit
 
 from agent_service.errors import UserMessageError
 
-from .integration_catalog import _public_source
+from .integration_catalog import public_source
 
 # CSI (colours, cursor), OSC (hyperlinks, titles), and ordinary terminal escape sequences.
 # An OSC never spans a line: a newline ends a bogus one so the text after it is not held back.
@@ -265,7 +265,7 @@ def marketplace_source(value: object) -> str:
 def _marketplace_form(value: str) -> bool:
     if value.startswith("https://"):
         # The sanitizer returns the URL only when it needs no change: no userinfo, query or local host.
-        return _public_source(value) == value
+        return public_source(value) == value
     if not MARKETPLACE_SHORTHAND.fullmatch(value):
         return False
     repository = value.split("/", 1)[1]
