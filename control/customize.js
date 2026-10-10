@@ -16,6 +16,11 @@
     ["rules", "Rules", "instructions", "list-check"],
   ];
   const NO_PROJECT = "sem-projeto";
+  // Add actions of the Plugins toolbar: [catalog action, menu label, testid stem].
+  const ADD_ITEMS = [
+    ["marketplace_add", "Add a marketplace", "plugins-add-marketplace"],
+    ["connector_add", "Add MCP server", "plugins-add-mcp"],
+  ];
   const view = {
     chip: "plugins",
     skillScope: "user",
@@ -47,6 +52,15 @@
     modeButton,
     projectSelect,
     trustPanel,
+    addWrapper,
+    addButton,
+    addDialog,
+    addTitle,
+    addForm,
+    addInput,
+    addError,
+    addSubmit,
+    addInfo = null,
     stateRead = 0,
     noteCount = 0;
 
@@ -242,6 +256,17 @@
       );
     });
   }
+  // Up and Down move the focus through a menu's items, wrapping at both ends.
+  function arrowMenu(event, popup) {
+    const step = { ArrowDown: 1, ArrowUp: -1 }[event.key];
+    if (!step) return;
+    event.preventDefault();
+    const items = [...popup.children];
+    items[
+      (items.indexOf(document.activeElement) + step + items.length) %
+        items.length
+    ].focus();
+  }
   function openMenu(button, group, family = false) {
     const reopen = menu?.button !== button;
     closeMenu();
@@ -264,20 +289,145 @@
       };
       popup.append(entry);
     }
-    popup.addEventListener("keydown", (event) => {
-      const step = { ArrowDown: 1, ArrowUp: -1 }[event.key];
-      if (!step) return;
-      event.preventDefault();
-      const items = [...popup.children];
-      items[
-        (items.indexOf(document.activeElement) + step + items.length) %
-          items.length
-      ].focus();
-    });
+    popup.addEventListener("keydown", (event) => arrowMenu(event, popup));
     button.after(popup);
     button.setAttribute("aria-expanded", "true");
     menu = { node: popup, button };
     popup.firstElementChild.focus();
+  }
+
+  // One entry per provider and Add action. The provider name shows only when several providers offer an Add action.
+  function addEntries() {
+    const OPEN = { marketplace_add: openAddDialog, connector_add: addMcp };
+    const offering = view.clis
+      .map((info) => ({
+        info,
+        actions: integrationCatalogs.get(info.id)?.actions || [],
+      }))
+      .filter(({ actions }) =>
+        ADD_ITEMS.some(([action]) => actions.includes(action)),
+      );
+    const named = offering.length > 1;
+    return offering.flatMap(({ info, actions }) =>
+      ADD_ITEMS.filter(([action]) => actions.includes(action)).map(
+        ([action, label, testid]) => ({
+          label: named ? label + " to " + providerName(info) : label,
+          testid: testid + "-" + info.id,
+          open: () => OPEN[action](info),
+        }),
+      ),
+    );
+  }
+  // The Add button shows on the Plugins chip only, like the Manage toggle beside it.
+  function renderAdd() {
+    const shown = view.chip === "plugins" && addEntries().length > 0;
+    if (!shown) addWrapper.remove();
+    else if (!addWrapper.isConnected) modeButton.after(addWrapper);
+  }
+  function openAddMenu() {
+    const entries = addEntries();
+    const reopen = menu?.button !== addButton;
+    closeMenu();
+    if (!reopen || !entries.length) return;
+    const popup = node("div", undefined, "plugins-menu", "plugins-add-menu");
+    popup.setAttribute("role", "menu");
+    for (const { label, testid, open } of entries) {
+      const entry = node("button", label, "plugins-menu-item", testid);
+      entry.type = "button";
+      entry.setAttribute("role", "menuitem");
+      entry.onclick = () => {
+        closeMenu(true);
+        open();
+      };
+      popup.append(entry);
+    }
+    popup.addEventListener("keydown", (event) => arrowMenu(event, popup));
+    addButton.after(popup);
+    addButton.setAttribute("aria-expanded", "true");
+    menu = { node: popup, button: addButton };
+    popup.firstElementChild.focus();
+  }
+  function openAddDialog(info) {
+    addInfo = info;
+    addTitle.textContent = "Add a marketplace to " + providerName(info);
+    addInput.value = "";
+    addError.textContent = "";
+    addDialog.showModal();
+  }
+  // The MCP server path reuses the provider wizard at its integrations step: no second form.
+  function addMcp(info) {
+    openWizard(info.id);
+    if ($("provider-dialog").hidden) return;
+    showStep(3);
+  }
+  async function submitAdd() {
+    if (!addInfo || addSubmit.disabled) return;
+    const info = addInfo;
+    addError.textContent = "";
+    addSubmit.disabled = true;
+    try {
+      await requestRaw("integration", {
+        provider: info.id,
+        action: "marketplace_add",
+        source: addInput.value.trim(),
+      });
+    } catch (error) {
+      addError.textContent = error.message;
+      return;
+    } finally {
+      addSubmit.disabled = false;
+    }
+    addDialog.close();
+    report(
+      "Started in " + providerName(info) + ". Track Operations, then Refresh.",
+    );
+    pollOperations();
+  }
+  function buildAddDialog() {
+    const dialog = node(
+      "dialog",
+      undefined,
+      "plugins-add-dialog",
+      "plugins-add-dialog",
+    );
+    dialog.id = "plugins-add-dialog";
+    addTitle = node("h2", undefined, "plugins-add-title", "plugins-add-title");
+    addTitle.id = "plugins-add-title";
+    dialog.setAttribute("aria-labelledby", "plugins-add-title");
+    addForm = node("form", undefined, "plugins-add-form", "plugins-add-form");
+    addInput = node("input", undefined, "plugins-add-source", "plugins-add-source");
+    addInput.type = "text";
+    addInput.required = true;
+    addInput.autocomplete = "off";
+    addInput.spellcheck = false;
+    addInput.setAttribute("aria-describedby", "plugins-add-hint");
+    const field = node("label", "Source", "plugins-add-field");
+    field.append(addInput);
+    const hint = node(
+      "p",
+      "owner/repo or an https:// URL",
+      "hint",
+      "plugins-add-hint",
+    );
+    hint.id = "plugins-add-hint";
+    addError = node("p", undefined, "plugins-add-error", "plugins-add-error");
+    addError.setAttribute("role", "alert");
+    const cancel = node("button", "Cancel", "button secondary", "plugins-add-cancel");
+    cancel.type = "button";
+    cancel.onclick = () => dialog.close();
+    addSubmit = node("button", "Add", "button primary", "plugins-add-submit");
+    addSubmit.type = "submit";
+    const actions = node("div", undefined, "plugins-add-actions");
+    actions.append(cancel, addSubmit);
+    addForm.append(field, hint, addError, actions);
+    addForm.onsubmit = (event) => {
+      event.preventDefault();
+      void submitAdd();
+    };
+    dialog.append(addTitle, addForm);
+    // The dialog returns focus to the Add button whichever way it closes (Escape, Cancel, success).
+    dialog.addEventListener("close", () => addButton.focus());
+    return dialog;
   }
 
   function install(group, info, variant) {
@@ -1193,6 +1343,7 @@
 
   function render() {
     closeMenu();
+    renderAdd();
     for (const [id, label, kind, glyph] of CHIPS) {
       const chip = chipButtons.get(id);
       chip.setAttribute("aria-pressed", String(id === view.chip));
@@ -1294,6 +1445,16 @@
       view.detailKey = "";
       render();
     };
+    addWrapper = node("div", undefined, "plugins-add");
+    addButton = node("button", undefined, "button secondary", "plugins-add");
+    addButton.id = "plugins-add";
+    addButton.type = "button";
+    addButton.setAttribute("aria-haspopup", "menu");
+    addButton.setAttribute("aria-expanded", "false");
+    addButton.replaceChildren(icon("plus"), document.createTextNode("Add"));
+    addButton.onclick = () => openAddMenu();
+    addWrapper.append(addButton);
+    addDialog = buildAddDialog();
     const toolbar = node("div", undefined, "plugins-toolbar");
     const projectLabelNode = node("label", "Project", "plugins-project-label");
     projectSelect = node(
@@ -1367,7 +1528,7 @@
     list = node("div", undefined, "plugins-list", "plugins-list");
     list.id = "plugins-list";
     list.tabIndex = -1; // the focus fallback when a row disappears under a switch
-    panel.append(toolbar, note, status, trustPanel, scopeTabs, list);
+    panel.append(toolbar, note, status, trustPanel, scopeTabs, list, addDialog);
     document.addEventListener("keydown", (event) => {
       if (event.key !== "Escape" || !menu) return;
       event.preventDefault();
