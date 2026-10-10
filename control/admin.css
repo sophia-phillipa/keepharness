@@ -2383,6 +2383,58 @@ html[data-embedded] #main {
   outline: 3px solid var(--th-accent);
   outline-offset: 2px;
 }
+.plugins-add {
+  position: relative;
+}
+.plugins-add-dialog {
+  width: min(440px, calc(100vw - 32px));
+  padding: 20px;
+  border: 0;
+  border-radius: var(--th-radius);
+  background: var(--th-panel);
+  color: var(--th-text);
+  box-shadow: 0 0 0 1px var(--th-line);
+}
+.plugins-add-title {
+  margin: 0 0 12px;
+  color: var(--th-text);
+  font-size: 16px;
+}
+.plugins-add-form {
+  display: grid;
+  gap: 12px;
+}
+.plugins-add-field {
+  display: grid;
+  gap: 6px;
+  color: var(--th-text);
+  font-size: 13px;
+}
+.plugins-add-source {
+  padding: 8px 12px;
+  border: 1px solid var(--th-border);
+  border-radius: 8px;
+  background: var(--th-bg);
+  color: var(--th-text);
+  font: inherit;
+}
+.plugins-add-source:focus-visible {
+  outline: 3px solid var(--th-accent);
+  outline-offset: 2px;
+}
+.plugins-add-hint {
+  margin: 0;
+}
+.plugins-add-error {
+  margin: 0;
+  color: var(--th-error);
+  font-size: 13px;
+}
+.plugins-add-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
 @media (max-width: 600px) {
   .plugins-search {
     max-width: none;
