@@ -64,9 +64,9 @@ def scoped_home_open_read(home, name, *, create=False):
             yield stream
 
 
-def scoped_home_read(home, name):
-    with scoped_home_open_read(home, name, create=True) as stream:
+def scoped_home_read(home, name, *, create=True):
+    with scoped_home_open_read(home, name, create=create) as stream:
         if stream is None:
             return None
-        with io.TextIOWrapper(stream) as text:
+        with io.TextIOWrapper(stream, encoding="utf-8") as text:
             return text.read()
