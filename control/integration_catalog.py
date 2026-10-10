@@ -134,7 +134,7 @@ def _plugin_metadata(plugin):
     source = plugin.get("homepage") or plugin.get("repository")
     if isinstance(source, dict):
         source = source.get("url")
-    if isinstance(source, str) and (source := _public_source(source)):
+    if isinstance(source, str) and (source := public_source(source)):
         metadata["source"] = source
     for key in ("apps", "skills"):
         values = []
@@ -149,7 +149,7 @@ def _plugin_metadata(plugin):
     return metadata
 
 
-def _public_source(value):
+def public_source(value):
     """Return a public HTTP(S) source without credentials or request-specific data."""
     # urlsplit silently removes some controls; reject them before parsing.
     if (
@@ -323,24 +323,108 @@ def _fallback(provider, fallback):
     return [item for item in entries if isinstance(item, dict) and item.get("kind") == "mcp"]
 
 
+HELP_LIMIT = 64 * 1024
+SUBCOMMAND_NAME = re.compile(r"[A-Za-z][A-Za-z0-9_-]*")
+# (provider, realpath, st_size, st_mtime_ns) -> capabilities read from the help pages.
+CAPABILITY_MEMO: dict[tuple[str, str, int, int], frozenset[str]] = {}
+
+
+def parse_subcommands(text: str) -> frozenset[str]:
+    """Return the names of the first `Commands:` table of a commander or clap help page."""
+    if len(text.encode(errors="replace")) > HELP_LIMIT:
+        return frozenset()
+    names: set[str] = set()
+    in_table = False
+    indent: int | None = None
+    for raw in text.splitlines():
+        line = raw.rstrip()
+        if not in_table:
+            in_table = line == "Commands:"
+            continue
+        if not line:
+            break
+        depth = len(line) - len(line.lstrip(" "))
+        if indent is None:
+            indent = depth
+        if depth < indent:
+            break
+        if depth == indent:
+            names.update(
+                name for name in line.split()[0].split("|") if SUBCOMMAND_NAME.fullmatch(name)
+            )
+    return frozenset(names)
+
+
+def _memo_key(provider: str, binary: str) -> tuple[str, str, int, int]:
+    status = os.stat(binary)
+    return (provider, os.path.realpath(binary), status.st_size, status.st_mtime_ns)
+
+
+def capability_cached(provider: str, binary: str) -> frozenset[str] | None:
+    """Return the memoized capabilities of this binary version; never runs a command."""
+    try:
+        return CAPABILITY_MEMO.get(_memo_key(provider, binary))
+    except OSError:
+        return None
+
+
+async def capabilities(provider: str, binary: str) -> frozenset[str] | None:
+    """Probe the help pages once per binary version; None when a page is unreadable."""
+    try:
+        key = _memo_key(provider, binary)
+    except OSError:
+        return None
+    found = CAPABILITY_MEMO.get(key)
+    if found is None:
+        found = await _probe_capabilities(binary)
+        if found is not None:
+            CAPABILITY_MEMO[key] = found
+    return found
+
+
+async def _probe_capabilities(binary: str) -> frozenset[str] | None:
+    (plugin_code, plugin_help), (market_code, market_help) = await asyncio.gather(
+        _run(binary, "plugin", "--help"), _run(binary, "plugin", "marketplace", "--help")
+    )
+    plugin_verbs = parse_subcommands(plugin_help) if plugin_code == 0 else frozenset()
+    market_verbs = parse_subcommands(market_help) if market_code == 0 else frozenset()
+    if not plugin_verbs or not market_verbs:
+        return None
+    if "marketplace" in plugin_verbs and "add" in market_verbs:
+        return frozenset({"marketplace_add"})
+    return frozenset()
+
+
 async def catalog(provider, binary, fallback=None):
     """Return the known provider catalogue without commands, credentials, or stderr."""
     if provider not in {"codex", "claude"}:
-        return {"items": [], "warnings": ["Catalog not supported for this provider."]}
+        return {
+            "items": [],
+            "warnings": ["Catalog not supported for this provider."],
+            "actions": [],
+        }
     if not isinstance(binary, str) or not binary:
-        return {"items": [], "warnings": ["The provider's CLI was not found."]}
+        return {"items": [], "warnings": ["The provider's CLI was not found."], "actions": []}
 
     plugin_command = (binary, "plugin", "list", "--available", "--json")
     mcp_command = (
         (binary, "mcp", "list", "--json") if provider == "codex" else (binary, "mcp", "list")
     )
-    mcp_result, plugin_result = await asyncio.gather(_run(*mcp_command), _run(*plugin_command))
+    mcp_result, plugin_result, probed = await asyncio.gather(
+        _run(*mcp_command), _run(*plugin_command), capabilities(provider, binary)
+    )
     mcp_code, mcp_output = mcp_result
     plugin_code, plugin_output = plugin_result
     mcp_items = _codex_mcp(mcp_output) if provider == "codex" else _claude_mcp(mcp_output)
     plugin_items = _plugins(plugin_output)
+    mcp_ok = mcp_code == 0 and mcp_items is not None
+    actions: set[str] = set()
+    if mcp_ok:
+        actions.add("connector_add")
+    if probed and "marketplace_add" in probed:
+        actions.add("marketplace_add")
     warnings = []
-    if mcp_code != 0 or mcp_items is None:
+    if not mcp_ok:
         mcp_items = _fallback(provider, fallback)
         warnings.append(
             "Could not read the CLI's MCP catalog; already configured connectors were used."
@@ -348,4 +432,8 @@ async def catalog(provider, binary, fallback=None):
     if plugin_code != 0 or plugin_items is None:
         plugin_items = []
         warnings.append("Could not read the CLI's plugin catalog.")
-    return {"items": mcp_items + plugin_items, "warnings": warnings}
+    return {
+        "items": mcp_items + plugin_items,
+        "warnings": warnings,
+        "actions": sorted(actions),
+    }

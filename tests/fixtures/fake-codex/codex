@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""A fake ``codex`` CLI for provider-state tests: ``--version`` and ``app-server --listen stdio://``.
+"""A fake ``codex`` CLI for provider-state tests: ``--version``, ``plugin --help`` (clap layout),
+``plugin marketplace --help`` and ``app-server --listen stdio://``.
 
 It answers over stdio JSON-RPC (one JSON object per line) the way codex-cli 0.157.1 does for
 ``initialize``, ``config/read``, ``config/batchWrite``, ``skills/list``, ``skills/config/write``,
@@ -505,9 +506,44 @@ def serve_requests():
     return 0
 
 
+# Clap layout, as the real `codex plugin --help` and `codex plugin marketplace --help` print it.
+CLAP_PLUGIN_HELP = """Manage Codex plugins
+
+Usage: codex plugin [OPTIONS] <COMMAND>
+
+Commands:
+  list         List installed and available plugins
+  add          Install a plugin
+  remove       Remove a plugin
+  marketplace  Manage plugin marketplaces
+  help         Print this message or the help of the given subcommand(s)
+
+Options:
+  -h, --help  Print help
+"""
+CLAP_MARKETPLACE_HELP = """Manage plugin marketplaces
+
+Usage: codex plugin marketplace [OPTIONS] <COMMAND>
+
+Commands:
+  add     Add a plugin marketplace
+  remove  Remove a plugin marketplace
+  help    Print this message or the help of the given subcommand(s)
+
+Options:
+  -h, --help  Print help
+"""
+
+
 def main(argv):
     if argv[:1] == ["--version"]:
         print("codex-cli " + settings().get("version", "0.157.1"))
+        return 0
+    if argv == ["plugin", "--help"]:
+        print(CLAP_PLUGIN_HELP, end="")
+        return 0
+    if argv == ["plugin", "marketplace", "--help"]:
+        print(CLAP_MARKETPLACE_HELP, end="")
         return 0
     if argv[:1] == ["app-server"]:
         return serve()

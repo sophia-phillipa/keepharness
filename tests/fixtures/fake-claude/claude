@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Fake `claude` CLI for provider-state tests; mirrors Claude Code 2.1.292 (observed 2026-10-07).
 
-Commands: `--version` and `plugin enable|disable <id> [-s user|project|local] [--json]`.
+Commands: `--version`, `plugin --help`, `plugin marketplace --help` and
+`plugin enable|disable <id> [-s user|project|local] [--json]`.
 A stream-json turn (`--input-format stream-json`) whose prompt contains `FAKE-EDITS` plays a
 stream: Edit, MultiEdit, a failed Edit, Write and Bash tool calls, then a text answer. Any other
 prompt, and any other command, exits 2.
@@ -11,6 +12,8 @@ inside the config directory ($CLAUDE_CONFIG_DIR, else ~/.claude):
   fake-claude-version   one line replaces the reported version (default 2.1.292)
   fake-claude-fail      its presence makes every plugin command fail like a settings write error;
                         any text in it replaces the failure reason
+  fake-claude-help      how `plugin --help` answers: absent (no `marketplace` verb), fail (exit 1),
+                        garbage (no command table), hang (never answers); no file means normal
 Settings files: user -> <config dir>/settings.json, project -> <cwd>/.claude/settings.json,
 local -> <cwd>/.claude/settings.local.json; written with a 2-space indent like the real CLI.
 """
@@ -18,10 +21,36 @@ local -> <cwd>/.claude/settings.local.json; written with a 2-space indent like t
 import json
 import os
 import sys
+import time
 from pathlib import Path
 
 DEFAULT_VERSION = "2.1.292"
 SCOPES = ("user", "project", "local")
+HANG_SECONDS = 60
+# Commander layout, as `claude plugin --help` prints it.
+PLUGIN_HELP_HEAD = """Usage: claude plugin [options] [command]
+
+Manage Claude Code plugins
+
+Options:
+  -h, --help                       display help for command
+
+Commands:
+"""
+PLUGIN_COMMANDS = (
+    "  install|i [options] <plugin>     Install a plugin\n",
+    "  marketplace                      Manage plugin marketplaces\n",
+    "  uninstall|rm [options] <plugin>  Uninstall a plugin\n",
+)
+MARKETPLACE_HELP = """Usage: claude plugin marketplace [options] [command]
+
+Manage plugin marketplaces
+
+Commands:
+  add <source>      Add a marketplace
+  list              List configured marketplaces
+  remove|rm <name>  Remove a configured marketplace
+"""
 
 
 def config_dir() -> Path:
@@ -242,11 +271,31 @@ def prompt_of(line: str) -> str:
     return "".join(b.get("text", "") for b in content if isinstance(b, dict))
 
 
+def plugin_help() -> None:
+    """`plugin --help`; the fake-claude-help control file picks the variant."""
+    control = config_dir() / "fake-claude-help"
+    mode = control.read_text().strip() if control.exists() else "normal"
+    if mode == "fail":
+        print("error: plugin help is unavailable", file=sys.stderr)
+        sys.exit(1)
+    if mode == "garbage":
+        print("Commands:\n  !!! ***  not a command table")
+    elif mode == "hang":
+        time.sleep(HANG_SECONDS)
+    else:
+        lines = [line for line in PLUGIN_COMMANDS if mode != "absent" or "marketplace" not in line]
+        print(PLUGIN_HELP_HEAD + "".join(lines), end="")
+
+
 def main(arguments: list[str]) -> None:
     if arguments == ["--version"]:
         override = config_dir() / "fake-claude-version"
         version = override.read_text().strip() if override.exists() else DEFAULT_VERSION
         print(f"{version} (Claude Code)")
+    elif arguments == ["plugin", "--help"]:
+        plugin_help()
+    elif arguments == ["plugin", "marketplace", "--help"]:
+        print(MARKETPLACE_HELP, end="")
     elif arguments[:1] == ["plugin"] and arguments[1:2] in (["enable"], ["disable"]):
         command, plugin, scope, as_json = parse(arguments[1:])
         toggle(command, plugin, scope, as_json)
