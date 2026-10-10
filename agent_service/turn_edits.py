@@ -186,4 +186,6 @@ def shown_edit(item):
 def file_op(edits):
     if edits[-1]["op"] == "deleted":
         return "deleted"
+    if edits[0]["op"] == "deleted":
+        return "modified"
     return edits[0]["op"]
