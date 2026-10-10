@@ -1,5 +1,8 @@
 import asyncio
+import os
+import shutil
 import sys
+from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -101,6 +104,7 @@ def test_claude_uses_available_plugins_and_only_parses_mcp_names():
             },
         ],
         "warnings": [],
+        "actions": ["connector_add"],
     }
 
 
@@ -147,6 +151,7 @@ def test_claude_account_connectors_are_listed_with_their_health():
             {"id": "mcp:graphify", "name": "graphify", "kind": "mcp", "status": "configured"},
         ],
         "warnings": [],
+        "actions": ["connector_add"],
     }
     # No endpoint, command or provider error text leaks into the catalog.
     assert "http" not in str(result) and "jsonrpc" not in str(result)
@@ -169,7 +174,11 @@ def test_catalog_falls_back_to_known_mcp_metadata_when_claude_output_is_unknown(
 def test_catalog_rejects_unknown_provider_without_executing_a_cli():
     with patch("control.integration_catalog._run", new_callable=AsyncMock) as command:
         result = run(catalog("deepseek", "/bin/codex"))
-    assert result == {"items": [], "warnings": ["Catalog not supported for this provider."]}
+    assert result == {
+        "items": [],
+        "warnings": ["Catalog not supported for this provider."],
+        "actions": [],
+    }
     command.assert_not_awaited()
 
 
@@ -182,7 +191,11 @@ def test_claude_empty_mcp_list_is_not_a_query_failure():
         )
 
     with patch("control.integration_catalog._run", side_effect=fake_run):
-        assert run(catalog("claude", "/bin/claude")) == {"items": [], "warnings": []}
+        assert run(catalog("claude", "/bin/claude")) == {
+            "items": [],
+            "warnings": [],
+            "actions": ["connector_add"],
+        }
 
 
 def test_plugin_descriptions_are_preserved_as_text_for_both_statuses():
@@ -384,3 +397,175 @@ def test_installed_marketplace_description_uses_exact_cache_version(tmp_path, mo
     assert _plugins(json.dumps({"installed": [plugin]}))[0]["description"] == "Document tools"
     plugin["version"] = "../1.2"
     assert "description" not in _plugins(json.dumps({"installed": [plugin]}))[0]
+
+
+# Help layouts: commander (Claude) and clap (Codex). Shapes copied from the real CLIs' --help.
+COMMANDER_HELP = """Usage: claude plugin [options] [command]
+
+Manage Claude Code plugins
+
+Options:
+  -h, --help                       display help for command
+
+Commands:
+  install|i [options] <plugin>     Install a plugin
+                                     marketplace entries are resolved first
+  marketplace                      Manage plugin marketplaces
+  uninstall|rm [options] <plugin>  Uninstall a plugin
+
+Learn more about plugins:
+  ghost [options]                  Not a command
+"""
+
+CLAP_HELP = """Manage Codex plugins
+
+Usage: codex plugin [OPTIONS] <COMMAND>
+
+Commands:
+  list         List installed and available plugins
+  add          Install a plugin
+  remove       Remove a plugin
+  marketplace  Manage plugin marketplaces
+  help         Print this message or the help of the given subcommand(s)
+
+Options:
+  -h, --help  Print help
+"""
+
+
+@pytest.fixture
+def cli_env(tmp_path, monkeypatch):
+    """Isolated homes for the fake CLIs: no real ~/.claude or ~/.codex is read."""
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "claude-config"))
+    monkeypatch.setenv("CODEX_HOME", str(tmp_path / "codex-home"))
+    return tmp_path
+
+
+def fake_cli(tmp_path, provider):
+    """A private copy of a fake CLI, so a test may change its mtime without touching the fixture."""
+    target = tmp_path / provider
+    shutil.copy2(Path(__file__).parent / "fixtures" / f"fake-{provider}" / provider, target)
+    return str(target)
+
+
+def control(directory, name, text):
+    directory.mkdir(parents=True, exist_ok=True)
+    (directory / name).write_text(text)
+
+
+def test_parse_subcommands_reads_commander_and_clap_layouts():
+    from control.integration_catalog import parse_subcommands
+
+    assert parse_subcommands(COMMANDER_HELP) == {"install", "i", "marketplace", "uninstall", "rm"}
+    assert parse_subcommands(CLAP_HELP) == {"list", "add", "remove", "marketplace", "help"}
+
+
+def test_parse_subcommands_skips_deeper_continuation_lines_in_descriptions():
+    from control.integration_catalog import parse_subcommands
+
+    help_text = "Commands:\n  install|i [options] <plugin>  Install a plugin\n" + (
+        "                                 marketplace entries are resolved first\n"
+    )
+    assert parse_subcommands(help_text) == {"install", "i"}
+
+
+def test_parse_subcommands_is_empty_for_garbage_headless_text_and_text_past_the_scan_limit():
+    from control.integration_catalog import parse_subcommands
+
+    assert parse_subcommands("") == frozenset()
+    assert parse_subcommands("  install  Install a plugin\n") == frozenset()
+    assert parse_subcommands("Commands:\n  !!! ***\n  1abc  x\n  -flag  y\n") == frozenset()
+    assert parse_subcommands("Commands:\n" + "\n" * 70_000 + "  late  Entry\n") == frozenset()
+
+
+def test_capabilities_read_both_help_pages_of_a_claude_cli(cli_env):
+    from control.integration_catalog import capabilities
+
+    binary = fake_cli(cli_env, "claude")
+    assert run(capabilities("claude", binary)) == frozenset({"marketplace_add"})
+
+
+def test_capabilities_read_the_clap_help_of_a_codex_cli(cli_env):
+    from control.integration_catalog import capabilities
+
+    binary = fake_cli(cli_env, "codex")
+    assert run(capabilities("codex", binary)) == frozenset({"marketplace_add"})
+
+
+def test_capabilities_omit_marketplace_add_when_plugin_help_lacks_the_verb(cli_env):
+    from control.integration_catalog import capabilities
+
+    binary = fake_cli(cli_env, "claude")
+    control(cli_env / "claude-config", "fake-claude-help", "absent")
+    assert run(capabilities("claude", binary)) == frozenset()
+
+
+@pytest.mark.parametrize("mode", ["fail", "garbage", "hang"])
+def test_capabilities_are_unknown_when_a_help_page_fails(cli_env, monkeypatch, mode):
+    from control import integration_catalog
+    from control.integration_catalog import capabilities
+
+    monkeypatch.setattr(integration_catalog, "TIMEOUT_SECONDS", 0.5)
+    binary = fake_cli(cli_env, "claude")
+    control(cli_env / "claude-config", "fake-claude-help", mode)
+    assert run(capabilities("claude", binary)) is None
+
+
+def test_capabilities_are_unknown_for_a_missing_binary(cli_env):
+    from control.integration_catalog import capabilities
+
+    assert run(capabilities("claude", str(cli_env / "no-such-claude"))) is None
+
+
+def test_failed_probe_is_not_memoized(cli_env):
+    from control.integration_catalog import capabilities
+
+    binary = fake_cli(cli_env, "claude")
+    control(cli_env / "claude-config", "fake-claude-help", "fail")
+    assert run(capabilities("claude", binary)) is None
+    (cli_env / "claude-config" / "fake-claude-help").unlink()
+    assert run(capabilities("claude", binary)) == frozenset({"marketplace_add"})
+
+
+def test_memo_hit_runs_no_command(cli_env, monkeypatch):
+    from control import integration_catalog
+    from control.integration_catalog import capabilities
+
+    commands = []
+    original = integration_catalog._run
+
+    async def counted(*args):
+        commands.append(args)
+        return await original(*args)
+
+    monkeypatch.setattr(integration_catalog, "_run", counted)
+    binary = fake_cli(cli_env, "claude")
+    assert run(capabilities("claude", binary)) == frozenset({"marketplace_add"})
+    assert len(commands) == 2
+    assert run(capabilities("claude", binary)) == frozenset({"marketplace_add"})
+    assert len(commands) == 2
+
+
+def test_changed_binary_mtime_reprobes(cli_env):
+    from control.integration_catalog import capabilities
+
+    binary = fake_cli(cli_env, "claude")
+    assert run(capabilities("claude", binary)) == frozenset({"marketplace_add"})
+    control(cli_env / "claude-config", "fake-claude-help", "absent")
+    status = os.stat(binary)
+    os.utime(binary, ns=(status.st_atime_ns, status.st_mtime_ns + 1_000_000_000))
+    assert run(capabilities("claude", binary)) == frozenset()
+
+
+def test_catalog_actions_are_empty_when_the_binary_is_missing(cli_env):
+    result = run(catalog("claude", str(cli_env / "no-such-claude"), fallback={"claude": []}))
+    assert result["actions"] == []
+
+
+def test_connector_add_is_absent_when_mcp_list_falls_back(cli_env):
+    # The fake claude has no `mcp list` verb, so the read fails and the fallback is used.
+    binary = fake_cli(cli_env, "claude")
+    result = run(catalog("claude", binary, fallback={"claude": []}))
+    assert result["warnings"]
+    assert result["actions"] == ["marketplace_add"]
