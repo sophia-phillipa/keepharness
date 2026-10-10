@@ -476,7 +476,13 @@ async def change_integration(request, manager, data):
     binary = manager.inventory["binaries"][provider]
     if not binary:
         raise UserMessageError("CLI not installed.")
-    result = manager.operations.launch(operation(binary, provider, data))
+    args = operation(binary, provider, data)
+    if data.get("action") == "marketplace_add":
+        folder = manager.state / "operations-cwd"
+        folder.mkdir(mode=0o700, exist_ok=True)
+        result = manager.operations.launch(args, cwd=folder)
+    else:
+        result = manager.operations.launch(args)
     manager.audit("integration:" + data.get("action", ""))
     return result
 
