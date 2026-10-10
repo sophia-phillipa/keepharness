@@ -215,7 +215,7 @@ async def read_state(request, manager):
         "operations": list(manager.operations.jobs.values()),
         "local_profile": load_profile(manager.state),
         "local_profiles": load_profiles(manager.state),
-        "credentials": {"deepseek": deepseek.key_file(manager.state).exists()},
+        "credentials": {"deepseek": deepseek.has_key(manager.state)},
     }
 
 
