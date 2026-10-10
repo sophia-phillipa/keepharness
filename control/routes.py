@@ -36,6 +36,7 @@ from .first_run import (
     reset_first_run,
     scan_first_run,
 )
+from .integration_catalog import capability_cached
 from .integration_catalog import catalog as integration_catalog
 from .integrations import inventory
 from .local_models import (
@@ -478,6 +479,11 @@ async def change_integration(request, manager, data):
         raise UserMessageError("CLI not installed.")
     args = operation(binary, provider, data)
     if data.get("action") == "marketplace_add":
+        if "marketplace_add" not in (capability_cached(provider, binary) or ()):
+            raise UserMessageError(
+                "Adding a marketplace is not available for this provider. "
+                "Refresh Plugins and try again."
+            )
         folder = manager.state / "operations-cwd"
         folder.mkdir(mode=0o700, exist_ok=True)
         result = manager.operations.launch(args, cwd=folder)
