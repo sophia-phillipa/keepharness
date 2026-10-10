@@ -257,6 +257,50 @@ class AdminSecurityTest(unittest.IsolatedAsyncioTestCase):
             200,
         )
 
+    async def test_marketplace_add_runs_in_the_empty_operations_folder(self):
+        manager = self.app.state.manager
+        manager.inventory = {"binaries": {"codex": "/fake/bin/codex"}}
+        body = {"provider": "codex", "action": "marketplace_add", "source": "acme/plugins"}
+        with (
+            patch.object(manager.operations, "launch", return_value={"id": "job"}) as launch,
+            patch.object(manager, "audit") as audit,
+        ):
+            response = await self.client.post("/api/integration", json=body, headers=self.headers)
+        self.assertEqual(response.status_code, 200)
+        launch.assert_called_once()
+        self.assertEqual(
+            launch.call_args.args[0],
+            ["/fake/bin/codex", "plugin", "marketplace", "add", "acme/plugins"],
+        )
+        folder = manager.state / "operations-cwd"
+        self.assertEqual(launch.call_args.kwargs["cwd"], folder)
+        self.assertTrue(folder.is_dir())
+        self.assertEqual(folder.stat().st_mode & 0o777, 0o700)
+        self.assertEqual(list(folder.iterdir()), [])
+        audit.assert_called_once_with("integration:marketplace_add")
+
+    async def test_marketplace_add_is_owner_only(self):
+        manager = self.app.state.manager
+        manager.inventory = {"binaries": {"codex": "/fake/bin/codex"}}
+        body = {"provider": "codex", "action": "marketplace_add", "source": "acme/plugins"}
+        with patch.object(manager.operations, "launch") as launch:
+            self.client.cookies.clear()
+            self.assertEqual(
+                (await self.client.post("/api/integration", json=body, headers=self.headers)).status_code,
+                401,
+            )
+            self.assertEqual(
+                (
+                    await self.client.post(
+                        "/api/integration",
+                        json=body,
+                        headers={**self.headers, "Host": "evil.test:8094"},
+                    )
+                ).status_code,
+                403,
+            )
+            launch.assert_not_called()
+
     async def test_csp_allows_data_images_for_the_select_chevron(self):
         for path in ("/", "/api/state"):
             response = await self.client.get(path, headers=self.headers)

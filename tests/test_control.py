@@ -1,5 +1,8 @@
+import asyncio
 import copy
 import json
+import os
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -8,7 +11,8 @@ from unittest.mock import AsyncMock, patch
 from starlette.testclient import TestClient
 
 from agent_service.app import APIError, Service
-from control.operations import operation
+from agent_service.errors import UserMessageError
+from control.operations import Operations, operation
 from control.server import Manager, create_app
 from tests.owner_session import sign_in
 
@@ -221,6 +225,110 @@ class ControlTest(unittest.TestCase):
                     "url": "https://example.com/mcp?token=secret",
                 },
             )
+
+    def test_marketplace_add_argv_for_both_providers(self):
+        self.assertEqual(
+            operation(
+                "/fake/codex", "codex", {"action": "marketplace_add", "source": "acme/plugins"}
+            ),
+            ["/fake/codex", "plugin", "marketplace", "add", "acme/plugins"],
+        )
+        self.assertEqual(
+            operation(
+                "/fake/claude",
+                "claude",
+                {"action": "marketplace_add", "source": "https://plugins.example.com/market"},
+            ),
+            ["/fake/claude", "plugin", "marketplace", "add", "https://plugins.example.com/market"],
+        )
+
+    def test_marketplace_source_accepts_owner_repo_and_public_https_only(self):
+        accepted = [
+            "acme/plugins",
+            "a/b",
+            "Team-1/plugin.repo_v2",
+            "a" * 39 + "/" + "r" * 100,
+            "https://plugins.example.com/market",
+        ]
+        refused = [
+            "",
+            "-acme/plugins",
+            "acme",
+            "acme/",
+            "/acme/plugins",
+            "~/mkt",
+            ".acme/plugins",
+            "../../etc",
+            "acme/.hidden",
+            "acme/.",
+            "acme/..",
+            "acme/plugins.json",
+            "acme/plugins/extra",
+            "acme/" + "r" * 101,
+            "a" * 40 + "/repo",
+            "acme/plugins\n",
+            "git@github.com:acme/plugins.git",
+            "ssh://git@example.com/acme/plugins",
+            "file:///home/x/mkt",
+            "http://plugins.example.com/market",
+            "https://user:pass@plugins.example.com/market",
+            "https://plugins.example.com/market?token=x",
+            "https://plugins.example.com/market#frag",
+            "https://plugins.example.com/mk et",
+            "https://127.0.0.1/mkt",
+            "https://plugins.local/mkt",
+            "https://plugins.example.com/" + "a" * 500,
+            None,
+            123,
+            ["acme/plugins"],
+        ]
+        for source in accepted:
+            with self.subTest(accepted=source):
+                argv = operation(
+                    "/fake/codex", "codex", {"action": "marketplace_add", "source": source}
+                )
+                self.assertEqual(argv[-1], source)
+        for source in refused:
+            with self.subTest(refused=source):
+                with self.assertRaises(UserMessageError) as caught:
+                    operation(
+                        "/fake/codex", "codex", {"action": "marketplace_add", "source": source}
+                    )
+                self.assertEqual(
+                    str(caught.exception),
+                    "Use a GitHub owner/repo or a public HTTPS address, without credentials, "
+                    "query or fragment.",
+                )
+
+    def test_marketplace_add_is_checked_before_the_name(self):
+        argv = operation(
+            "/fake/codex", "codex", {"action": "marketplace_add", "source": "acme/plugins"}
+        )
+        self.assertEqual(argv[-1], "acme/plugins")
+        with self.assertRaises(UserMessageError) as caught:
+            operation(
+                "/fake/codex",
+                "codex",
+                {"action": "marketplace_add", "source": "https://user:hunter2@example.com/m"},
+            )
+        self.assertNotIn("hunter2", str(caught.exception))
+        self.assertNotIn("/fake/codex", str(caught.exception))
+
+    def test_launch_runs_the_cli_in_the_given_directory(self):
+        folder = Path(self.tmp.name) / "operations-cwd"
+        folder.mkdir()
+
+        async def scenario():
+            operations = Operations()
+            job = operations.launch(
+                [sys.executable, "-c", "import os; print(os.getcwd())"], cwd=folder
+            )
+            await operations.by_id[job["id"]]
+            return operations.jobs[job["id"]]
+
+        job = asyncio.run(scenario())
+        self.assertEqual(job["state"], "completed")
+        self.assertEqual(job["output"].strip(), os.path.realpath(folder))
 
     def test_enforced_provider_scope(self):
         cfg = {
