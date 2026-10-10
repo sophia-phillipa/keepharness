@@ -1380,7 +1380,8 @@
   }
 
   // The state of each found CLI, read in parallel: GET takes no admin lock. A failure only affects its provider.
-  async function loadStates(clis) {
+  // An explicit Refresh (fresh) asks the server to skip its short coalescing window.
+  async function loadStates(clis, fresh = false) {
     const readId = ++stateRead,
       project = view.project,
       next = new Map();
@@ -1391,7 +1392,8 @@
             "provider-state?provider=" +
               id +
               "&project_id=" +
-              encodeURIComponent(project),
+              encodeURIComponent(project) +
+              (fresh ? "&refresh=1" : ""),
           );
           next.set(id, { body });
         } catch (error) {
@@ -1442,7 +1444,7 @@
         view.project = NO_PROJECT;
       projectSelect.value = view.project;
       rowErrors.clear(); // a reload starts clean; a re-read on focus keeps the errors on their rows
-      const reads = loadStates(view.clis);
+      const reads = loadStates(view.clis, force);
       // One CLI at a time: the admin runs one operation at once and answers 429 to a second.
       for (const { id } of view.clis) {
         if (id === "deepseek") continue; // Its private state has no catalog command.

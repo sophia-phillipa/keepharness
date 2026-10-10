@@ -264,17 +264,9 @@ module.exports = {
             await connected(name, pattern);
             // Only Claude's home is seeded here; the notice needs the state read before the edit.
             seed(op, "OTHER-ARG");
-            // Reads inside the server's short coalescing window reuse the earlier snapshot: refresh until it is re-read.
             const marker = section(pattern).getByTestId("resource-changed");
-            await op.until(
-              async () => {
-                await refresh();
-                await open("hooks");
-                return (await marker.count()) > 0;
-              },
-              "no changed marker appeared after the masked argument changed",
-              30000,
-            );
+            await refresh();
+            await open("hooks");
             await op.see(marker.first());
             noSecrets(
               "the Hooks page text after the change",
