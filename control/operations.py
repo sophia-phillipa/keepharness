@@ -272,12 +272,23 @@ def _marketplace_form(value: str) -> bool:
     return not repository.startswith(".") and not repository.endswith(".json")
 
 
+def _is_local_path_form(name: str) -> bool:
+    """True when the name would be read by the provider CLI as a local path, not an identifier."""
+    return name.startswith(("./", "../", "/", "~")) or any(
+        segment in (".", "..") for segment in name.split("/")
+    )
+
+
 def operation(binary, provider, data):
     action = data.get("action")
     if action == "marketplace_add":  # before the name check: this action has no name
         return [binary, "plugin", "marketplace", "add", marketplace_source(data.get("source"))]
     name = data.get("name", "")
-    if not re.fullmatch(r"[A-Za-z0-9_@./:-]{1,160}", name) or name.startswith("-"):
+    if (
+        not re.fullmatch(r"[A-Za-z0-9_@./:-]{1,160}", name)
+        or name.startswith("-")
+        or _is_local_path_form(name)
+    ):
         raise UserMessageError("Invalid name.")
     if action == "login":
         return [binary, "mcp", "login", name]

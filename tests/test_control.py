@@ -330,6 +330,28 @@ class ControlTest(unittest.TestCase):
         self.assertEqual(job["state"], "completed")
         self.assertEqual(job["output"].strip(), os.path.realpath(folder))
 
+    def test_login_and_plugin_names_refuse_local_path_forms(self):
+        refused = ("./x", "../x", "a/../b", "a/./b", "/abs", "~/x", "-flag", "a/.")
+        for action in ("login", "plugin_install"):
+            for name in refused:
+                with self.subTest(action=action, name=name):
+                    with self.assertRaises(ValueError) as ctx:
+                        operation("claude", "claude", {"action": action, "name": name})
+                    self.assertEqual(str(ctx.exception), "Invalid name.")
+
+    def test_login_and_plugin_names_keep_valid_forms(self):
+        accepted = ("github", "github@openai-curated", "owner/repo", "owner/repo@market", "a.b/c-d")
+        for name in accepted:
+            with self.subTest(name=name):
+                self.assertEqual(
+                    operation("claude", "claude", {"action": "login", "name": name}),
+                    ["claude", "mcp", "login", name],
+                )
+                self.assertEqual(
+                    operation("claude", "claude", {"action": "plugin_install", "name": name}),
+                    ["claude", "plugin", "install", name],
+                )
+
     def test_enforced_provider_scope(self):
         cfg = {
             "state_dir": self.tmp.name,
