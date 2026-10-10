@@ -7657,9 +7657,6 @@ body .composer-menu .access-menu-heading {
   color: var(--th-quiet);
   font-size: 12px;
 }
-main > header #conversation-title {
-  max-width: calc(50% - 240px);
-}
 #messages article.message.user {
   align-self: stretch;
   width: 100%;
@@ -8922,14 +8919,11 @@ main > header {
 #project-menu [role="option"][aria-selected="true"] {
   background: var(--th-hover);
 }
-/* The project name also shows above the composer; drop the header badge before it meets the switch. */
+/* The project name also shows above the composer; drop the header badge on narrower panes. */
 @container chatpane (max-width: 1240px) {
   main > header #active-project-badge {
     display: none !important;
   }
-}
-main > header #conversation-title {
-  max-width: calc(50% - 250px);
 }
 @container chatpane (max-width: 760px) {
   main > header #conversation-title {
