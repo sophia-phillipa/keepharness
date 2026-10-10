@@ -1,0 +1,253 @@
+#!/usr/bin/env python3
+"""Fake `dsh --profile acp` agent over newline-delimited JSON-RPC (ACP v1), stdlib only.
+
+Accepts exactly `--profile acp`; anything else exits 2. Requires DSH_HOME (exit 2 with
+"DSH_HOME is required" otherwise). Session state lives in $DSH_HOME/fake-dsh-acp-state.json so a
+session survives a restart of this process.
+
+Methods: initialize, session/new, session/list, session/resume, session/close, session/prompt.
+session/cancel is a notification, checked between chunks. session/load and any other method
+answer JSON-RPC -32601; an unknown session answers -32002.
+
+Environment:
+  FAKE_DSH_CHUNKS            agent_message_chunk updates per prompt (default 3)
+  FAKE_DSH_CHUNK_DELAY       seconds between chunks (default 0)
+  FAKE_DSH_PERMISSION=1      each prompt first sends session/request_permission (kind execute,
+                             id permission-1) and then streams `tool:<optionId>`, or
+                             `tool:cancelled` when the client cancels the request
+  FAKE_DSH_CRASH_MID_STREAM=1  exit with status 3 right after the first chunk
+"""
+
+import json
+import os
+import select
+import sys
+import time
+import uuid
+from pathlib import Path
+from typing import Any
+
+USAGE_EXIT = 2
+CRASH_STATUS = 3
+STATE_NAME = "fake-dsh-acp-state.json"
+PERMISSION_ID = "permission-1"
+METHOD_NOT_FOUND = -32601
+RESOURCE_NOT_FOUND = -32002
+READ_SIZE = 65536
+STDIN_FD = 0
+
+
+class RpcError(Exception):
+    def __init__(self, code: int, message: str) -> None:
+        super().__init__(message)
+        self.code = code
+        self.message = message
+
+
+class Inbox:
+    """Reads stdin with os.read so select() sees data the buffered reader would hide."""
+
+    def __init__(self, fd: int) -> None:
+        self.fd = fd
+        self.buffer = b""
+
+    def read_message(self, timeout: float | None) -> dict[str, Any] | None:
+        """The next message, or None when none arrives within the timeout; exits on EOF."""
+        while b"\n" not in self.buffer:
+            ready, _, _ = select.select([self.fd], [], [], timeout)
+            if not ready:
+                return None
+            chunk = os.read(self.fd, READ_SIZE)
+            if not chunk:
+                sys.exit(0)
+            self.buffer += chunk
+        line, _, self.buffer = self.buffer.partition(b"\n")
+        message = json.loads(line)
+        return message if isinstance(message, dict) else {}
+
+
+class Agent:
+    def __init__(self, home: Path) -> None:
+        self.state_path = home / STATE_NAME
+        self.inbox = Inbox(STDIN_FD)
+        self.sessions: dict[str, dict[str, str]] = self.load()
+
+    def load(self) -> dict[str, dict[str, str]]:
+        if not self.state_path.exists():
+            return {}
+        return json.loads(self.state_path.read_text(encoding="utf-8")).get("sessions", {})
+
+    def save(self) -> None:
+        self.state_path.parent.mkdir(parents=True, exist_ok=True)
+        temp = self.state_path.with_name(self.state_path.name + ".tmp")
+        temp.write_text(json.dumps({"sessions": self.sessions}), encoding="utf-8")
+        temp.replace(self.state_path)
+
+    def send(self, item: dict[str, Any]) -> None:
+        sys.stdout.buffer.write((json.dumps(item) + "\n").encode("utf-8"))
+        sys.stdout.buffer.flush()
+
+    def notify_update(self, session_id: str, update: dict[str, Any]) -> None:
+        self.send(
+            {
+                "jsonrpc": "2.0",
+                "method": "session/update",
+                "params": {"sessionId": session_id, "update": update},
+            }
+        )
+
+    def message_chunk(self, session_id: str, text: str) -> None:
+        self.notify_update(
+            session_id,
+            {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": text}},
+        )
+
+    def known(self, params: dict[str, Any]) -> str:
+        session_id = params.get("sessionId")
+        if not isinstance(session_id, str) or session_id not in self.sessions:
+            raise RpcError(RESOURCE_NOT_FOUND, f"Session not found: {session_id}")
+        return session_id
+
+    def initialize(self, _params: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "protocolVersion": 1,
+            "agentCapabilities": {
+                "loadSession": False,
+                "sessionCapabilities": {"list": {}, "resume": {}, "close": {}},
+            },
+        }
+
+    def session_new(self, params: dict[str, Any]) -> dict[str, Any]:
+        session_id = uuid.uuid4().hex
+        self.sessions[session_id] = {"cwd": str(params.get("cwd", ""))}
+        self.save()
+        return {"sessionId": session_id}
+
+    def session_list(self, _params: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "sessions": [
+                {"sessionId": session_id, "cwd": meta["cwd"]}
+                for session_id, meta in self.sessions.items()
+            ]
+        }
+
+    def session_resume(self, params: dict[str, Any]) -> dict[str, Any]:
+        self.known(params)
+        return {}
+
+    def session_close(self, params: dict[str, Any]) -> dict[str, Any]:
+        del self.sessions[self.known(params)]
+        self.save()
+        return {}
+
+    def cancelled(self, session_id: str) -> bool:
+        """Drains pending input without blocking; True once this session was cancelled."""
+        cancelled = False
+        while (message := self.inbox.read_message(0)) is not None:
+            params = message.get("params", {})
+            if message.get("method") == "session/cancel" and (
+                isinstance(params, dict) and params.get("sessionId") == session_id
+            ):
+                cancelled = True
+        return cancelled
+
+    def ask_permission(self, session_id: str) -> str:
+        self.send(
+            {
+                "jsonrpc": "2.0",
+                "id": PERMISSION_ID,
+                "method": "session/request_permission",
+                "params": {
+                    "sessionId": session_id,
+                    "toolCall": {
+                        "toolCallId": "tool-1",
+                        "title": "fake shell command",
+                        "kind": "execute",
+                        "status": "pending",
+                    },
+                    "options": [
+                        {"optionId": "allow_once", "name": "Allow once", "kind": "allow_once"},
+                        {"optionId": "reject_once", "name": "Reject once", "kind": "reject_once"},
+                    ],
+                },
+            }
+        )
+        while True:
+            message = self.inbox.read_message(None)
+            if message is not None and message.get("id") == PERMISSION_ID:
+                break
+        outcome = message.get("result", {}).get("outcome", {})
+        if outcome.get("outcome") == "selected":
+            return str(outcome.get("optionId"))
+        return "cancelled"
+
+    def prompt_with_permission(self, session_id: str) -> dict[str, Any]:
+        self.message_chunk(session_id, f"tool:{self.ask_permission(session_id)}")
+        return {"stopReason": "end_turn"}
+
+    def prompt_chunks(self, session_id: str) -> dict[str, Any]:
+        chunks = int(os.environ.get("FAKE_DSH_CHUNKS", "3"))
+        delay = float(os.environ.get("FAKE_DSH_CHUNK_DELAY", "0"))
+        for number in range(1, chunks + 1):
+            if self.cancelled(session_id):
+                return {"stopReason": "cancelled"}
+            self.message_chunk(session_id, f"chunk-{number} ")
+            if number == 1 and os.environ.get("FAKE_DSH_CRASH_MID_STREAM") == "1":
+                os._exit(CRASH_STATUS)
+            time.sleep(delay)
+        return {"stopReason": "end_turn"}
+
+    def session_prompt(self, params: dict[str, Any]) -> dict[str, Any]:
+        session_id = self.known(params)
+        if os.environ.get("FAKE_DSH_PERMISSION") == "1":
+            return self.prompt_with_permission(session_id)
+        return self.prompt_chunks(session_id)
+
+    def dispatch(self, method: str, params: dict[str, Any]) -> dict[str, Any]:
+        handlers = {
+            "initialize": self.initialize,
+            "session/new": self.session_new,
+            "session/list": self.session_list,
+            "session/resume": self.session_resume,
+            "session/close": self.session_close,
+            "session/prompt": self.session_prompt,
+        }
+        handler = handlers.get(method)
+        if handler is None:
+            raise RpcError(METHOD_NOT_FOUND, f"Method not found: {method}")
+        return handler(params)
+
+    def serve(self) -> None:
+        while True:
+            message = self.inbox.read_message(None)
+            if message is None or "id" not in message:
+                continue
+            params = message.get("params") if isinstance(message.get("params"), dict) else {}
+            try:
+                reply: dict[str, Any] = {
+                    "jsonrpc": "2.0",
+                    "id": message["id"],
+                    "result": self.dispatch(str(message.get("method")), params),
+                }
+            except RpcError as error:
+                reply = {
+                    "jsonrpc": "2.0",
+                    "id": message["id"],
+                    "error": {"code": error.code, "message": error.message},
+                }
+            self.send(reply)
+
+
+def main(argv: list[str]) -> None:
+    if argv != ["--profile", "acp"]:
+        print("usage: dsh --profile acp", file=sys.stderr)
+        sys.exit(USAGE_EXIT)
+    home = os.environ.get("DSH_HOME")
+    if not home:
+        print("DSH_HOME is required", file=sys.stderr)
+        sys.exit(USAGE_EXIT)
+    Agent(Path(home)).serve()
+
+
+if __name__ == "__main__":
+    main(sys.argv[1:])
