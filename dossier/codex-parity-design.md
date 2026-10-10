@@ -25,7 +25,7 @@ Sizes: M = 1–2 days of agent work, L = more. Status is as of main `9bff3f8`.
 |---|---|---|
 | WP1 | Back and Forward navigation | Merged (`779e36b`); [release notes](releases/v0.16.0.md#chat-campaign-fixes-batch-2-and-codex-parity-wave-1) |
 | WP2 | Settings submenu; Admin inside Settings | Merged (`83c3c37`); [release notes](releases/v0.16.0.md#wp2-settings-submenu) |
-| WP3 | Customize screen (Plugins / Skills) like Codex | Not started |
+| WP3 | Customize screen (Plugins / Skills) like Codex | Merged except #27 (Add actions, D-056). Children #19–#26 are closed and merged: #19 (`b1e9352`), #20 (`7bfbc0f`), #21 (`c7b24fd`), #22 and #23 (`edc9a2f`), #24 (`f7f2a28`), #25 (`33eb562`), #26 (`f8e3272`); #14 stays open until #27 lands |
 | WP4 | Cross-provider connected-tools warnings | Backend merged (`fe4489f`), UI merged (`acc8dfa`); [release notes](releases/v0.16.0.md#wp4-cross-provider-tool-warnings-ui) |
 | WP5 | Continue in ChatGPT or Claude desktop | Backend merged (`fe4489f`), UI and desktop bridge merged (`9bff3f8`); release notes in the wave-1 section |
 | WP6 | Durable UI preferences in a backend store | Merged (`91aaa5e`); [backend](releases/v0.16.0.md#wp6-durable-ui-preferences-backend), [frontend](releases/v0.16.0.md#wp6-durable-ui-preferences-frontend) |
