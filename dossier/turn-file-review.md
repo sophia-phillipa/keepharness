@@ -111,7 +111,7 @@ Rules:
 }
 ```
 
-- `files` is grouped by `path` in order of first appearance; `edits` keeps the stored order. A file's `op` is `deleted` if its last edit deleted it, otherwise the op of its first edit.
+- `files` is grouped by `path` in order of first appearance; `edits` keeps the stored order. A file's `op` is `deleted` if its last edit deleted it; `modified` if its first edit deleted it and a later edit did not (deleted and recreated in the same turn, so the file exists at the end); otherwise the op of its first edit.
 - `diff` is non-null only for `diff` and `partial`.
 - Errors: `404 job_not_found` only, also for another owner's job (copied from `ConversationService.job`, SEC-R1-8). No 409: a running job returns what is stored so far with its `job_state`. No 410: retired cloud-scoped jobs (D-044) are served like any job (JEV 1.00); the endpoint has no dispatch path.
 - GET only; no parameter changes state.
@@ -141,7 +141,7 @@ The review reads no file. Capture is lexical only (section 2.4). A path that rea
 ### 2.9 UI entry point
 
 - **Summary** under the completed answer in `agent_service/ui.js`, fetched once when the job reaches a terminal state and on reload: count, op label (text, not colour alone), path (long paths wrap or ellipsize with the full path in the accessible name); max 10 visible with "and N more". Hidden when `state: "none"`. Shows "stopped before finishing" for non-completed jobs and "Shell commands may have changed other files" when `shell_unattributed`.
-- **Review**: each file is a native disclosure button that expands its diff inline, labelled with its `diff_state` ("partial: fragments only", "binary", "too large to show", "not available"). No panel opens; the Chat/Code view, conversation, draft, project, attachments, provider, model, access mode and selection do not change.
+- **Review**: each file is a native disclosure button that expands its diff inline, labelled with its `diff_state` ("partial: fragments only", "binary", "too large to show", "not available"). No panel opens; the side panel, conversation, draft, project, attachments, provider, model, access mode and selection do not change.
 - **Keyboard**: Tab reaches each disclosure; Enter or Space toggles it.
 - **Theme**: existing `--th-*` tokens only (D-020); text contrast at least 4.5:1.
 
@@ -195,7 +195,7 @@ Python (`tests/test_turn_edits.py`, fake homes, `tmp_path` project, no paid infe
 10. Another owner's job: 404 `job_not_found`.
 11. D-031 retry: failed source and retry child each show only their own edits.
 
-Browser (`tests/harness-turn-review.spec.cjs`, fake CLIs, isolated state): summary under the answer for Codex, Claude and DeepSeek fixtures; no-edit turn shows nothing; keyboard toggles a disclosure; conversation id, draft, attachments, provider, model, access mode and Chat/Code view unchanged before and after; 200-character path; light and dark palette with contrast check; no hex or `rgb(` literal in the UI diff (D-020); run console shows no `turn_edit` step.
+Browser (`tests/harness-turn-review.spec.cjs`, fake CLIs, isolated state): summary under the answer for Codex, Claude and DeepSeek fixtures; no-edit turn shows nothing; keyboard toggles a disclosure; conversation id, draft, attachments, provider, model, access mode and side panel unchanged before and after; 200-character path; light and dark palette with contrast check; no hex or `rgb(` literal in the UI diff (D-020); run console shows no `turn_edit` step.
 
 Visible pass (D-029) before merge: one editing turn per provider on the desktop app, keyboard only, long path, no-edit turn, one light and one dark palette.
 

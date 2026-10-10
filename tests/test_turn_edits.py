@@ -8,12 +8,15 @@ import asyncio
 from pathlib import Path
 from unittest.mock import patch
 
+import pytest
+
 from adapters import run_native
 from agent_service.turn_edits import (
     MAX_DIFF_BYTES,
     MAX_JOB_DIFF_BYTES,
     MAX_RECORDS,
     Budget,
+    group_by_path,
     normalize_claude,
     normalize_codex,
 )
@@ -237,6 +240,35 @@ def test_budget_writes_one_truncation_marker_after_200_records_and_stops():
     assert len(events) == MAX_RECORDS + 1
     assert {kind for kind, _ in events} == {"turn_edit"}
     assert events[-1] == ("turn_edit", {"truncated": True})
+
+
+# --- group_by_path / file_op -------------------------------------------------------------
+
+
+def test_file_deleted_then_recreated_in_one_turn_is_modified():
+    edits = [
+        normalize_codex(codex("src/a.py", "delete", "-old\n"), ROOT),
+        normalize_codex(codex("src/a.py", "add", "+new\n"), ROOT),
+    ]
+
+    files = group_by_path(edits)
+
+    assert [(f["path"], f["op"]) for f in files] == [("src/a.py", "modified")]
+
+
+@pytest.mark.parametrize(
+    ("kinds", "op"),
+    [
+        (("add", "update"), "created"),
+        (("update", "delete"), "deleted"),
+        (("add", "delete", "add"), "created"),
+        (("delete", "add", "delete"), "deleted"),
+    ],
+)
+def test_file_op_keeps_outcomes_other_than_delete_then_add(kinds, op):
+    edits = [normalize_codex(codex("src/a.py", kind, "+x\n"), ROOT) for kind in kinds]
+
+    assert group_by_path(edits)[0]["op"] == op
 
 
 # --- capture per provider (fake CLIs) ----------------------------------------------------
