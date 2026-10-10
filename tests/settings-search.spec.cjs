@@ -687,6 +687,14 @@ async function runScenario(id, name, work) {
         });
         await fullAccess.click();
         await refreshFailed;
+        // The 503 arrives before the admin action ends: wait for the busy banner to leave
+        // and the toggle to come back, or the next click lands on a moving control.
+        await recoveringFrame
+          .locator("#busy-status")
+          .waitFor({ state: "hidden", timeout: 15000 });
+        await recoveringFrame
+          .locator("#full-access:not([disabled])")
+          .waitFor({ timeout: 15000 });
       }
       assert.equal(
         await recoveringFrame
