@@ -5584,7 +5584,8 @@ async function result(
     : (activityIcons[r.state] || "•") + " " + (labels[r.state] || r.state);
   if (active) {
     active.chip.textContent = $("activity-state").textContent;
-    loadTurnReview(active, expectedJob, r.state, r.has_turn_edits);
+    // A live read (no snapshot) has no has_turn_edits: fetch as before.
+    loadTurnReview(active, expectedJob, r.state, snapshot ? r.has_turn_edits : true);
     const data = r.result || {};
     if (data.context_usage) paintContext(data.context_usage, data.metrics);
     else if (data.metrics) paintLocalUsage(data.metrics);
@@ -5902,7 +5903,7 @@ async function load(id, legacy = false, restoredView = null, scrollTop) {
         messageResourceChips(userMessage, r.request?.resource_selections);
       }
       active = assistant(r.id, model, !["queued", "running"].includes(r.state));
-      loadTurnReview(active, r.id, r.state, r.has_turn_edits);
+      loadTurnReview(active, r.id, r.state, snapshot ? r.has_turn_edits : true);
       restoreGates(r.gates);
       const planCard = active.el.querySelector(".maestro-plan-card");
       if (planCard) renderPlanOutcome(planCard, r.state);

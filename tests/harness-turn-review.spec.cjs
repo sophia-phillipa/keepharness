@@ -128,7 +128,7 @@ async function send(page, text, count) {
     .waitFor();
 }
 
-async function mockTurns(page, provider, changes) {
+async function mockTurns(page, provider, changes, extra = {}) {
   const model = {
     id: provider.id,
     backend: provider.backend,
@@ -146,6 +146,7 @@ async function mockTurns(page, provider, changes) {
     },
     "GET /v1/jobs/job-1/file-changes": { json: changes[0] },
     "GET /v1/jobs/job-2/file-changes": { json: changes[1] || NONE },
+    ...extra,
   });
 }
 
@@ -250,6 +251,60 @@ runPersona("harness-turn-review", [
       },
     },
   ]),
+  {
+    title:
+      "live turn that starts running fetches its file-changes once, after it completes",
+    async run(page) {
+      const errors = allowedErrors(page);
+      const requested = [];
+      page.on("request", (request) => {
+        const { pathname } = new URL(request.url());
+        if (pathname.endsWith("/file-changes")) requested.push(pathname);
+      });
+      let eventStreams = 0;
+      const s = await mockTurns(page, PROVIDERS[0], [NONE, EDITING], {
+        "GET /v1/jobs/job-2/events": (route) => {
+          eventStreams++;
+          const job = s.turns[1];
+          if (eventStreams === 1) {
+            // Still running: the conversation payload has no edits recorded yet.
+            Object.assign(job, { state: "running", has_turn_edits: false });
+            delete job.result;
+          } else {
+            // The reconnect finds the job completed; the payload still says false here.
+            Object.assign(job, {
+              state: "completed",
+              result: { answer: "Fixture response." },
+            });
+          }
+          return route.fulfill({
+            status: 200,
+            contentType: "text/event-stream",
+            body: "",
+          });
+        },
+        "GET /v1/jobs/job-2/file-changes": (route) => {
+          // The edits become visible in the conversation payload only after this review is read,
+          // so a stale false would reach the completion read of /v1/jobs/{id} first.
+          s.turns[1].has_turn_edits = true;
+          return route.fulfill({ json: EDITING });
+        },
+      });
+      await openHarness(page);
+      await send(page, "Only answer, no edits", 1);
+      await send(page, "FAKE-EDITS change the files live", 2);
+      const toggle = page.locator('[data-testid="turn-review-toggle"]');
+      await toggle.waitFor();
+      await page.waitForTimeout(300);
+      assert.equal(eventStreams, 2, "the running turn was read again after it finished");
+      assert.equal(await toggle.textContent(), "6 files changed");
+      assert.deepEqual(
+        requested.filter((p) => p === "/v1/jobs/job-2/file-changes"),
+        ["/v1/jobs/job-2/file-changes"],
+      );
+      assert.deepEqual(errors, []);
+    },
+  },
   {
     title:
       "keyboard opens and closes the summary and a file with visible focus",
