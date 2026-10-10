@@ -10656,6 +10656,7 @@ body.panel-order-reversed #sidebar .sidebar-tree {
 }
 .turn-review-list {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 4px;
   margin: 6px 0 0;
   padding: 0;

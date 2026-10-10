@@ -11,6 +11,8 @@ const PROVIDERS = [
 ];
 
 const LONG_PATH = "deep/" + "segment-".repeat(22) + "end.ts";
+// Exactly 200 characters: the long-path case of dossier/turn-file-review.md (#79).
+const PATH_200 = "deep/" + "segment-".repeat(24) + ".ts";
 
 const EDITING = {
   job_state: "completed",
@@ -331,6 +333,61 @@ runPersona("harness-turn-review", [
         before,
       );
       assert.equal(s.posts.length, 1);
+    },
+  },
+  {
+    title:
+      "a 200-character path does not widen the assistant bubble or overflow it (#79)",
+    async run(page) {
+      assert.equal(PATH_200.length, 200);
+      const changes = {
+        ...EDITING,
+        files: [
+          {
+            path: PATH_200,
+            op: "created",
+            edits: [
+              {
+                op: "created",
+                diff_state: "diff",
+                diff: "+x\n",
+                tool: "fileChange",
+                source: "codex",
+              },
+            ],
+          },
+        ],
+      };
+      await mockTurns(page, PROVIDERS[0], [changes]);
+      await openHarness(page);
+      await send(page, "FAKE-EDITS change the files", 1);
+      await page.locator('[data-testid="turn-review-toggle"]').click();
+      const measured = await page.evaluate(() => {
+        const answer = document.querySelector(
+          "#messages .message.assistant",
+        );
+        const list = answer.querySelector('[data-testid="turn-review-list"]');
+        const chat = document.querySelector("#messages");
+        return {
+          answerWidth: answer.getBoundingClientRect().width,
+          answerScroll: answer.scrollWidth,
+          answerClient: answer.clientWidth,
+          listWidth: list.getBoundingClientRect().width,
+          chatWidth: chat.clientWidth,
+        };
+      });
+      assert.ok(
+        measured.answerScroll <= measured.answerClient,
+        `answer overflows: scrollWidth ${measured.answerScroll} > clientWidth ${measured.answerClient}`,
+      );
+      assert.ok(
+        measured.answerWidth <= measured.chatWidth + 0.5,
+        `answer wider than chat: ${measured.answerWidth} > ${measured.chatWidth}`,
+      );
+      assert.ok(
+        measured.listWidth <= measured.answerWidth + 0.5,
+        `list wider than answer: ${measured.listWidth} > ${measured.answerWidth}`,
+      );
     },
   },
 ]);
