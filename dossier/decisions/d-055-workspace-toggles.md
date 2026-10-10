@@ -1,0 +1,61 @@
+# D-055 — Terminal, file editor and wide layout as three independent toggles
+
+Status (2026-10-10, design by software-design-architect; decided by: pending Sophia), one line per option:
+
+- Wide layout: proposed
+- File editor: proposed
+- Terminal: proposed
+
+Each option is accepted, adjusted or rejected on its own line, as D-054 asks ("each option needs its own record before it ships"). A package of the spec starts only when its option's line is accepted. Follows [D-054](d-054-remove-chat-code-switch.md) (its Follow-up). Builds on [D-023](d-023-wp6-preferences-in-backend-store.md), [D-024](d-024-wp6-limits-and-merge.md), [D-033](d-033-right-panel-accordion.md), [D-053](d-053-turn-file-review.md); colours per [D-020](d-020-theme-tokens-for-copied-screens.md). Spec: [workspace-toggles.md](../../docs/workspace-toggles.md). Issue: #78 step 3.
+
+## Context
+
+D-054 removed the Chat | Code switch and left a follow-up: the terminal, the file editor and the wide layout become discrete options, each toggled on its own and stored as backend UI preferences, with no new localStorage keys, and each needs its own record before it ships. On `main @ 46b7c26` none of the three exists: the run console shows run events but is not a shell, the Files panel browses and attaches but does not open file contents, and `#messages` is a 1040 px box with a 768 px reading column. The preference store (`GET`/`PATCH /v1/ui-state`, `agent_service/ui_state.py`) already holds flat booleans such as `activity_open`, and the client keeps only keys listed in `CONVERSIONS` (`agent_service/ui-prefs.js:420`). The server streams with SSE, and uvicorn has no WebSocket library installed. Shell-strength actions (`POST /v1/services`) already require the `local` identity and an enrolled approval session.
+
+## Decision
+
+1. **Three independent options, no mode.** Terminal, file editor and wide layout each have their own rail or header toggle button (`aria-pressed`), a keyboard shortcut and a switch in a "Workspace" group under Settings › Appearance. Shortcuts: terminal `` Ctrl/⌘ + ` ``, editor `Ctrl/⌘ + Shift + E`, wide layout `Ctrl/⌘ + Shift + L`. Turning one on never changes another. Each option's package adds its own switch, shortcut row and help text.
+2. **Preferences.** Each option adds its own flat keys to `SCHEMA` in the existing store, in its own package: `wide_layout` (P1); `editor_open` and `editor_width` (P5); `terminal_open` and `terminal_height` (P7). Booleans default to `false`; widths and heights are `number(0, 20000)` like `_width`. Each key gets one `CONVERSIONS` entry in `ui-prefs.js` in the `always_on_top` shape `{ old: () => [], read: () => undefined, write: () => [] }`; `panel_widths` and `WIDTHS` are unchanged. The keys are global per owner, not per project or conversation. No paths, session ids or file names are stored. No localStorage or sessionStorage keys are added.
+3. **Wide layout** is CSS only: `body.wide-layout` sets `max-width: none` on `#messages` and `.composer-area` and a 24 px inline padding on both. Without the class nothing changes (768 px reading column inside the 1040 px box, composer at 1040 px). The header title rule is decided separately. It never closes or shrinks the sidebar, the editor or the side panel. The empty home and Settings keep their widths.
+4. **File editor** is a resizable pane between the chat and the side panel (following `panel_order`), and becomes an overlay below 1000 px. It is a plain `<textarea>` with one file at a time, opened from a Files panel row (double-click or Enter) inside the active conversation's project roots; files outside the roots do not open in v1. It handles UTF-8 text up to 1 MiB and is read-only otherwise; `GET` reports `eol` (`lf`, `crlf`, `mixed`), the client restores CRLF on save and a mixed file opens read-only. `GET` and `PUT /v1/project-files/content` require the `local` identity (403 `editor_local_only` before any read); paths pass `workspaces.project_path` and must not match `workspaces.credential_path` (the pair `reader_mcp.readable` uses). Saves also require an enrolled approval session, use an `ETag` and `If-Match` (412 on a concurrent change, 428 without the header), and write atomically through the `dir_fd` + `O_NOFOLLOW` chain of `workspaces.open_attachment_source`. Saving while a turn runs in the same project shows a notice.
+5. **Terminal** is a pane docked at the bottom of the chat pane, above the run console. It runs one owner shell per project with the cwd at the project root (the home folder for `sem-projeto` or a project without a folder), with the environment from `child_environment()` plus `TERM=dumb`. It uses stdlib `pty`, SSE output and `POST` input: a line input plus explicit keys for Ctrl+C, Ctrl+D, Tab and Up, masked while the pty's `ECHO` flag is off. It renders plain text (ANSI stripped; a bare `\r` rewrites the current line). Every call requires the `local` identity and an enrolled approval session, and the open stream rechecks them at least every 30 s, sending `event: revoked` and closing on failure. The session id is a handle, never a credential. Limits: at most 4 live sessions per owner, idle = no input and no attached stream for 30 minutes, a 5,000-line buffer; the cap never ends a session with a foreground child, and 4 busy sessions answer 409 `terminal_limit`. The preference only shows or hides the pane and is never an authorization.
+6. **Providers.** None of the options depends on the provider. Coding tools stay the same in every conversation (D-054). Editor saves are not turn edits (D-053).
+7. **Order.** Packages per option (spec §3): Wide layout P1 key, P2 wide layout with the Settings "Workspace" group and the "saved in this browser" text fix; File editor P4 backend, a `backend-review-engineer` gate, P5 pane; Terminal P6a core (`terminal.py`, injected clock), P6b routes and gates, a `backend-review-engineer` gate, P7 pane; then P8 combined and restart tests. P4 and P6b also update `docs/local-owner-access.md`. A package starts only when its option's Status line is accepted.
+
+## Rationale
+
+- **Per-option status:** D-054 requires a record per option. One Status line per option lets Sophia accept, reject or ship each alone, without three records repeating the shared context, storage and gate reasoning. Whether three records are still wanted is asked below.
+- **Flat keys over one record key:** the store merges per top-level key, so two windows toggling different options keep both changes. A single `workspace_layout` record would let the later `PATCH` erase the other window's change. Flat keys are also the existing pattern (`activity_open`, `sidebar_collapsed`), and a flat `editor_width` avoids tying a new width to `WIDTHS`, which maps fields to old localStorage keys.
+- **Global, not per project:** layout is a habit, not project data. A per-project map would need item caps and client pruning ([D-024](d-024-wp6-limits-and-merge.md)) for a need nobody has stated. The terminal and editor contents still follow the active conversation's project.
+- **SSE + POST over WebSocket:** it reuses the streaming path and the auth and proxy rules that already work, including Tailscale Serve. A WebSocket would add a server dependency for a latency gain that does not matter on loopback. The 30 s recheck keeps a long-lived stream from outliving a revoked approval session.
+- **Plain text, `<textarea>`:** no new vendored front-end dependency (xterm.js, CodeMirror or Monaco each need a license and payload audit). The page editor already proves the pattern. The cost is accepted: no full-screen TUIs and no syntax highlighting in v1.
+- **ETag on save:** the agent can edit the same file during a turn. Without an `If-Match` check, a save would silently erase the agent's edit. The per-path lock only covers writers inside the harness; a provider CLI can still race in the milliseconds between compare and rename, which the running-turn notice makes visible.
+- **Same gate as service control:** an interactive shell and direct file writes are at least as strong as starting a service. Reading project files in the editor is local-only too, and credential names never open. Guests and tailnet logins never get these surfaces.
+- **`child_environment()` for the shell:** the harness's own variables (`KEEPHARNESS_*` and similar) must not reach programs the owner runs; the existing allow-list already enforces that for provider children.
+
+## Alternatives considered
+
+- **Three separate records** (one per option): satisfies D-054 literally, at the cost of repeating the shared storage, gate and transport reasoning three times. Not chosen for now; open question for Sophia.
+- **One "workspace" record key** (`{terminal, editor, wide}`): one key to validate, but cross-window toggles clobber each other under per-key last-write-wins. Rejected.
+- **Per-project or per-conversation toggles** (Codex restores pane tabs per thread): closer to Codex, but they need capped maps, pruning and stale-entry handling. Deferred; revisit if Sophia wants a project to remember its own layout.
+- **Terminal as a run-console tab:** saves one region, but the run console is about runs, has its own `Ctrl/⌘ + J` toggle and closes on small windows. Mixing a long-lived shell into it couples two lifecycles. Rejected.
+- **Editor as a third section of the side panel accordion (D-033):** no new pane, but a 300-400 px accordion section is too narrow to edit code, and it changes D-033's two-section contract. Rejected.
+- **WebSocket + xterm.js + CodeMirror** (full IDE-grade surfaces): better fidelity (colours, TUIs, highlighting), at the cost of two vendored front-end libraries, one server dependency and their audits. Deferred to a later record, to be written when plain text proves too weak.
+- **A Settings-only "enable" switch plus a separate open state per option:** two states per option. Not needed, because the security gate is on the server. Rejected for simplicity.
+
+## Impact
+
+- Code: `agent_service/ui_state.py` and `agent_service/ui-prefs.js` (keys and `CONVERSIONS` entries), `ui.js`, `ui.css`, `index.html` (controls, panes, shortcuts), `routes/files.py` and `workspaces.py` (content endpoints, shared `dir_fd` walk), new `agent_service/terminal.py` and `routes/terminal.py`, and `app.py` (routes). Only the accepted options' parts are built.
+- API: additive only. New `/v1/terminal/sessions*` and `/v1/project-files/content`. No existing contract changes.
+- Storage: up to five new flat keys in `preferences.json`, one option at a time. No schema version bump, because an older build keeps unknown keys on write and drops them on read. No database migration.
+- Security: two new local-only surfaces (a shell; file reads and approval-session-gated writes). A `backend-review-engineer` review gates each backend before its pane is built, and the security review covers both before release.
+- Docs: `docs/ui-state.md` (keys), `docs/local-owner-access.md` (two new gated surfaces, updated in P4 and P6b), `docs/operator-suite.md` (steps), and the release notes of the version that ships each option.
+- Tests: the pytest and Playwright files named in the spec's Test protocol.
+
+## Follow-up
+
+- Sophia accepts, adjusts or rejects each Status line. Until an option's line is accepted, none of its packages starts.
+- Questions for Sophia: (a) should the wide layout cap the text at a readable maximum (for example 1,600 px) instead of filling ultra-wide screens? (b) is a plain-text terminal enough for v1, or are full-screen programs (`vim`, `htop`) needed from the start, which means xterm.js and a new record? (c) should the editor be able to create new files in v1? (d) is one record with a Status line per option enough for D-054's "each option needs its own record", or should this become three records?
+- Revisit if: the terminal is used for TUIs (move to an emulator), editors are needed for several files at once (tabs), Sophia wants a layout per project (capped map), or a provider CLI write is lost to the cross-process race in practice (advisory locking).
+- The header title rule (`main > header h1`, noted in D-054 Impact) is decided separately from the wide layout.
+- The D-033 open question about the initial side-panel view is unchanged.
