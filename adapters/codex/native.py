@@ -503,16 +503,16 @@ async def run_turn(
                         content,
                         command=(content.get("command") if typ == "commandExecution" else None),
                     )
-                    started = kind.endswith("started")
+                    item_started = kind.endswith("started")
                     tool_id = content.get("id")
-                    if started:
+                    if item_started:
                         markers[tool_id] = item_markers(content)
                         found = item_target(content, cwd)
                         extra = {**({"target": found} if found else {}), **markers[tool_id]}
                     else:
                         extra = markers.pop(tool_id, {})
                     event(
-                        "tool_start" if started else "tool_end",
+                        "tool_start" if item_started else "tool_end",
                         {
                             "tool": content.get("tool") or typ,
                             "status": content.get("status"),
@@ -521,7 +521,11 @@ async def run_turn(
                             **extra,
                         },
                     )
-                    if typ == "fileChange" and not started and content.get("status") == "completed":
+                    if (
+                        typ == "fileChange"
+                        and not item_started
+                        and content.get("status") == "completed"
+                    ):
                         # Only completed patches changed files; declined and failed ones are never listed.
                         changes = content.get("changes")
                         edits.emit(
