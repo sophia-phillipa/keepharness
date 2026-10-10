@@ -36,7 +36,10 @@ module.exports = {
         const windows = await desktop.windows();
         const main = windows.find((w) => w.url.startsWith(base));
         op.check(main && main.visible, "no visible main window");
-        op.check(/^KeepHarness/.test(main.title), `the window title is "${main.title}"`);
+        // The page titles the window "KeepHarness · AI on your server" at rest (agent_service/index.html) and
+        // "<conversation> — KeepHarness" while a conversation is open (ui.js setConversationTitle); an unread count may lead: "(2) …".
+        const title = main.title.replace(/^\(\d+\) /, "");
+        op.check(title.startsWith("KeepHarness") || title.endsWith(" — KeepHarness"), `the window title is "${main.title}"`);
         op.check(!windows.some((w) => w.url.startsWith("file:") && w.visible), "the splash is still visible");
       });
 

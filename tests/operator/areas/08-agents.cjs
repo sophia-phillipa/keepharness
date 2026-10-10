@@ -13,9 +13,10 @@ module.exports = {
     const list = page.locator("#harness-agents-list");
     const palette = page.locator("#resource-menu");
     const persona = page.locator("#persona-control");
+    // Settings opens a menu of sections (#settings-menu); its Agents item opens the dialog at that section.
     const openAgents = async () => {
-      if (!(await page.locator("#settings-dialog").isVisible())) await op.click(page.locator("#settings"));
-      await op.click(page.locator("#settings-dialog").getByRole("button", { name: "Agents", exact: true }));
+      await op.click(page.locator("#settings"));
+      await op.click(page.locator("#settings-menu").getByRole("menuitem", { name: "Agents", exact: true }));
       await op.see(page.locator("#settings-agents"));
     };
 
