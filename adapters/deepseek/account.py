@@ -7,7 +7,11 @@ from pathlib import Path
 
 import httpx
 
-from adapters.shared.private_files import scoped_home_directory, trusted_state_root
+from adapters.shared.private_files import (
+    scoped_home_directory,
+    scoped_home_read,
+    trusted_state_root,
+)
 from agent_service.errors import UserMessageError
 from agent_service.tools import ToolError
 
@@ -87,14 +91,20 @@ def store_key(state, token):
 
 async def fetch_balance(key_path):
     """The raw ``/user/balance`` answer for the stored key, or None when it cannot be read."""
+    key = Path(key_path)
     try:
-        token = Path(key_path).read_text().strip()
+        token = scoped_home_read(trusted_state_root(key.parent), key.name)
+        if not token or not token.strip():
+            return None
         async with httpx.AsyncClient(
-            base_url=API, headers={"Authorization": "Bearer " + token}, timeout=10, trust_env=False
+            base_url=API,
+            headers={"Authorization": "Bearer " + token.strip()},
+            timeout=10,
+            trust_env=False,
         ) as client:
             response = await client.get("/user/balance")
             return response.json() if response.status_code == 200 else None
-    except (OSError, ValueError, httpx.HTTPError):
+    except (OSError, ValueError, ToolError, httpx.HTTPError):
         return None
 
 
@@ -127,12 +137,15 @@ def balance_summary(answer):
 
 
 async def check(state):
-    path = key_file(state)
-    if not path.exists():
+    try:
+        token = scoped_home_read(state, key_file(state).name)
+    except (OSError, ToolError):
+        token = None
+    if not token or not token.strip():
         raise UserMessageError("Add your DeepSeek key in the assistant.")
     async with httpx.AsyncClient(
         base_url=API,
-        headers={"Authorization": "Bearer " + path.read_text().strip()},
+        headers={"Authorization": "Bearer " + token.strip()},
         timeout=15,
         trust_env=False,
     ) as client:

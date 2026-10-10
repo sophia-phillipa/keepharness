@@ -6,9 +6,11 @@ import os
 import sys
 from pathlib import Path
 
+import httpx
 import pytest
 
 import adapters
+from adapters.deepseek import account
 from adapters.deepseek.account import store_key
 from agent_service.errors import UserMessageError
 from agent_service.tools import ToolError
@@ -350,3 +352,64 @@ def test_retired_dispatch_never_reads_or_rewrites_old_home(
             )
         )
     assert artifact.lstat() == before
+
+
+@pytest.mark.parametrize("link", ["symlink", "hardlink", "directory"])
+def test_check_never_sends_unsafe_key(tmp_path, monkeypatch, link):
+    state = tmp_path / "state"
+    state.mkdir()
+    host = tmp_path / "host-secret"
+    host.write_text("fixture-linked-key-123")
+    key = state / "deepseek.key"
+    if link == "symlink":
+        key.symlink_to(host)
+    elif link == "hardlink":
+        os.link(host, key)
+    else:
+        key.mkdir()
+    sent = []
+    original = httpx.AsyncClient
+
+    def respond(request):
+        sent.append(request.headers["Authorization"])
+        return httpx.Response(200, json={"data": []})
+
+    monkeypatch.setattr(
+        account.httpx,
+        "AsyncClient",
+        lambda **kw: original(**kw, transport=httpx.MockTransport(respond)),
+    )
+    with pytest.raises(UserMessageError, match="Add your DeepSeek key"):
+        asyncio.run(account.check(state))
+    assert sent == []
+    assert host.read_text() == "fixture-linked-key-123"
+
+
+@pytest.mark.parametrize("link", ["symlink", "hardlink", "directory"])
+def test_fetch_balance_never_sends_unsafe_key(tmp_path, monkeypatch, link):
+    state = tmp_path / "state"
+    state.mkdir()
+    host = tmp_path / "host-secret"
+    host.write_text("fixture-linked-key-123")
+    key = state / "deepseek.key"
+    if link == "symlink":
+        key.symlink_to(host)
+    elif link == "hardlink":
+        os.link(host, key)
+    else:
+        key.mkdir()
+    sent = []
+    original = httpx.AsyncClient
+
+    def respond(request):
+        sent.append(request.headers["Authorization"])
+        return httpx.Response(200, json={"is_available": True, "balance_infos": []})
+
+    monkeypatch.setattr(
+        account.httpx,
+        "AsyncClient",
+        lambda **kw: original(**kw, transport=httpx.MockTransport(respond)),
+    )
+    assert asyncio.run(account.fetch_balance(str(key))) is None
+    assert sent == []
+    assert host.read_text() == "fixture-linked-key-123"
