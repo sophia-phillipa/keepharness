@@ -111,7 +111,7 @@ Rules:
 }
 ```
 
-- `files` is grouped by `path` in order of first appearance; `edits` keeps the stored order. A file's `op` is `deleted` if its last edit deleted it, otherwise the op of its first edit.
+- `files` is grouped by `path` in order of first appearance; `edits` keeps the stored order. A file's `op` is `deleted` if its last edit deleted it; `modified` if its first edit deleted it and a later edit did not (deleted and recreated in the same turn, so the file exists at the end); otherwise the op of its first edit.
 - `diff` is non-null only for `diff` and `partial`.
 - Errors: `404 job_not_found` only, also for another owner's job (copied from `ConversationService.job`, SEC-R1-8). No 409: a running job returns what is stored so far with its `job_state`. No 410: retired cloud-scoped jobs (D-044) are served like any job (JEV 1.00); the endpoint has no dispatch path.
 - GET only; no parameter changes state.
