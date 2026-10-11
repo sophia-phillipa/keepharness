@@ -1,6 +1,6 @@
 # D-034 — WP3 Customize: switches, Add menu, label and directory grouping
 
-Status: accepted. Date: 2026-10-06. Decided by: Sophia (answers to the four open questions of the WP3 split). Spec: [WP3](../codex-parity-design.md#wp3-customize-screen-l-admin-frontend--small-python). Refines [D-022](d-022-wp3-copy-codex-customize.md). Release notes: [v0.16.0](../releases/v0.16.0.md).
+Status: accepted; §1 superseded by [D-038](d-038-keepharness-facade-over-provider-state.md); §2 refined by [D-056](d-056-provider-add-actions.md) (only actions the installed CLI offers; Create plugin deferred after 1.0). Date: 2026-10-06. Decided by: Sophia (answers to the four open questions of the WP3 split). Spec: [WP3](../codex-parity-design.md#wp3-customize-screen-l-admin-frontend--small-python). Refines [D-022](d-022-wp3-copy-codex-customize.md). Release notes: [v0.16.0](../releases/v0.16.0.md).
 
 ## Context
 

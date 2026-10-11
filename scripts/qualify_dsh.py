@@ -47,6 +47,8 @@ USAGE_ABSENT_REASON: Final = (
     "usage not emitted by the probe target; permission and sandbox mapping stay open"
 )
 NO_DSH_REASON: Final = "No dsh binary given; nothing was run."
+NEEDS_TURN_REASON: Final = "needs a real model turn (no API key in the disposable profile)"
+TURN_KEY_PATTERN: Final = re.compile(r"api[ _]key|unauthori[sz]ed|authentication", re.IGNORECASE)
 INITIALIZE: Final[dict[str, Any]] = {
     "protocolVersion": PROTOCOL_VERSION,
     "clientInfo": {"name": "keepharness-qualify", "version": "0"},
@@ -98,6 +100,10 @@ class Run:
 
 Approve = Callable[[str, dict[str, Any]], Awaitable[dict[str, Any]]]
 Probe = Callable[[Run], Awaitable[Verdict]]
+
+
+class NeedsModelTurn(Exception):
+    """A turn reached the model route and failed for want of a key or an accepted credential."""
 
 
 class Recorder(AcpConnection):
@@ -175,7 +181,12 @@ async def open_session(rpc: Recorder, workspace: Path) -> str:
 
 
 async def prompt(rpc: Recorder, session_id: str) -> dict[str, Any]:
-    return await rpc.call("session/prompt", {"sessionId": session_id, "prompt": PROMPT})
+    try:
+        return await rpc.call("session/prompt", {"sessionId": session_id, "prompt": PROMPT})
+    except ToolError as failure:
+        if TURN_KEY_PATTERN.search(str(failure)):
+            raise NeedsModelTurn(str(failure)) from failure
+        raise
 
 
 def resume_params(run: Run, session_id: str) -> dict[str, Any]:
@@ -202,8 +213,9 @@ async def probe_handshake(run: Run) -> Verdict:
     capabilities = result.get("agentCapabilities", {})
     if result.get("protocolVersion") != PROTOCOL_VERSION:
         return Verdict(FAIL, "protocolVersion is not 1")
-    if capabilities.get("loadSession") is not False:
-        return Verdict(FAIL, "loadSession is not advertised as false")
+    # ACP: a capability that is absent is not advertised, the same as false.
+    if capabilities.get("loadSession", False) is not False:
+        return Verdict(FAIL, "loadSession is advertised")
     return Verdict(PASS)
 
 
@@ -326,6 +338,8 @@ async def bounded(probe: Probe, run: Run) -> Verdict:
     try:
         async with asyncio.timeout(PROBE_SECONDS):
             return await probe(run)
+    except NeedsModelTurn:
+        return Verdict(UNVERIFIED, NEEDS_TURN_REASON)
     except TimeoutError:
         return Verdict(FAIL, "the probe timed out")
     except ToolError as failure:
@@ -357,6 +371,10 @@ def version_verdict(version: str | None, protocol: dict[str, Verdict]) -> Verdic
         return Verdict(FAIL, "a protocol probe failed")
     if version == PINNED_VERSION and statuses == {PASS}:
         return Verdict(PASS)
+    if version == PINNED_VERSION:
+        return Verdict(
+            UNVERIFIED, "the pinned version is reported; a protocol probe needs a real model turn"
+        )
     if version is None:
         return Verdict(UNVERIFIED, "dsh did not report a version")
     return Verdict(UNVERIFIED, "the reported version is not the pinned one")
