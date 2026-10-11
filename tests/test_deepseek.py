@@ -243,14 +243,14 @@ class DeepseekFailureTest(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(provider_condition(code), condition)
 
     def test_key_and_balance_copy_name_the_deepseek_action(self):
-        from test_ui_error_map import block
+        from test_ui_error_map import ENGLISH, block
 
         copy = block("function executionCondition(")
         self.assertIn("DeepSeek rejected the API key", copy)
         self.assertIn("DeepSeek balance", copy)
-        errors = block("const userErrors = {")
-        start = errors.index("deepseek_execution_failed:")
-        self.assertIn("DeepSeek stopped", errors[start : errors.index("\n  ", start + 30)])
+        # Server-code copy lives in en.json; ui.js reads it through userError's error.<code> key.
+        self.assertIn('"error." + code', block("function userError("))
+        self.assertIn("DeepSeek stopped", ENGLISH["error.deepseek_execution_failed"])
 
     def test_runtime_sends_no_setting_the_cli_ignores(self):
         """HAR-R2-9: codex-cli 0.157.1 logs an ERROR for model_supports_reasoning_summaries."""

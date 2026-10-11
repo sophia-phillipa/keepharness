@@ -538,9 +538,6 @@ def test_session_without_creation_time_is_clamped_and_a_lost_alter_race_is_toler
 
 
 def test_expired_session_keeps_card_pending_with_expiry_message(approval_app, monkeypatch):
-    import re
-    from pathlib import Path
-
     from agent_service import approval_sessions
 
     now = approval_sessions.time.time()
@@ -561,6 +558,9 @@ def test_expired_session_keeps_card_pending_with_expiry_message(approval_app, mo
             assert not pending.done()
 
     asyncio.run(scenario())
-    ui = (Path(approval_sessions.__file__).parent / "ui.js").read_text()
-    message = re.search(r'approval_session_expired:\s*"([^"]+)"', ui)
-    assert message and "expired" in message.group(1)
+    from test_ui_error_map import ENGLISH, block
+
+    message = ENGLISH.get("error.approval_session_expired")
+    assert message and "expired" in message
+    # The card's message reaches it through userError, which reads the error.<code> catalog key.
+    assert '"error." + code' in block("function userError(")

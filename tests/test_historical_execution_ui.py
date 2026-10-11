@@ -5,6 +5,7 @@ import subprocess
 from pathlib import Path
 
 import pytest
+from test_ui_error_map import english_lookup_stub
 
 
 def test_unknown_historical_execution_mode_is_unavailable_in_ui():
@@ -16,7 +17,9 @@ def test_unknown_historical_execution_mode_is_unavailable_in_ui():
         start = source.index("function " + name + "(")
         return source[start : source.index("\n}", start) + 2]
 
-    script = "\n".join([function("executionModeLabel"), function("syncExecutionMode")])
+    script = "\n".join(
+        [english_lookup_stub(), function("executionModeLabel"), function("syncExecutionMode")]
+    )
     script += """
 let executionMode = null;
 let draftMode = {mode: null, modeChosen: false, retiredLock: false};

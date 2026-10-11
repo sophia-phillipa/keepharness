@@ -97,6 +97,23 @@ def block(start):
     return UI[begin : UI.index("\n}", begin)]
 
 
+def english_lookup_stub():
+    """JS that binds ``HarnessI18n.t`` and ``t`` over ``en.json``, as the runtime does in English.
+
+    Lets a snippet extracted from ``ui.js`` run in node with the real English copy; a missing
+    key returns the key itself, the same fallback ``userError`` relies on.
+    """
+    return (
+        f"const en = {json.dumps(ENGLISH)};\n"
+        "const HarnessI18n = {t: (k, p) => {\n"
+        "  const v = en[k];\n"
+        "  if (typeof v !== 'string') return k;\n"
+        "  return v.replace(/\\{(\\w+)\\}/g, (m, n) => p && n in p ? String(p[n]) : m);\n"
+        "}};\n"
+        "const t = (k, p) => HarnessI18n.t(k, p);\n"
+    )
+
+
 def ui_codes():
     keys = re.compile(r"^\s+\"?([a-z0-9_]+)\"?:", re.M)
     codes = {key.removeprefix("error.") for key in ERROR_KEYS}
