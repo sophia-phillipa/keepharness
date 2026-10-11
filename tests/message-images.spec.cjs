@@ -10,6 +10,16 @@ const fs = require("node:fs"),
       content: fs.readFileSync("agent_service/ui.css", "utf8"),
     });
     const source = fs.readFileSync("agent_service/ui.js", "utf8");
+    // The extracted functions read UI copy through t(); give the page an English lookup.
+    const english = JSON.parse(
+      fs.readFileSync("harness_ui/assets/locales/en.json", "utf8"),
+    );
+    await page.evaluate((catalog) => {
+      window.t = (key, params = {}) =>
+        String(catalog[key] ?? key).replace(/\{(\w+)\}/g, (m, n) =>
+          n in params ? String(params[n]) : m,
+        );
+    }, english);
     await page.addScriptTag({
       content: fs.readFileSync("harness_ui/assets/file-icons-data.js", "utf8"),
     });

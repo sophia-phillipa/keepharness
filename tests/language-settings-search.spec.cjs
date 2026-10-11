@@ -113,7 +113,10 @@ async function settledStatus(page, query) {
       assert.equal(await settledStatus(pt.page, NO_MATCH), none);
       const [head, tail] =
         PT_BR["settings_search.status.found"].split("{count}");
-      const found = await settledStatus(pt.page, MATCH);
+      const found = await settledStatus(
+        pt.page,
+        PT_BR["static.settings.reading_size_label"],
+      );
       assert(found.startsWith(head) && found.endsWith(tail), found);
       assert.match(
         found.slice(head.length, found.length - tail.length),

@@ -360,6 +360,7 @@ const contrast = (a, b) => {
             "integration-catalog",
             "provider-state",
             "first-run",
+            "ui-language",
           ].includes(n),
       ),
       [],
