@@ -5315,7 +5315,7 @@ async function load(id, legacy = false, restoredView = null, scrollTop) {
       data = { turns: [await json("/v1/jobs/" + encodeURIComponent(id))] };
     }
     if (request !== conversationLoad) return;
-    if (!data.turns?.length) throw Error("Empty conversation");
+    if (!data.turns?.length) throw Error(t("conversation.empty"));
     streamDisconnected = false;
     $("resume-execution").hidden = true;
     setActivePersona(null);
@@ -5327,7 +5327,7 @@ async function load(id, legacy = false, restoredView = null, scrollTop) {
     setConversationTitle(
       data.title ||
         conversations.find((item) => item.id === id)?.title ||
-        "New Conversation",
+        t("sidebar.conversation.new_title"),
     );
     executionMode = data.execution_mode ?? null;
     draftMode = normalizeDraftMode({
@@ -5391,7 +5391,10 @@ async function load(id, legacy = false, restoredView = null, scrollTop) {
       routeDivider({ backend: r.request?.backend, model });
       if (r.request?.retry_of) turnRetriedMarker();
       else {
-        const userMessage = bubble("user", r.request?.prompt || "Previous run");
+        const userMessage = bubble(
+          "user",
+          r.request?.prompt || t("conversation.previous_run"),
+        );
         messageAttachments(userMessage, r.attachments);
         messageResourceChips(userMessage, r.request?.resource_selections);
       }
@@ -5520,9 +5523,7 @@ async function load(id, legacy = false, restoredView = null, scrollTop) {
       conversations = conversations.filter((c) => c.id !== id);
       renderProjects();
     }
-    status(
-      "Couldn't open the conversation. Your draft was preserved: " + e.message,
-    );
+    status(t("conversation.open_failed", { detail: e.message }), "error");
   } finally {
     if (request === conversationLoad) {
       loading = false;
@@ -5592,7 +5593,10 @@ async function upload(list) {
       if (f.size > MAX_ATTACHMENT_BYTES) {
         // F-72: a persistent notice, since the next upload overwrites #status.
         attachmentNotice(f.name, "file_too_large");
-        status(f.name + ": The per-file limit is 100 MiB.");
+        status(
+          t("composer.attachments.too_large_name", { name: f.name }),
+          "neutral",
+        );
         continue;
       }
       // F-56: the same file twice would be sent twice.
@@ -5604,24 +5608,26 @@ async function upload(list) {
             a.modified === f.lastModified,
         )
       ) {
-        status(f.name + " is already attached.");
+        status(
+          t("composer.attachments.already_attached", { name: f.name }),
+          "neutral",
+        );
         continue;
       }
       if (video && !canAttachVideo()) {
         status(
-          f.name +
-            ": MP4 unavailable for this model or mode. Select a model with detected video support.",
+          t("composer.attachments.video_unavailable_name", { name: f.name }),
+          "neutral",
         );
         continue;
       }
       status(
-        "Uploading and preparing " +
-          f.name +
-          (video
-            ? "… Extracting frames and checking local speech transcription."
-            : audio
-              ? "… Transcribing speech locally."
-              : "…"),
+        video
+          ? t("composer.attachments.uploading_video", { name: f.name })
+          : audio
+            ? t("composer.attachments.uploading_audio", { name: f.name })
+            : t("composer.attachments.uploading", { name: f.name }),
+        "neutral",
       );
       try {
         const r = await json(
@@ -5655,7 +5661,7 @@ async function upload(list) {
         rememberUpload(entry);
         renderFiles();
         saveView();
-        status("File received.");
+        status(t("composer.attachments.received"), "neutral");
       } catch (e) {
         if (imageRefusalCodes.has(e.code))
           imageRefusedModel = selected()?.id || "";
@@ -5712,9 +5718,7 @@ async function send() {
     temporarySession &&
     !["codex", "claude", "deepseek", "local"].includes(selected()?.backend)
   ) {
-    status(
-      "This provider does not support temporary chats. Choose Claude, Codex, DeepSeek or a local model.",
-    );
+    status(t("error.temporary_backend_unsupported"), "neutral");
     return;
   }
   if (syncImageWarning()) {
@@ -5732,14 +5736,13 @@ async function send() {
     );
   if (unknownAgent) {
     status(
-      "Choose " +
-        unknownAgent[1] +
-        " from the @ list, or create it under Your agents.",
+      t("composer.agents.choose_unknown", { agent: unknownAgent[1] }),
+      "neutral",
     );
     return;
   }
   if (/^\s*\/\/[A-Za-z_][\w:-]*(?=\s|$)/.test(unfenced)) {
-    status("KeepHarness skills and commands are not available yet.");
+    status(t("composer.skills_unavailable"), "neutral");
     return;
   }
   syncResourceSelections();
@@ -5747,11 +5750,7 @@ async function send() {
     prompt.split(/\s+/).includes(token),
   );
   if (stale) {
-    status(
-      "The resource " +
-        stale +
-        " was invalidated by the project or engine change. Select it again before sending.",
-    );
+    status(t("composer.resource_invalidated", { token: stale }), "neutral");
     return;
   }
   let m = selected();
@@ -5761,23 +5760,20 @@ async function send() {
   ) {
     status(
       draftMode.retiredLock
-        ? "This saved isolated mode is no longer supported. Start a new conversation to use native mode."
+        ? t("composer.mode.retired_isolated")
         : parent
-          ? "This model doesn't offer this conversation's mode. Choose a different model or start a new conversation."
-          : "This model doesn't offer the selected mode. Choose a different model or change the mode.",
+          ? t("composer.mode.unavailable_in_conversation")
+          : t("composer.mode.unavailable"),
+      "neutral",
     );
     return;
   }
   if (files.some((f) => /\.mp4$/i.test(f.name)) && !canAttachVideo()) {
-    status(
-      "MP4 attachments require a different model or mode. Change the selection or remove the videos before sending.",
-    );
+    status(t("composer.attachments.mp4_requires_change"), "neutral");
     return;
   }
   if (files.length && !canUpload()) {
-    status(
-      "This model doesn't allow attachments. Remove the files or choose a model with that permission.",
-    );
+    status(t("composer.attachments.model_no_attachments"), "neutral");
     return;
   }
   syncResourceSelections();
@@ -5785,7 +5781,7 @@ async function send() {
   const submissionFocus = document.activeElement;
   submitting = true;
   setBusy(true);
-  status("Sending request to the server…");
+  status(t("composer.send.sending"), "progress");
   let sentJob = null;
   const clearSentDraft = () => {
     if ($("prompt").value === draft) {
@@ -5825,7 +5821,7 @@ async function send() {
     if (parent) data.parent_job_id = parent;
     else data.execution_mode = executionMode;
     if (m.backend === "codex") {
-      status("Checking quota before running…");
+      status(t("composer.send.checking_quota"), "progress");
       quotaSnapshot("before", await json("/v1/usage"));
     }
     const r = await json("/v1/jobs", {
@@ -5865,7 +5861,7 @@ async function send() {
       clearSentDraft();
       updateComposer();
       saveView();
-      status("Message sent. Waiting for the current response to finish.");
+      status(t("composer.send.queued"), "neutral");
       await history();
       if (!busy && queuedTurns.length) void watchQueuedTurn();
       return;
@@ -5926,11 +5922,10 @@ function resetProjectFiles() {
 function renderProjectFileSelection() {
   const count = fileTree.selected.size,
     node = $("files-selection-count");
-  node.textContent = count ? `${count} selected` : "";
+  node.textContent = count ? t("files.selected_count", { count }) : "";
   node.hidden = !count;
   $("files-selection-actions").hidden = !count;
-  $("files-new-chat").textContent =
-    count === 1 ? "New chat with this file" : "New chat with these files";
+  $("files-new-chat").textContent = t("files.new_chat", { count });
 }
 function renderProjectFileTree() {
   const entries =
@@ -6039,12 +6034,12 @@ function renderProjectFileEntries(list, entries, tree = fileTree) {
       toggle.tabIndex = -1;
       item.setAttribute("aria-expanded", String(open));
       toggle.className = "file-chevron";
-      toggle.setAttribute(
-        "aria-label",
-        (open ? "Collapse " : "Expand ") + entry.name,
-      );
+      const toggleLabel = open
+        ? t("files.tree.collapse_named", { name: entry.name })
+        : t("files.tree.expand_named", { name: entry.name });
+      toggle.setAttribute("aria-label", toggleLabel);
       toggle.setAttribute("aria-expanded", String(open));
-      toggle.title = (open ? "Collapse " : "Expand ") + entry.name;
+      toggle.title = toggleLabel;
       toggle.innerHTML =
         '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg>';
       toggle.onclick = () =>
@@ -6064,7 +6059,7 @@ function renderProjectFileEntries(list, entries, tree = fileTree) {
         if (children) renderProjectFileEntries(childList, children, tree);
         else {
           const loading = document.createElement("li");
-          loading.textContent = "Loading…";
+          loading.textContent = t("files.tree.loading");
           loading.setAttribute("role", "status");
           childList.append(loading);
         }
@@ -6129,7 +6124,7 @@ function renderProjectFileEntries(list, entries, tree = fileTree) {
     };
     if (entry.type !== "directory") {
       item.setAttribute("aria-keyshortcuts", "Enter Space");
-      item.title = "Enter to attach (opens in the file editor when it is open); Space to select.";
+      item.title = t("files.tree.attach_hint");
     }
     item.draggable =
       canUpload() && !busy && !uploads && files.length < MAX_ATTACHMENTS;
@@ -6200,9 +6195,7 @@ function selectProjectFileEntry(item, entry, event = {}) {
     fileTree.selected = new Set(
       [...fileTree.selected].slice(0, MAX_ATTACHMENTS - files.length),
     );
-    status(
-      "Limit of 20 attachments per message. The selection was limited to the available slots.",
-    );
+    status(t("composer.attachments.selection_limited"), "neutral");
   }
   for (const node of $("files-tree").querySelectorAll('[role="treeitem"]'))
     node.setAttribute(
@@ -6255,7 +6248,7 @@ async function navigateProjectFolder(project) {
   try {
     const data = await json("/v1/projects"),
       folder = data.details?.[project]?.root;
-    if (!folder) throw new Error("This project has no associated folder.");
+    if (!folder) throw new Error(t("files.project_no_folder"));
     // Keep the active conversation and its draft independent of file navigation.
     setPanelView("files");
     selectAccordionSection("system-files");
@@ -6286,7 +6279,7 @@ async function navigateProjectFolder(project) {
     closeSidebar();
     await loadProjectFileDirectory(fileTree.rootId, fileTree.basePath);
   } catch (error) {
-    status("Couldn't navigate to the project folder: " + error.message);
+    status(t("files.navigate_failed", { detail: error.message }), "error");
   }
 }
 async function loadProjectFileRoots(force = false) {
@@ -6333,7 +6326,7 @@ async function loadProjectFileRoots(force = false) {
       button.append(
         projectFileIcon(root.id, true),
         document.createTextNode(
-          root.id === "home" ? "Local Folders" : "External Folders",
+          root.id === "home" ? t("files.roots.local") : t("files.roots.external"),
         ),
       );
       button.onclick = () => {
@@ -6355,8 +6348,9 @@ async function loadProjectFileRoots(force = false) {
     $("files-loading").hidden = true;
     $("files-error").hidden = false;
     $("files-error").className = "";
-    $("files-error").textContent =
-      "Couldn't load the authorized folders: " + error.message;
+    $("files-error").textContent = t("files.roots_failed", {
+      detail: error.message,
+    });
     $("files-retry").hidden = false;
   }
 }
@@ -6403,8 +6397,7 @@ async function loadProjectFileDirectory(rootId, path) {
     renderProjectFileTree();
     if (data.limited) {
       $("files-error").hidden = false;
-      $("files-error").textContent =
-        "Showing the first 100 items in this folder.";
+      $("files-error").textContent = t("files.tree.limited");
       $("files-error").className = "file-tree-note";
     }
   } catch (error) {
@@ -6413,8 +6406,9 @@ async function loadProjectFileDirectory(rootId, path) {
     renderProjectFileTree();
     $("files-error").hidden = false;
     $("files-error").className = "";
-    $("files-error").textContent =
-      "Couldn't open this folder: " + error.message;
+    $("files-error").textContent = t("files.folder_failed", {
+      detail: error.message,
+    });
     $("files-retry").hidden = false;
   }
 }
@@ -6437,7 +6431,7 @@ async function attachSelectedProjectFiles(
 ) {
   if (busy || loading || uploads) return;
   if (!canUpload()) {
-    status("This model doesn't allow attaching files.");
+    status(t("composer.attachments.model_no_files"), "neutral");
     return;
   }
   const maxFiles = Math.max(0, MAX_ATTACHMENTS - files.length),
@@ -6449,17 +6443,16 @@ async function attachSelectedProjectFiles(
   ) {
     status(
       maxFiles
-        ? "Select files to attach."
-        : "The limit of 20 attachments has already been reached.",
+        ? t("files.select_to_attach")
+        : t("composer.attachments.limit_already_reached"),
+      "neutral",
     );
     return;
   }
   uploads++;
   setBusy(busy);
   renderProjectFileTree();
-  status(
-    "Attaching selected files… Audio is transcribed locally; please wait for it to finish.",
-  );
+  status(t("files.attaching"), "neutral");
   try {
     const url =
       "/v1/project-files/attach?project_id=" +
@@ -6498,10 +6491,18 @@ async function attachSelectedProjectFiles(
       attachmentNotice(item.path, item.reason);
     const skipped = (result.skipped || []).length;
     status(
-      `${(result.attachments || []).length} file(s) attached${skipped ? `; ${skipped} item(s) unavailable or skipped` : ""}.${skipped > 10 ? " Showing the first 10 notices." : ""}`,
+      t("composer.attachments.attached_count", {
+        count: (result.attachments || []).length,
+      }) +
+        (skipped
+          ? "; " + t("composer.attachments.skipped_count", { count: skipped })
+          : "") +
+        "." +
+        (skipped > 10 ? " " + t("composer.attachments.notices_capped") : ""),
+      "neutral",
     );
   } catch (error) {
-    status("Couldn't attach the selection: " + error.message);
+    status(t("files.attach_failed", { detail: error.message }), "error");
   } finally {
     uploads--;
     setBusy(busy);
@@ -6542,8 +6543,11 @@ function renderFiles() {
       const b = document.createElement("button");
       b.type = "button";
       b.append(HarnessUI.icon("x"));
-      b.title = "Remove from the next message";
-      b.setAttribute("aria-label", "Remove attachment " + f.name);
+      b.title = t("composer.attachments.remove_title");
+      b.setAttribute(
+        "aria-label",
+        t("composer.attachments.remove_named", { name: f.name }),
+      );
       b.disabled = busy || uploads > 0;
       b.onclick = () => {
         files.splice(i, 1);
@@ -6566,9 +6570,11 @@ function renderFiles() {
     $("attachments").after(count);
   }
   count.hidden = files.length === 0;
-  count.textContent =
-    files.length + " / " + MAX_ATTACHMENTS + " files attached";
-  count.title = "Up to " + MAX_ATTACHMENTS + " files per message, 100 MiB each";
+  count.textContent = t("composer.attachments.count", {
+    count: files.length,
+    max: MAX_ATTACHMENTS,
+  });
+  count.title = t("composer.attachments.count_title", { max: MAX_ATTACHMENTS });
   renderProjectFileSelection();
 }
 $("send").onclick = send;
