@@ -246,8 +246,12 @@ class DeepseekFailureTest(unittest.IsolatedAsyncioTestCase):
         from test_ui_error_map import ENGLISH, block
 
         copy = block("function executionCondition(")
-        self.assertIn("DeepSeek rejected the API key", copy)
-        self.assertIn("DeepSeek balance", copy)
+        self.assertIn("run_status.condition.deepseek_auth_message", copy)
+        self.assertIn("run_status.condition.deepseek_quota_message", copy)
+        self.assertIn(
+            "DeepSeek rejected the API key", ENGLISH["run_status.condition.deepseek_auth_message"]
+        )
+        self.assertIn("DeepSeek balance", ENGLISH["run_status.condition.deepseek_quota_message"])
         # Server-code copy lives in en.json; ui.js reads it through userError's error.<code> key.
         self.assertIn('"error." + code', block("function userError("))
         self.assertIn("DeepSeek stopped", ENGLISH["error.deepseek_execution_failed"])

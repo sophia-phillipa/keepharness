@@ -43,6 +43,6 @@ for (const [mode, label] of [['native', 'Native conversation'], ['scoped', 'Isol
   assert.equal($('header-execution-mode').textContent, label);
 }
 """
-    result = subprocess.run(["node", "-e", script], text=True, capture_output=True, timeout=10)
+    result = subprocess.run(["node", "-"], input=script, text=True, capture_output=True, timeout=10)
     assert result.returncode == 0, result.stderr
     assert "executionMode = data.execution_mode ?? null;" in source
