@@ -42,3 +42,4 @@ Spec: [Codex-app parity design](../codex-parity-design.md).
 | [D-054](d-054-remove-chat-code-switch.md) | Remove the Chat \| Code switch; the side-panel toggle stays; D-037 superseded | accepted |
 | [D-055](d-055-workspace-toggles.md) | Terminal, file editor and wide layout as three independent toggles stored in ui-state; no mode | accepted (all three options, 2026-10-11) |
 | [D-056](d-056-provider-add-actions.md) | Provider pass-through Add actions: marketplace (owner/repo, HTTPS), MCP server, probed capabilities; Create plugin deferred after 1.0 | accepted |
+| [D-057](d-057-interface-language.md) | Interface language: one JSON catalog per locale with a t() helper, `language` preference in ui-state, pt-BR selectable only when complete | proposed |
