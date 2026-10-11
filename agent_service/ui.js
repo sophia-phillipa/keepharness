@@ -10467,14 +10467,15 @@ function schedulePageIds() {
 function showLastRun(task) {
   const run = task?.last_run;
   if (!run) {
-    $("schedule-last").textContent = task?.id ? "Not run yet." : "";
+    $("schedule-last").textContent = task?.id ? t("schedule.last_not_run") : "";
     return;
   }
-  const state = run.state === "submitted" ? "running" : run.state;
+  const state =
+    run.state === "submitted" ? t("schedule.state_running") : run.state;
   $("schedule-last").textContent = [
-    "Last run " + usageAge(stampSeconds(run.at)),
+    t("schedule.last_run", { age: usageAge(stampSeconds(run.at)) }),
     state,
-    run.needs_you && "needs you",
+    run.needs_you && t("schedule.needs_you"),
   ]
     .filter(Boolean)
     .join(" · ");
@@ -10486,7 +10487,7 @@ function appendOpenRun(jobId) {
   const open = document.createElement("button");
   open.type = "button";
   open.className = "btn";
-  open.textContent = "Open run";
+  open.textContent = t("run_console.run.open");
   open.onclick = () => {
     $("scheduled-dialog").close();
     void navigate({ kind: "conversation", id: jobId });
@@ -10556,9 +10557,9 @@ $("schedule-editor").onsubmit = async (event) => {
   event.preventDefault();
   const body = scheduleBody(),
     task = currentSchedule;
-  if (!body.title) return showScheduleError("title", "Give the task a title.");
+  if (!body.title) return showScheduleError("title", t("schedule.give_title"));
   if (!body.prompt)
-    return showScheduleError("prompt", "Write what the task should do.");
+    return showScheduleError("prompt", t("schedule.write_prompt"));
   // D41: an @@name in the prompt must be the agent picked above, as in the composer.
   const stray = [
     ...unfencedPrompt(body.prompt).matchAll(/(?:^|\s)(@@[\w:-]+)(?=\s|$)/g),
@@ -10566,13 +10567,13 @@ $("schedule-editor").onsubmit = async (event) => {
   if (stray)
     return showScheduleError(
       "agent",
-      "Pick " + stray[1] + " in the Agent field, or remove it from the prompt.",
+      t("schedule.pick_agent", { mention: stray[1] }),
     );
   if (
     body.cadence.kind !== "interval" &&
     !/^\d{2}:\d{2}$/.test(body.cadence.time)
   )
-    return showScheduleError("cadence", "Choose a time.");
+    return showScheduleError("cadence", t("schedule.choose_time"));
   $("schedule-save").disabled = true;
   try {
     const saved = task?.id
@@ -10585,9 +10586,9 @@ $("schedule-editor").onsubmit = async (event) => {
     const schedules = await loadSchedules(saved.id);
     showScheduleEditor(schedules.find((item) => item.id === saved.id) || saved);
     $("schedule-last").textContent =
-      (task?.id ? "Saved." : "Created.") +
+      (task?.id ? t("schedule.saved") : t("schedule.created")) +
       " " +
-      (saved.enabled ? untilLabel(saved.next_run) : "Paused.");
+      (saved.enabled ? untilLabel(saved.next_run) : t("schedule.paused"));
   } catch (error) {
     showScheduleError(error.field || "", error.message);
   } finally {
@@ -10602,7 +10603,7 @@ $("schedule-run").onclick = async () => {
       "/v1/schedules/" + encodeURIComponent(task.id) + "/run",
       {},
     );
-    $("schedule-last").textContent = "Started now. It appears in Chats.";
+    $("schedule-last").textContent = t("schedule.started_now");
     appendOpenRun(started.job_id);
     void history();
     const fresh = (await loadSchedules(task.id)).find(
@@ -10616,7 +10617,7 @@ $("schedule-run").onclick = async () => {
   }
 };
 $("schedule-delete").onclick = () =>
-  void confirmTwice($("schedule-delete"), "Delete", async () => {
+  void confirmTwice($("schedule-delete"), t("admin.providers.delete"), async () => {
     try {
       await json("/v1/schedules/" + encodeURIComponent(currentSchedule.id), {
         method: "DELETE",
@@ -10643,11 +10644,13 @@ for (const id of ["rail-scheduled", "sidebar-scheduled"])
 function openAgentDialog(agent = null) {
   editingAgent = agent;
   $("agent-dialog-title").textContent = agent
-    ? "Edit @@" + agent.name
-    : "Create agent";
-  $("agent-save").textContent = agent ? "Save agent" : "Create agent";
+    ? t("agents.edit_title", { name: "@@" + agent.name })
+    : t("agents.create_title");
+  $("agent-save").textContent = agent
+    ? t("agents.save")
+    : t("agents.create_title");
   $("agent-delete").hidden = !agent;
-  $("agent-delete").textContent = "Delete agent";
+  $("agent-delete").textContent = t("agents.delete");
   delete $("agent-delete").dataset.confirm;
   $("agent-name").value = agent?.name || "";
   $("agent-name").readOnly = !!agent;
@@ -10686,15 +10689,15 @@ function agentFormProblem(body) {
   if (!/^[a-z0-9][a-z0-9-]{1,47}$/.test(body.name))
     return [
       "name",
-      "Use 2 to 48 lowercase letters, digits or hyphens, starting with a letter or digit.",
+      t("agents.name_rule"),
     ];
-  if (!body.purpose) return ["purpose", "Describe what the agent is for."];
+  if (!body.purpose) return ["purpose", t("agents.purpose_required")];
   if (!body.instructions)
-    return ["instructions", "Write the agent's instructions."];
+    return ["instructions", t("agents.instructions_required")];
   if (body.tasks.length > 12 || body.tasks.some((t) => t.length > 200))
-    return ["tasks", "Use up to 12 tasks of at most 200 characters each."];
+    return ["tasks", t("agents.tasks_rule")];
   if (!body.backend || !body.model)
-    return ["model", "Choose a provider and a model."];
+    return ["model", t("agents.model_required")];
   return null;
 }
 function showAgentError(field, message) {
@@ -10725,8 +10728,12 @@ $("agent-form").onsubmit = async (event) => {
     $("agent-dialog").close();
     clearResourceItems();
     await loadHarnessAgents();
+    const name = "@@" + (saved?.name || body.name);
     status(
-      (agent ? "Saved" : "Created") + " @@" + (saved?.name || body.name) + ".",
+      agent
+        ? t("agents.saved_status", { name })
+        : t("agents.created_status", { name }),
+      "neutral",
     );
   } catch (error) {
     showAgentError(error.field || "", error.message);
@@ -10740,7 +10747,7 @@ $("agent-delete").onclick = async () => {
   if (!agent) return;
   if (!button.dataset.confirm) {
     button.dataset.confirm = "1";
-    button.textContent = "Confirm delete";
+    button.textContent = t("agents.confirm_delete");
     return;
   }
   try {
@@ -10752,7 +10759,7 @@ $("agent-delete").onclick = async () => {
     $("agent-dialog").close();
     clearResourceItems();
     await loadHarnessAgents();
-    status("Deleted @@" + agent.name + ".");
+    status(t("agents.deleted_status", { name: "@@" + agent.name }), "neutral");
   } catch (error) {
     showAgentError("", error.message);
   }
@@ -10770,10 +10777,10 @@ async function loadHarnessAgents() {
     const data = await json("/v1/harness-agents");
     harnessAgents = Array.isArray(data.agents) ? data.agents : [];
     $("harness-agents-empty").textContent =
-      "No agents yet. Create one to give a task its own instructions, provider and model.";
+      t("agents.empty");
   } catch {
     harnessAgents = [];
-    $("harness-agents-empty").textContent = "Couldn't load your agents.";
+    $("harness-agents-empty").textContent = t("agents.load_failed");
   }
   renderHarnessAgents();
 }
@@ -10792,17 +10799,23 @@ function renderHarnessAgents() {
       purpose.textContent = agent.purpose;
       route.textContent =
         agent.available === false
-          ? agent.unavailable_reason || "Its model is not available now."
-          : "Runs on " + agentRouteLabel(agent);
+          ? agent.unavailable_reason || t("agents.unavailable_model")
+          : t("agents.runs_on", { route: agentRouteLabel(agent) });
       text.append(title, purpose, route);
       use.type = edit.type = "button";
       use.className = edit.className = "btn";
-      use.textContent = "Use";
-      use.setAttribute("aria-label", "Use @@" + agent.name + " in the message");
+      use.textContent = t("agents.use");
+      use.setAttribute(
+        "aria-label",
+        t("agents.use_label", { name: "@@" + agent.name }),
+      );
       use.disabled = agent.available === false;
       use.onclick = () => void useHarnessAgent(agent);
-      edit.textContent = "Edit";
-      edit.setAttribute("aria-label", "Edit @@" + agent.name);
+      edit.textContent = t("admin.providers.edit");
+      edit.setAttribute(
+        "aria-label",
+        t("agents.edit_title", { name: "@@" + agent.name }),
+      );
       edit.onclick = () => openAgentDialog(agent);
       row.append(
         providerModelIcon(agent.backend, agent.model),
@@ -10844,7 +10857,8 @@ async function useHarnessAgent(agent) {
     const item = (data.items || []).find(
       (i) => i.resource_id === "harness/agents/" + agent.id,
     );
-    if (!item) throw Error("@@" + agent.name + " is not available here.");
+    if (!item)
+      throw Error(t("agents.not_available", { name: "@@" + agent.name }));
     selectResource(item, trigger);
   } catch (error) {
     status(error.message);
@@ -10976,14 +10990,14 @@ function renderConversationSearch() {
   const commandMatches = [
     {
       id: "new-conversation",
-      title: "New conversation",
+      title: t("search.command_new_conversation"),
       terms: "new chat home",
       available: () => !(submitting || cancelling || loading || uploads),
       run: () => void navigate({ kind: "home" }),
     },
     {
       id: "focus-composer",
-      title: "Focus composer",
+      title: t("search.command_focus_composer"),
       terms: "write message prompt",
       available: composerAvailable,
       run: () => {
@@ -10992,7 +11006,7 @@ function renderConversationSearch() {
     },
     {
       id: "keyboard-shortcuts",
-      title: "Keyboard shortcuts",
+      title: t("shortcuts.title"),
       terms: "key bindings reference",
       run: openKeyboardShortcuts,
     },
@@ -11006,14 +11020,16 @@ function renderConversationSearch() {
     .flatMap((section) => {
       const group =
         section.querySelector(".settings-nav-label")?.textContent.trim() ||
-        "Settings";
+        t("static.settings.settings_title");
       return [...section.querySelectorAll("[data-settings]")].map((button) => ({
         title: button.textContent.trim(),
         section: button.dataset.adminSection || button.dataset.settings,
         group,
       }));
     })
-    .filter((item) => includes(item.title, item.group, "Settings"));
+    .filter((item) =>
+      includes(item.title, item.group, t("static.settings.settings_title")),
+    );
   const observedConversationIds = new Set();
   const observedRuns = observedActivityJobs.map((item) => {
     const source = conversations.find(
@@ -11024,7 +11040,10 @@ function renderConversationSearch() {
       ...source,
       id: item.conversation_id || source?.id,
       runId: item.job_id,
-      title: source?.title || item.title || "Run " + (item.job_id || ""),
+      title:
+        source?.title ||
+        item.title ||
+        t("search.run_title", { id: item.job_id || "" }),
       project: item.project_id || source?.project,
       state: item.state || source?.state,
       wait_reason: item.wait_reason || source?.wait_reason,
@@ -11086,10 +11105,10 @@ function renderConversationSearch() {
     fileMatches.length;
   $("search-clear").hidden = !query;
   $("search-results").textContent = total
-    ? total + " result(s) found"
+    ? t("search.results_found", { count: total })
     : query
-      ? "No command, setting, run, or loaded file matched."
-      : "No commands, settings, runs, or loaded files are available.";
+      ? t("search.no_match")
+      : t("search.none_available");
   const sections = [];
   const group = (name, items) => {
     if (!items.length) return;
@@ -11101,21 +11120,21 @@ function renderConversationSearch() {
     sections.push(section);
   };
   group(
-    "Commands",
+    t("search.group_commands"),
     commandMatches.map((item) =>
-      resultButton("command:" + item.id, item.title, "Command", () => {
+      resultButton("command:" + item.id, item.title, t("search.kind_command"), () => {
         $("conversation-search-dialog").close();
         item.run();
       }),
     ),
   );
   group(
-    "Settings",
+    t("static.settings.settings_title"),
     settingsMatches.map((item) =>
       resultButton(
         "settings:" + item.section,
         item.title,
-        "Settings › " + item.group,
+        t("search.settings_path", { group: item.group }),
         () => {
           $("conversation-search-dialog").close();
           openSettings(item.section);
@@ -11124,7 +11143,7 @@ function renderConversationSearch() {
     ),
   );
   group(
-    "Runs",
+    t("run_console.tab.runs"),
     runMatches.map((c) => {
       const button = document.createElement("button");
       button.type = "button";
@@ -11136,7 +11155,7 @@ function renderConversationSearch() {
       title.textContent = c.title || t("sidebar.conversation.untitled");
       const project =
         [...$("project").options].find((o) => o.value === c.project)
-          ?.textContent || "No project";
+          ?.textContent || t("sidebar.project.none");
       detail.append(document.createTextNode(project));
       if (c.execution?.backend && providerNames[c.execution.backend])
         detail.append(
@@ -11180,7 +11199,7 @@ function renderConversationSearch() {
     }),
   );
   group(
-    "Project files",
+    t("search.group_files"),
     fileMatches.map(([path]) => {
       const button = document.createElement("button");
       button.type = "button";
@@ -11189,7 +11208,7 @@ function renderConversationSearch() {
       const title = document.createElement("strong");
       title.textContent = path;
       const detail = document.createElement("small");
-      detail.textContent = "Authorized project file";
+      detail.textContent = t("search.authorized_file");
       button.append(title, detail);
       button.onclick = () => {
         $("conversation-search-dialog").close();
@@ -11256,42 +11275,33 @@ $("search-clear").onclick = () => {
 const shortcutModifier = /Mac|iPhone|iPad/.test(navigator.platform)
   ? "⌘"
   : "Ctrl";
-$("conversation-search-title").textContent = "Search KeepHarness";
+$("conversation-search-title").textContent = t("search.title");
 document.querySelector('label[for="conversation-search"]').textContent =
-  "Commands, Settings, runs, and files";
-$("conversation-search").placeholder = "Type a command, setting, run, or file…";
+  t("search.label");
+$("conversation-search").placeholder = t("search.placeholder");
 $("search-conversations").querySelector("span").textContent =
-  "Search KeepHarness";
+  t("search.title");
 $("search-conversations").querySelector("kbd").textContent =
   shortcutModifier + " K";
-$("search-conversations").title =
-  "Search KeepHarness · " + shortcutModifier + "+K";
-$("settings-appearance").querySelector(".shortcut-help").textContent =
-  shortcutModifier +
-  "+/: keyboard shortcuts\n" +
-  shortcutModifier +
-  "+K or " +
-  shortcutModifier +
-  "+Shift+P: search KeepHarness\n" +
-  shortcutModifier +
-  "+Shift+L: wide layout\n" +
-  shortcutModifier +
-  "+Shift+E: file editor\n" +
-  shortcutModifier +
-  "+`: terminal\n" +
-  "Escape: close the current dialog or panel";
+$("search-conversations").title = t("search.open_title", {
+  shortcut: shortcutModifier,
+});
+$("settings-appearance").querySelector(".shortcut-help").textContent = t(
+  "shortcuts.help",
+  { mod: shortcutModifier },
+);
 const keyboardShortcuts = [
-  ["Search KeepHarness", [shortcutModifier, "K"]],
-  ["Search KeepHarness", [shortcutModifier, "Shift", "P"]],
-  ["Open Settings", [shortcutModifier, ","]],
-  ["Toggle run console", [shortcutModifier, "J"]],
-  ["Go back", [shortcutModifier, "["]],
-  ["Go forward", [shortcutModifier, "]"]],
-  ["Keyboard shortcuts", [shortcutModifier, "/"]],
-  ["New temporary chat", [shortcutModifier, "Shift", "N"]],
-  ["Wide layout", [shortcutModifier, "Shift", "L"]],
-  ["File editor", [shortcutModifier, "Shift", "E"]],
-  ["Terminal", [shortcutModifier, "`"]],
+  ["search.title", [shortcutModifier, "K"]],
+  ["search.title", [shortcutModifier, "Shift", "P"]],
+  ["shortcuts.open_settings", [shortcutModifier, ","]],
+  ["shortcuts.toggle_run_console", [shortcutModifier, "J"]],
+  ["shortcuts.go_back", [shortcutModifier, "["]],
+  ["shortcuts.go_forward", [shortcutModifier, "]"]],
+  ["shortcuts.title", [shortcutModifier, "/"]],
+  ["static.sidebar.new_temporary", [shortcutModifier, "Shift", "N"]],
+  ["shortcuts.wide_layout", [shortcutModifier, "Shift", "L"]],
+  ["static.editor.heading", [shortcutModifier, "Shift", "E"]],
+  ["static.terminal.heading", [shortcutModifier, "`"]],
 ];
 let shortcutReturnFocus = null;
 function renderKeyboardShortcuts() {
@@ -11300,12 +11310,12 @@ function renderKeyboardShortcuts() {
     ([action, keys]) =>
       !query ||
       normalizeSearch(
-        action + " " + keys.join(" ") + " " + keys.join("+"),
+        t(action) + " " + keys.join(" ") + " " + keys.join("+"),
       ).includes(query),
   );
   $("keyboard-shortcuts-status").textContent = matches.length
-    ? matches.length + " shortcut(s) found"
-    : "No shortcut matched.";
+    ? t("shortcuts.found", { count: matches.length })
+    : t("shortcuts.none");
   $("keyboard-shortcuts-list").replaceChildren(
     ...matches.map(([action, keys]) => {
       const row = document.createElement("div"),
@@ -11314,7 +11324,7 @@ function renderKeyboardShortcuts() {
       row.className = "keyboard-shortcut-row";
       row.tabIndex = -1;
       row.setAttribute("role", "listitem");
-      label.textContent = action;
+      label.textContent = t(action);
       binding.textContent = keys.join(" ");
       row.append(label, binding);
       return row;
@@ -11383,15 +11393,14 @@ function syncDraftLimit(value) {
   note.textContent = note.hidden
     ? ""
     : over
-      ? "This message is " +
-        (bytes - PROMPT_BYTE_LIMIT).toLocaleString("en-US") +
-        " bytes over the " +
-        PROMPT_BYTE_LIMIT.toLocaleString("en-US") +
-        "-byte limit. Shorten it or attach it as a file."
-      : bytes.toLocaleString("en-US") +
-        " / " +
-        PROMPT_BYTE_LIMIT.toLocaleString("en-US") +
-        " bytes";
+      ? t("composer.draft_over_limit", {
+          over: (bytes - PROMPT_BYTE_LIMIT).toLocaleString("en-US"),
+          limit: PROMPT_BYTE_LIMIT.toLocaleString("en-US"),
+        })
+      : t("composer.draft_bytes", {
+          bytes: bytes.toLocaleString("en-US"),
+          limit: PROMPT_BYTE_LIMIT.toLocaleString("en-US"),
+        });
   return over;
 }
 // The spoken character count is computed once typing pauses: counting code points of a long draft per key is slow.
@@ -11401,9 +11410,10 @@ function scheduleCharacterCount() {
   clearTimeout(characterCountTimer);
   characterCountTimer = setTimeout(() => {
     const count = Array.from($("prompt").value).length;
-    $("character-count").textContent =
-      count.toLocaleString("en-US") +
-      (count === 1 ? " character" : " characters");
+    $("character-count").textContent = t("composer.characters", {
+      count,
+      text: count.toLocaleString("en-US"),
+    });
   }, CHARACTER_COUNT_DELAY_MS);
 }
 // UX-R1-4: before a message goes to another provider, say that the conversation goes along.
@@ -11416,11 +11426,10 @@ function syncRouteCarryover() {
   note.replaceChildren();
   if (!switching) return;
   note.append(
-    "Next message goes to " +
-      (providerNames[next.backend] || next.backend) +
-      " · " +
-      modelName(next.id) +
-      ". The conversation so far goes with it.",
+    t("composer.route_carryover", {
+      provider: providerNames[next.backend] || next.backend,
+      model: modelName(next.id),
+    }),
   );
   for (const line of carryoverToolLines(lastRoute.backend, next))
     note.append(
@@ -11438,8 +11447,7 @@ const imageRefusalCodes = new Set([
   "local_vision_not_enabled",
 ]);
 const imageUnreadableCopy = () =>
-  modelName(selected()?.id) +
-  " can't read images. Choose a model that reads images, or remove the image.";
+  t("composer.image_unreadable", { model: modelName(selected()?.id) });
 function syncImageWarning() {
   const m = selected(),
     hasImage = files.some((f) => f.preview_url);
@@ -11668,8 +11676,8 @@ function updateEditorStatus() {
   $("editor-dirty").hidden = editorText.value === editor.saved;
   $("editor-notice").hidden = !editor.path || (!running && editor.writable);
   $("editor-notice").textContent = running
-    ? "A turn is running in this project; the agent may also change this file."
-    : "This file is read-only here.";
+    ? t("editor.turn_running_notice")
+    : t("editor.read_only_notice");
   $("editor-save").disabled = !editor.writable;
 }
 function syncEditorMode() {
