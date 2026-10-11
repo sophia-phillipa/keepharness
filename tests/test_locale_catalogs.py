@@ -18,12 +18,22 @@ RUNTIME_CHECK = r"""
 const fs = require("node:fs");
 const path = require("node:path");
 const vm = require("node:vm");
-const [runtime, root, stored, languages] = process.argv.slice(1);
+const [runtime, root, stored, languages, admin] = process.argv.slice(1);
+// "-" is the chat page (HarnessPrefs exists); otherwise the answer of GET /api/ui-language as {status, body}.
+const api = admin === "-" ? undefined : JSON.parse(admin);
+globalThis.apiRequests = 0;
 class XMLHttpRequest {
   open(method, url) {
+    this.url = url;
     this.file = path.join(root, url.replace("/assets/locales/", ""));
   }
   send() {
+    if (this.url === "/api/ui-language") {
+      globalThis.apiRequests += 1;
+      this.status = api?.status ?? 404;
+      this.responseText = api?.body ?? "";
+      return;
+    }
     try {
       this.status = 200;
       this.responseText = fs.readFileSync(this.file, "utf8");
@@ -48,7 +58,7 @@ const nodes = [
 ];
 globalThis.XMLHttpRequest = XMLHttpRequest;
 globalThis.window = globalThis;
-globalThis.HarnessPrefs = { get: (key, fallback = null) => (stored === "-" ? fallback : stored) };
+if (!api) globalThis.HarnessPrefs = { get: (key, fallback = null) => (stored === "-" ? fallback : stored) };
 Object.defineProperty(globalThis, "navigator", {
   value: { languages: languages === "-" ? [] : languages.split(",") },
   configurable: true,
@@ -66,6 +76,7 @@ console.log(
     one: i18n.t("common.run.count", { count: 1 }),
     other: i18n.t("common.run.count", { count: 3 }),
     applied: [nodes[0].textContent, nodes[1].textContent, nodes[2].attrs.title, nodes[3].attrs["aria-label"]],
+    api: globalThis.apiRequests,
   }),
 );
 """
@@ -122,11 +133,16 @@ def test_runtime_and_catalogs_are_served_assets():
         assert asset_response(f"/assets/{name}").status_code == 200, name
 
 
-def run_runtime(root, stored="-", languages="en-US"):
+def admin_response(body, status=200):
+    """The standalone admin page has no HarnessPrefs: GET /api/ui-language answers ``body``."""
+    return json.dumps({"status": status, "body": body})
+
+
+def run_runtime(root, stored="-", languages="en-US", admin="-"):
     if not shutil.which("node"):
         pytest.skip("Node.js unavailable")
     result = subprocess.run(
-        ["node", "-e", RUNTIME_CHECK, str(RUNTIME), str(root), stored, languages],
+        ["node", "-e", RUNTIME_CHECK, str(RUNTIME), str(root), stored, languages, admin],
         text=True,
         capture_output=True,
         timeout=10,
@@ -193,6 +209,27 @@ def test_missing_catalog_file_stays_english(pt_root):
     result = run_runtime(pt_root, stored="pt-BR")
     assert result["tag"] == "en"
     assert result["app"] == "KeepHarness"
+
+
+def test_admin_page_takes_the_saved_language_from_the_admin_api(pt_root):
+    result = run_runtime(pt_root, admin=admin_response('{"language": "pt-BR"}'))
+    assert (result["tag"], result["lang"], result["api"]) == ("pt-BR", "pt-BR", 1)
+    assert result["app"] == "Test locale app"
+
+
+def test_chat_page_never_asks_the_admin_api(pt_root):
+    result = run_runtime(pt_root, stored="pt-BR")
+    assert result["tag"] == "pt-BR"
+    assert result["api"] == 0
+
+
+@pytest.mark.parametrize(
+    ("body", "status"),
+    [('{"language": null}', 200), ("not json", 200), ('{"language": "pt-BR"}', 404)],
+)
+def test_admin_page_falls_back_to_the_browser_language(pt_root, body, status):
+    result = run_runtime(pt_root, languages="pt-BR", admin=admin_response(body, status))
+    assert (result["tag"], result["api"]) == ("pt-BR", 1)
 
 
 NON_SOURCE = [locale for locale in load(LOCALES / "index.json")["locales"] if locale["tag"] != "en"]
