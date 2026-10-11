@@ -1925,10 +1925,10 @@ function runTiming(result = {}) {
 }
 function executionModeLabel() {
   return executionMode === "scoped"
-    ? "Isolated conversation"
+    ? t("composer.execution_mode.isolated")
     : executionMode === "native"
-      ? "Native conversation"
-      : "Execution mode unavailable";
+      ? t("composer.execution_mode.native")
+      : t("composer.execution_mode.unavailable");
 }
 function renderConversationHeader(c = null) {
   const state = c ? conversationState(c) : "draft";
@@ -2946,7 +2946,7 @@ function newConversation(
     });
   updateComposer();
   saveView();
-  $("context-meter").textContent = "New conversation · independent context";
+  $("context-meter").textContent = t("composer.context_meter.independent");
   setBusy(false);
   status("");
   // The mobile drawer makes the editor inert until it closes.
@@ -3074,7 +3074,9 @@ function openDeleteProjectFolder(project, label, trigger) {
     confirm.disabled = true;
     cancel.disabled = true;
     error.textContent = "";
-    $("delete-project-folder-status").textContent = "Deleting folder…";
+    $("delete-project-folder-status").textContent = t(
+      "sidebar.project_folder.deleting",
+    );
     try {
       const result = await json(url, {
         method: "DELETE",
@@ -3093,11 +3095,13 @@ function openDeleteProjectFolder(project, label, trigger) {
       $("delete-project-folder-result").showModal();
     } catch (e) {
       error.textContent =
-        messages[e.code] || "Couldn't delete the folder: " + e.message;
+        messages[e.code] ||
+        t("sidebar.project_folder.delete_error", { detail: e.message });
       preview = null;
       check.checked = false;
-      $("delete-project-folder-status").textContent =
-        "Close and reopen to check the path before trying again.";
+      $("delete-project-folder-status").textContent = t(
+        "sidebar.project_folder.check_again",
+      );
     } finally {
       deleting = false;
       cancel.disabled = false;
@@ -3117,11 +3121,11 @@ function openDeleteProjectFolder(project, label, trigger) {
         }),
       );
       $("delete-project-folder-status").textContent = data.missing
-        ? "The folder no longer exists. Confirming will remove the entries from the list."
+        ? t("sidebar.project_folder.missing_folder")
         : data.project_ids?.length > 1
-          ? "This folder has " +
-            data.project_ids.length +
-            " duplicate entries. All of them will be removed from the list."
+          ? t("sidebar.project_folder.duplicate_entries", {
+              count: data.project_ids.length,
+            })
           : "";
       check.disabled = false;
     })
@@ -3131,8 +3135,8 @@ function openDeleteProjectFolder(project, label, trigger) {
         error.textContent =
           messages[e.code] ||
           (e.code === "HTTP 404"
-            ? "The running service does not offer the folder deletion lookup. Restart the service from the admin panel and try again. This does not mean the project has no folder."
-            : "Couldn't load the folder: " + e.message);
+            ? t("sidebar.project_folder.lookup_unsupported")
+            : t("sidebar.project_folder.load_error", { detail: e.message }));
       }
     });
 }
@@ -3342,11 +3346,11 @@ function renderProjects() {
         create.type = "button";
         create.className = "project-new";
         create.append(HarnessUI.icon("message-plus"));
-        create.setAttribute(
-          "aria-label",
-          "New Conversation in " + o.textContent,
-        );
-        create.title = "New Conversation in " + o.textContent;
+        const newChatLabel = t("sidebar.project.new_chat_label", {
+          project: o.textContent,
+        });
+        create.setAttribute("aria-label", newChatLabel);
+        create.title = newChatLabel;
         create.onclick = (event) => {
           event.preventDefault();
           if (submitting || cancelling || loading || uploads) {
@@ -3368,7 +3372,7 @@ function renderProjects() {
         if (!items.length) {
           const empty = document.createElement("p");
           empty.className = "empty-history";
-          empty.textContent = "No conversations";
+          empty.textContent = t("sidebar.project.no_conversations");
           children.append(empty);
         }
         group.append(heading, children);
@@ -3383,7 +3387,9 @@ function renderProjects() {
     const heading = document.createElement("summary");
     heading.append(
       HarnessUI.icon("archive"),
-      document.createTextNode("Removed projects (" + removed.length + ")"),
+      document.createTextNode(
+        t("sidebar.project.removed_group", { count: removed.length }),
+      ),
     );
     section.append(heading);
     for (const option of removed) {
@@ -3391,7 +3397,9 @@ function renderProjects() {
       restore.type = "button";
       restore.append(
         HarnessUI.icon("refresh"),
-        document.createTextNode("Restore " + option.textContent),
+        document.createTextNode(
+          t("sidebar.project.restore", { name: option.textContent }),
+        ),
       );
       restore.onclick = () =>
         setProjectPreference(option.value, "hidden", false);
@@ -3422,13 +3430,13 @@ function renderProjects() {
   const heading = document.createElement("h2");
   const count = document.createElement("span");
   count.textContent = String(chats.length);
-  heading.append(document.createTextNode("Chats"), count);
+  heading.append(document.createTextNode(t("sidebar.history.chats")), count);
   section.append(heading, ...chats.map(conversationRow));
   $("history").replaceChildren(section);
   if (!matches.length) {
     const empty = document.createElement("p");
     empty.className = "empty-history";
-    empty.textContent = "Your conversations will appear here.";
+    empty.textContent = t("sidebar.history.empty");
     $("history").append(empty);
   }
   if (focusedConversation) {
@@ -12904,10 +12912,15 @@ function renderSelectedProjectDirectories() {
       renderSelectedProjectDirectories();
     };
     remove.type = "button";
-    remove.append(HarnessUI.icon("x"), document.createTextNode("Remove"));
-    remove.title =
-      "Remove the folder from the project without deleting its files";
-    remove.setAttribute("aria-label", "Remove folder " + name);
+    remove.append(
+      HarnessUI.icon("x"),
+      document.createTextNode(t("sidebar.project.folder_remove")),
+    );
+    remove.title = t("sidebar.project.folder_remove_title");
+    remove.setAttribute(
+      "aria-label",
+      t("sidebar.project.folder_remove_label", { name }),
+    );
     remove.onclick = () => {
       projectDirectory.selected.delete(path);
       renderSelectedProjectDirectories();
@@ -12935,14 +12948,16 @@ function openProjectDialog(projectId = null) {
   }
   $("project-dialog-title").textContent = projectId
     ? t("sidebar.project.edit")
-    : "Create project";
+    : t("sidebar.project.create");
   $("project-create").replaceChildren(
     HarnessUI.icon(projectId ? "pencil" : "folder-plus"),
-    document.createTextNode(projectId ? "Save changes" : "Create project"),
+    document.createTextNode(
+      projectId ? t("sidebar.project.save_changes") : t("sidebar.project.create"),
+    ),
   );
   $("project-create").title = projectId
-    ? "Save the name and folders while keeping the conversations"
-    : "Create the project; folders are optional";
+    ? t("sidebar.project.save_hint")
+    : t("sidebar.project.create_hint");
   renderSelectedProjectDirectories();
   resetProjectFolderBrowser();
   $("project-create-note").textContent = "";
@@ -12953,10 +12968,10 @@ for (const [id, icon, title] of [
   [
     "project-directory-add-current",
     "folder-plus",
-    "Add the selected folder to the project",
+    t("sidebar.project.add_folder_hint"),
   ],
-  ["project-dialog-cancel", "x", "Discard changes and close"],
-  ["project-dialog-close", "x", "Close without saving changes"],
+  ["project-dialog-cancel", "x", t("sidebar.project.cancel_hint")],
+  ["project-dialog-close", "x", t("sidebar.project.close_hint")],
 ]) {
   const button = $(id);
   button.title = title;
@@ -12975,7 +12990,7 @@ $("project-directory-add-current").onclick = () => {
   const entry = projectDirectory.candidate;
   if (!entry || projectDirectory.selected.has(entry.absolute_path)) return;
   if (projectDirectory.selected.size >= 20) {
-    $("project-create-note").textContent = "Add up to 20 folders per project.";
+    $("project-create-note").textContent = t("sidebar.project.folder_limit");
     return;
   }
   projectDirectory.selected.set(entry.absolute_path, entry.name);

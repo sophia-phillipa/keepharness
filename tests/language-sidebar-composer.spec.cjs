@@ -122,6 +122,7 @@ async function composerText(page) {
     permissions: await page.locator("#model-permissions").textContent(),
     note: await page.locator("#model-note").textContent(),
     effort: await page.locator("#effort option").first().textContent(),
+    mode: await page.locator("#execution-mode-label").textContent(),
   };
 }
 
@@ -150,6 +151,7 @@ async function composerText(page) {
         "Local model runs on the server through the Codex CLI · no OpenAI quota · check the sources",
       );
       assert.equal(text.effort, "Low");
+      assert.equal(text.mode, "Isolated conversation");
       assert.deepEqual(await sidebarText(english.page), {
         title: "Conversation",
         actions: "Actions for Conversation",
@@ -185,6 +187,7 @@ async function composerText(page) {
       );
       assert.equal(text.note, PT_BR["composer.model_note.local"]);
       assert.equal(text.effort, PT_BR["composer.effort.low"]);
+      assert.equal(text.mode, PT_BR["composer.execution_mode.isolated"]);
       const untitled = PT_BR["sidebar.conversation.untitled"];
       assert.deepEqual(await sidebarText(pt.page), {
         title: untitled,
