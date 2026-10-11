@@ -57,8 +57,9 @@
     if (contract) {
       byId("vault-mode").value = contract.mediated ? "mediated" : "environment";
       byId("vault-consumer").value = contract.consumers[0];
-      byId("vault-consumer").title =
-        "Declared consumers: " + contract.consumers.join(", ");
+      byId("vault-consumer").title = HarnessI18n.t("catalogs.vault.consumers", {
+        consumers: contract.consumers.join(", "),
+      });
       byId("vault-variable").value = Object.keys(contract.environment).join(
         ", ",
       );
@@ -72,7 +73,10 @@
     byId("vault-fields").replaceChildren(
       ...fields.flatMap((field, index) => {
         const id = index === 0 ? "vault-secret" : "vault-secret-" + index,
-          label = text("label", "Secret value · " + field),
+          label = text(
+            "label",
+            HarnessI18n.t("catalogs.vault.secret_field", { field }),
+          ),
           input = document.createElement("input");
         label.htmlFor = id;
         input.id = id;
@@ -99,8 +103,8 @@
     const selection = selected(),
       pin = project?.catalog_pins?.[selection.catalog_id];
     byId("catalog-current").textContent = pin
-      ? "Pinned revision: " + pin.commit
-      : "This catalog follows its source folder.";
+      ? HarnessI18n.t("catalogs.current.pinned", { commit: pin.commit })
+      : HarnessI18n.t("catalogs.current.follows");
     byId("catalog-pin").disabled = !!pin || !selection.catalog_id;
     byId("catalog-preview").disabled = !pin;
     const check = catalogState.preflight.find(
@@ -113,8 +117,8 @@
         ? check.preflight
         : [
             check?.manifest
-              ? "Provisioning checks passed."
-              : "No catalog manifest. Existing maintenance commands remain available.",
+              ? HarnessI18n.t("catalogs.preflight.passed")
+              : HarnessI18n.t("catalogs.preflight.no_manifest"),
           ]
       ).map((value) => text("p", value)),
     );
@@ -132,9 +136,7 @@
         Array.isArray(value[key]),
       )
     )
-      throw new Error(
-        "Catalog administration is unavailable. Refresh to try again.",
-      );
+      throw new Error(HarnessI18n.t("catalogs.error.unavailable"));
     catalogState = value;
     options(
       byId("catalog-project"),
@@ -147,21 +149,29 @@
         ? value.drift.map((item) => {
             const row = document.createElement("div");
             row.append(text("strong", item.resource_id));
-            for (const location of item.locations)
+            for (const location of item.locations) {
+              const { revision, catalog_commit: commit } =
+                item.revisions[location];
+              const shown = revision || HarnessI18n.t("catalogs.drift.unknown");
               row.append(
                 text(
                   "p",
-                  location +
-                    " · revision " +
-                    (item.revisions[location].revision || "unknown") +
-                    (item.revisions[location].catalog_commit
-                      ? " · commit " + item.revisions[location].catalog_commit
-                      : ""),
+                  commit
+                    ? HarnessI18n.t("catalogs.drift.location_commit", {
+                        location,
+                        revision: shown,
+                        commit,
+                      })
+                    : HarnessI18n.t("catalogs.drift.location", {
+                        location,
+                        revision: shown,
+                      }),
                 ),
               );
+            }
             return row;
           })
-        : [text("p", "No resource revision drift detected.")]),
+        : [text("p", HarnessI18n.t("catalogs.drift.none"))]),
     );
   }
   function renderVault(value) {
@@ -171,21 +181,22 @@
         Array.isArray(value[key]),
       )
     )
-      throw new Error(
-        "Credential status is unavailable. Refresh to try again.",
-      );
+      throw new Error(HarnessI18n.t("catalogs.error.vault_unavailable"));
     vaultState = value;
     byId("vault-status").replaceChildren(
       ...(value.credentials.length
         ? value.credentials.map((item) => {
             const row = text(
               "p",
-              item.binding +
-                " · configured fields: " +
-                item.fields.join(", ") +
-                " ",
+              HarnessI18n.t("catalogs.vault.configured", {
+                binding: item.binding,
+                fields: item.fields.join(", "),
+              }),
             );
-            const remove = text("button", "Remove binding");
+            const remove = text(
+              "button",
+              HarnessI18n.t("catalogs.vault.remove"),
+            );
             remove.type = "button";
             remove.className = "button secondary";
             remove.onclick = () =>
@@ -196,12 +207,12 @@
                     binding: item.binding,
                   }),
                 );
-                message("Credential binding removed.");
+                message(HarnessI18n.t("catalogs.vault.removed"));
               });
             row.append(remove);
             return row;
           })
-        : [text("p", "No credentials stored.")]),
+        : [text("p", HarnessI18n.t("catalogs.vault.none"))]),
     );
   }
   async function operate(task) {
@@ -257,7 +268,7 @@
       ]);
       renderCatalogs(catalogs);
       renderVault(vault);
-      message("Catalog status refreshed.");
+      message(HarnessI18n.t("catalogs.message.refreshed"));
     });
   }
   byId("catalog-project").onchange = renderSelection;
@@ -279,8 +290,8 @@
         );
         message(
           action === "pin"
-            ? "Catalog pinned."
-            : "Catalog provisioning completed.",
+            ? HarnessI18n.t("catalogs.message.pinned")
+            : HarnessI18n.t("catalogs.message.provisioned"),
         );
       });
   }
@@ -289,7 +300,7 @@
       renderCatalogs(
         await request("catalog-pin", { ...selected(), action: "retrust" }),
       );
-      message("Catalog hooks trusted.");
+      message(HarnessI18n.t("catalogs.message.trusted"));
     });
   byId("catalog-preview").onclick = () =>
     operate(async () => {
@@ -300,23 +311,26 @@
         ref: byId("catalog-ref").value.trim(),
       });
       byId("catalog-diff").replaceChildren(
-        text("p", "Proposed revision: " + preview.pin.commit),
+        text(
+          "p",
+          HarnessI18n.t("catalogs.diff.proposed", {
+            commit: preview.pin.commit,
+          }),
+        ),
         ...(preview.diff.length
           ? preview.diff.map((item) =>
               text(
                 "p",
-                item.resource_id +
-                  " · " +
-                  (item.before || "new") +
-                  " → " +
-                  (item.after || "removed"),
+                HarnessI18n.t("catalogs.diff.change", {
+                  resource: item.resource_id,
+                  before: item.before || HarnessI18n.t("catalogs.diff.new"),
+                  after: item.after || HarnessI18n.t("catalogs.diff.removed"),
+                }),
               ),
             )
-          : [text("p", "No resource revisions changed.")]),
+          : [text("p", HarnessI18n.t("catalogs.diff.none"))]),
       );
-      message(
-        "Review the revisions, then choose Move pin to apply this update.",
-      );
+      message(HarnessI18n.t("catalogs.message.review"));
     });
   byId("catalog-move").onclick = () =>
     operate(async () => {
@@ -328,7 +342,7 @@
           preview_token: preview.preview_token,
         }),
       );
-      message("Catalog pin moved to the reviewed revision.");
+      message(HarnessI18n.t("catalogs.message.moved"));
     });
   byId("vault-integration").oninput = credentialFields;
   byId("vault-mode").onchange = () => {
@@ -382,7 +396,7 @@
       }
       try {
         renderVault(await request("vault", data));
-        message("Credential saved. Its value cannot be read back.");
+        message(HarnessI18n.t("catalogs.message.credential_saved"));
       } finally {
         byId("vault-fields")
           .querySelectorAll("input")

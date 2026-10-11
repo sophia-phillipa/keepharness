@@ -1,6 +1,7 @@
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE || "playwright");
 const assert = require("node:assert/strict");
 const { execFileSync } = require("node:child_process");
+const fs = require("node:fs");
 const path = require("node:path");
 
 // First-run wizard (#69, D-052). scripts/test-ui.sh resets first-run before every
@@ -285,6 +286,53 @@ const stored = () =>
       "Esc does not complete the setup",
     );
     assert.equal(stored().theme, chosen, "Esc leaves the saved theme alone");
+
+    // pt-BR: the browser language picks the catalog. The admin has no saved language yet, and pt-BR is still
+    // incomplete on disk, so this route marks it complete; the expected text is read from pt-br.json.
+    const ptCatalog = JSON.parse(
+      fs.readFileSync(
+        path.join(
+          __dirname,
+          "..",
+          "harness_ui",
+          "assets",
+          "locales",
+          "pt-br.json",
+        ),
+        "utf8",
+      ),
+    );
+    const ptContext = await browser.newContext({
+      locale: "pt-BR",
+      viewport: { width: 1280, height: 900 },
+    });
+    await ptContext.addCookies(await context.cookies());
+    const ptPage = await ptContext.newPage();
+    ptPage.on("pageerror", (error) => errors.push(error.message));
+    await ptPage.route("**/assets/locales/index.json", async (route) => {
+      const response = await route.fetch();
+      const index = await response.json();
+      for (const locale of index.locales)
+        if (locale.tag === "pt-BR") locale.complete = true;
+      return route.fulfill({ response, json: index });
+    });
+    await ptPage.goto(ADMIN + "/#providers");
+    await ptPage.getByTestId("first-run-step-title").waitFor();
+    assert.equal(
+      await ptPage.evaluate(() => document.documentElement.lang),
+      "pt-BR",
+    );
+    assert.equal(
+      await ptPage.getByTestId("first-run-step-title").innerText(),
+      ptCatalog["first_run.step.appearance"],
+    );
+    assert.equal(
+      await ptPage.locator("#first-run-progress").innerText(),
+      ptCatalog["first_run.progress"]
+        .replace("{step}", "1")
+        .replace("{total}", "3"),
+    );
+    await ptContext.close();
 
     assert.deepEqual(logins, [], "the wizard never starts or ends a login");
     assert.deepEqual(errors, []);

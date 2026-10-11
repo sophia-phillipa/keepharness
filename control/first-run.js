@@ -3,14 +3,20 @@
 // its own state inside this function. Nothing is stored in the browser: the choices go to the
 // backend (/api/settings, then /api/first-run).
 (() => {
-  const STEPS = ["Appearance", "Providers", "Defaults"];
+  // Each entry translates when shown. Literal t() calls keep tests/test_locale_catalogs.py exact.
+  const STEPS = [
+    () => HarnessI18n.t("first_run.step.appearance"),
+    () => HarnessI18n.t("first_run.step.providers"),
+    () => HarnessI18n.t("first_run.step.defaults"),
+  ];
   const SIGN_IN_PROVIDERS = ["codex", "claude"]; // the ones that can be turned on from here
   const LOGIN_PROVIDERS = new Set(SIGN_IN_PROVIDERS);
   const UNVERIFIED = {
-    key_saved_unverified: "Key saved, not verified",
-    credential_present_unverified: "Credentials found, not verified",
-    timeout: "Timed out while checking this account",
-    error: "Could not check this account",
+    key_saved_unverified: () => HarnessI18n.t("first_run.unverified.key_saved"),
+    credential_present_unverified: () =>
+      HarnessI18n.t("first_run.unverified.credential_present"),
+    timeout: () => HarnessI18n.t("first_run.unverified.timeout"),
+    error: () => HarnessI18n.t("first_run.unverified.error"),
   };
   const dialog = $("first-run");
   const body = $("first-run-body");
@@ -45,7 +51,7 @@
   };
 
   function renderThemes() {
-    const picker = group("Theme");
+    const picker = group(HarnessI18n.t("first_run.group.theme"));
     picker.classList.add("theme-picker");
     for (const t of HarnessTheme.themes) {
       const button = element("button", undefined, "theme-choice");
@@ -62,7 +68,12 @@
       button.append(
         swatches,
         element("strong", t.name, "theme-name"),
-        element("small", t.mode === "dark" ? "Dark" : "Light"),
+        element(
+          "small",
+          t.mode === "dark"
+            ? HarnessI18n.t("first_run.theme.dark")
+            : HarnessI18n.t("first_run.theme.light"),
+        ),
       );
       button.onclick = () => {
         wiz.theme = t.id;
@@ -71,31 +82,39 @@
       picker.append(button);
     }
     return [
-      element(
-        "p",
-        "Pick a theme. You can change it later in Settings.",
-        "hint",
-      ),
+      element("p", HarnessI18n.t("first_run.theme.hint"), "hint"),
       picker,
     ];
   }
 
   function providerStatus(row) {
     if (row.signed_in === true)
-      return element("span", "Ready, using your existing login", "pill good");
-    if (row.signed_in === null)
-      return element("span", UNVERIFIED[row.detail] || "Not verified", "pill");
+      return element(
+        "span",
+        HarnessI18n.t("first_run.provider.ready"),
+        "pill good",
+      );
+    if (row.signed_in === null) {
+      const unverified =
+        UNVERIFIED[row.detail] ||
+        (() => HarnessI18n.t("first_run.unverified.other"));
+      return element("span", unverified(), "pill");
+    }
     if (!row.found)
       return element(
         "span",
         row.id === "deepseek"
-          ? "No key saved. Add one from Add provider after setup."
-          : "Not installed. Install the " +
-              named(row.id) +
-              " CLI, then scan again.",
+          ? HarnessI18n.t("first_run.provider.no_key")
+          : HarnessI18n.t("first_run.provider.not_installed", {
+              name: named(row.id),
+            }),
         "pill",
       );
-    return element("span", "Not signed in", "pill");
+    return element(
+      "span",
+      HarnessI18n.t("first_run.provider.not_signed_in"),
+      "pill",
+    );
   }
 
   function providerRow(row) {
@@ -129,25 +148,30 @@
       wiz.rows = (await request("first-run/scan", {})).providers;
     } catch (error) {
       wiz.rows = [];
-      showError("Could not scan providers: " + error.message);
+      showError(
+        HarnessI18n.t("first_run.scan.failed", { message: error.message }),
+      );
     }
     if (wiz.step === 1) render();
   }
 
   function renderProviders() {
-    if (!wiz.rows) return [element("p", "Checking your providers…", "hint")];
+    if (!wiz.rows)
+      return [
+        element("p", HarnessI18n.t("first_run.providers.checking"), "hint"),
+      ];
     const list = element("ul", undefined, "first-run-providers");
     list.append(...wiz.rows.map(providerRow));
-    const again = element("button", "Scan again", "button secondary");
+    const again = element(
+      "button",
+      HarnessI18n.t("first_run.providers.rescan"),
+      "button secondary",
+    );
     again.type = "button";
     again.dataset.testid = "first-run-rescan";
     again.onclick = scan;
     return [
-      element(
-        "p",
-        "KeepHarness uses the logins your CLIs already have. After signing in elsewhere, scan again.",
-        "hint",
-      ),
+      element("p", HarnessI18n.t("first_run.providers.hint"), "hint"),
       list,
       again,
     ];
@@ -195,7 +219,7 @@
     const options = modelOptions();
     const model = element("select", undefined, "form-select");
     model.dataset.testid = "first-run-model";
-    model.append(new Option("Choose in the chat", ""));
+    model.append(new Option(HarnessI18n.t("first_run.model.choose"), ""));
     for (const o of options)
       model.append(new Option(named(o.id) + " · " + o.model, o.model));
     model.value = options.some((o) => o.model === wiz.model) ? wiz.model : "";
@@ -208,7 +232,7 @@
           .find((o) => o.model === wiz.model)
           ?.efforts.filter((e) => e !== "configured") || [];
       effort.replaceChildren(
-        new Option("Default effort", ""),
+        new Option(HarnessI18n.t("first_run.model.default_effort"), ""),
         ...levels.map((e) => new Option(e, e)),
       );
       effort.value = levels.includes(wiz.effort) ? wiz.effort : "";
@@ -222,8 +246,8 @@
     effort.onchange = () => (wiz.effort = effort.value);
     fill();
     return [
-      labelled("Default model for new chats", model),
-      labelled("Effort", effort),
+      labelled(HarnessI18n.t("first_run.model.default_model"), model),
+      labelled(HarnessI18n.t("first_run.model.effort"), effort),
     ];
   }
 
@@ -232,15 +256,16 @@
     const ids = SIGN_IN_PROVIDERS.filter((id) => wiz.models[id]);
     if (!ids.length)
       nodes.push(
-        element(
-          "p",
-          "No signed-in provider with models was found. Sign in to one in the previous step, or finish and add a provider later.",
-          "hint",
-        ),
+        element("p", HarnessI18n.t("first_run.defaults.no_provider"), "hint"),
       );
-    const enabled = group("Providers to turn on");
+    const enabled = group(HarnessI18n.t("first_run.group.enable"));
     for (const id of ids) {
-      const row = toggle("Turn on " + named(id), wiz.enable[id], () => {}, "");
+      const row = toggle(
+        HarnessI18n.t("first_run.defaults.turn_on", { name: named(id) }),
+        wiz.enable[id],
+        () => {},
+        "",
+      );
       const box = row.querySelector("input");
       box.dataset.testid = "first-run-enable-" + id;
       box.onchange = () => {
@@ -252,7 +277,12 @@
     nodes.push(enabled);
     if (ids.length) nodes.push(...renderModelChoice());
     if (desktop()) {
-      const row = toggle("Keep the window on top", wiz.onTop, () => {}, "");
+      const row = toggle(
+        HarnessI18n.t("first_run.defaults.always_on_top"),
+        wiz.onTop,
+        () => {},
+        "",
+      );
       const box = row.querySelector("input");
       box.dataset.testid = "first-run-always-on-top";
       box.onchange = () => (wiz.onTop = box.checked);
@@ -265,15 +295,19 @@
 
   function render() {
     showError("");
-    const heading = element("h3", STEPS[wiz.step]);
+    const heading = element("h3", STEPS[wiz.step]());
     heading.tabIndex = -1;
     heading.dataset.testid = "first-run-step-title";
     body.replaceChildren(heading, ...RENDER[wiz.step]());
-    $("first-run-progress").textContent =
-      `Step ${wiz.step + 1} of ${STEPS.length}`;
+    $("first-run-progress").textContent = HarnessI18n.t("first_run.progress", {
+      step: wiz.step + 1,
+      total: STEPS.length,
+    });
     $("first-run-back").hidden = wiz.step === 0;
     const last = wiz.step === STEPS.length - 1;
-    $("first-run-next").textContent = last ? "Finish" : "Next";
+    $("first-run-next").textContent = last
+      ? HarnessI18n.t("first_run.action.finish")
+      : HarnessI18n.t("first_run.action.next");
     $("first-run-next").dataset.testid = last
       ? "first-run-finish"
       : "first-run-next";
@@ -312,7 +346,9 @@
     for (const id of chosen) {
       const service = settings.services[id];
       if (!service)
-        throw new Error(named(id) + " is not available in this configuration.");
+        throw new Error(
+          HarnessI18n.t("first_run.error.unavailable", { name: named(id) }),
+        );
       const models = Object.keys(wiz.models[id]);
       service.added = true;
       service.enabled = true;
@@ -349,11 +385,11 @@
     conclude(async () => {
       await enableProviders();
       await request("first-run", { prefs: chosenPrefs() });
-    }, "Setup complete.");
+    }, HarnessI18n.t("first_run.done.complete"));
   const skip = () =>
     conclude(
       () => request("first-run", {}),
-      "Setup skipped. Run it again from Settings › System › Providers.",
+      HarnessI18n.t("first_run.done.skipped"),
     );
 
   function closeWizard(revert = true) {
