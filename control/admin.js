@@ -50,7 +50,9 @@ async function request(path, data) {
     ) && data !== undefined;
   if (starts) {
     $("operation-dialog").showModal();
-    $("operation-message").textContent = HarnessI18n.t("admin.operation.starting");
+    $("operation-message").textContent = HarnessI18n.t(
+      "admin.operation.starting",
+    );
     $("operation-retry").hidden = true;
     activeOperation = null;
     $("operations").replaceChildren();
@@ -60,8 +62,9 @@ async function request(path, data) {
     const result = await requestRaw(path, data);
     if (starts) {
       activeOperation = { path, data, id: result.id };
-      $("operation-message").textContent =
-        HarnessI18n.t("admin.operation.started");
+      $("operation-message").textContent = HarnessI18n.t(
+        "admin.operation.started",
+      );
       pollOperations();
     }
     return result;
@@ -109,27 +112,32 @@ async function requestRaw(path, data) {
   if (!r.ok) {
     const sentence =
       {
-        model_not_available:
-          HarnessI18n.t("admin.error.model_not_available"),
-        authentication_required: HarnessI18n.t("admin.error.authentication_required"),
-        permission_denied:
-          HarnessI18n.t("admin.error.permission_denied"),
-        operation_failed:
-          HarnessI18n.t("admin.error.operation_failed"),
-        invalid_request:
-          HarnessI18n.t("admin.error.invalid_request"),
-        invalid_json:
-          HarnessI18n.t("admin.error.invalid_json"),
-        provider_state_conflict:
-          HarnessI18n.t("admin.error.provider_state_conflict"),
-        provider_state_write_unsupported:
-          HarnessI18n.t("admin.error.provider_state_write_unsupported"),
-        provider_state_version_untested:
-          HarnessI18n.t("admin.error.provider_state_version_untested"),
-        provider_state_validation_failed:
-          HarnessI18n.t("admin.error.provider_state_validation_failed"),
-        provider_state_unreadable: HarnessI18n.t("admin.error.provider_state_unreadable"),
-        provider_command_failed: HarnessI18n.t("admin.error.provider_command_failed"),
+        model_not_available: HarnessI18n.t("admin.error.model_not_available"),
+        authentication_required: HarnessI18n.t(
+          "admin.error.authentication_required",
+        ),
+        permission_denied: HarnessI18n.t("admin.error.permission_denied"),
+        operation_failed: HarnessI18n.t("admin.error.operation_failed"),
+        invalid_request: HarnessI18n.t("admin.error.invalid_request"),
+        invalid_json: HarnessI18n.t("admin.error.invalid_json"),
+        provider_state_conflict: HarnessI18n.t(
+          "admin.error.provider_state_conflict",
+        ),
+        provider_state_write_unsupported: HarnessI18n.t(
+          "admin.error.provider_state_write_unsupported",
+        ),
+        provider_state_version_untested: HarnessI18n.t(
+          "admin.error.provider_state_version_untested",
+        ),
+        provider_state_validation_failed: HarnessI18n.t(
+          "admin.error.provider_state_validation_failed",
+        ),
+        provider_state_unreadable: HarnessI18n.t(
+          "admin.error.provider_state_unreadable",
+        ),
+        provider_command_failed: HarnessI18n.t(
+          "admin.error.provider_command_failed",
+        ),
         provider_unknown: HarnessI18n.t("admin.error.provider_unknown"),
         project_unknown: HarnessI18n.t("admin.error.project_unknown"),
       }[value.error] ||
@@ -256,22 +264,21 @@ function modelIdentity(provider, model, label = model) {
                 : provider,
       ),
     );
-  span.append(document.createTextNode(label || HarnessI18n.t("admin.model.not_provided")));
+  span.append(
+    document.createTextNode(label || HarnessI18n.t("admin.model.not_provided")),
+  );
   return span;
 }
 
 // What to do next, per provider: Codex shows a link (and, on a host without a browser, a code);
 // only Claude Code asks for a code to be pasted back.
 const LOGIN_STEPS = {
-  codex:
-    HarnessI18n.t("admin.login.step_codex"),
-  claude:
-    HarnessI18n.t("admin.login.step_claude"),
+  codex: HarnessI18n.t("admin.login.step_codex"),
+  claude: HarnessI18n.t("admin.login.step_claude"),
 };
 // The one-time code Codex prints for device sign-in, shown on its own so it can be read and copied.
 const DEVICE_CODE = /\b[A-Z0-9]{4}-[A-Z0-9]{4,6}\b/;
-const DEVICE_CODE_NOTE =
-  HarnessI18n.t("admin.login.device_code_note");
+const DEVICE_CODE_NOTE = HarnessI18n.t("admin.login.device_code_note");
 // The providers' sign-in pages: a sign-in URL on any other host gets no Copy or Open button.
 const AUTH_HOSTS = new Set([
   "auth.openai.com",
@@ -298,7 +305,11 @@ function loginUrlRow(raw) {
   field.value = raw;
   field.dataset.testid = "login-url";
   field.setAttribute("aria-label", HarnessI18n.t("admin.login.url_label"));
-  const copy = element("button", HarnessI18n.t("admin.common.copy"), "button secondary");
+  const copy = element(
+    "button",
+    HarnessI18n.t("admin.common.copy"),
+    "button secondary",
+  );
   copy.onclick = async () => {
     try {
       await navigator.clipboard.writeText(raw);
@@ -307,7 +318,11 @@ function loginUrlRow(raw) {
       say(HarnessI18n.t("admin.login.copy_unavailable"));
     }
   };
-  const open = element("button", HarnessI18n.t("admin.common.open"), "button secondary");
+  const open = element(
+    "button",
+    HarnessI18n.t("admin.common.open"),
+    "button secondary",
+  );
   open.onclick = () => window.open(url.href, "_blank", "noopener");
   row.append(field, copy, open);
   return row;
@@ -315,12 +330,16 @@ function loginUrlRow(raw) {
 function operationTitle(job) {
   return job.kind === "provider-login" && job.provider
     ? HarnessI18n.t("admin.login.title", {
-          provider: providerName({ id: job.provider, name: job.provider }),
-        })
+        provider: providerName({ id: job.provider, name: job.provider }),
+      })
     : HarnessI18n.t("admin.operation.title", { id: job.id.slice(0, 6) });
 }
 function providerLoginButton(info) {
-  const button = element("button", HarnessI18n.t("admin.login.button"), "button secondary");
+  const button = element(
+    "button",
+    HarnessI18n.t("admin.login.button"),
+    "button secondary",
+  );
   button.setAttribute(
     "aria-label",
     HarnessI18n.t("admin.login.button_aria", { provider: providerName(info) }),
@@ -334,8 +353,15 @@ function providerLoginButton(info) {
   return button;
 }
 function providerCheckButton(info) {
-  const button = element("button", HarnessI18n.t("admin.account.check"), "button secondary");
-  button.setAttribute("aria-label", HarnessI18n.t("admin.account.check_aria", { provider: providerName(info) }));
+  const button = element(
+    "button",
+    HarnessI18n.t("admin.account.check"),
+    "button secondary",
+  );
+  button.setAttribute(
+    "aria-label",
+    HarnessI18n.t("admin.account.check_aria", { provider: providerName(info) }),
+  );
   button.disabled = !info.found;
   button.onclick = () =>
     action(async () => {
@@ -372,8 +398,7 @@ function modelDescription(provider, model) {
   };
   const efforts = state.models[provider]?.[model] || [];
   return (
-    (descriptions[model] ||
-      HarnessI18n.t("admin.model.description_default")) +
+    (descriptions[model] || HarnessI18n.t("admin.model.description_default")) +
     (efforts.filter((e) => e !== "configured").length
       ? " " +
         HarnessI18n.t("admin.model.efforts", {
@@ -393,7 +418,10 @@ async function refreshInventory() {
 function remoteServersPanel(info) {
   const panel = element("section", undefined, "remote-servers");
   panel.setAttribute("aria-label", HarnessI18n.t("admin.remote.title"));
-  const urlLabel = element("label", HarnessI18n.t("admin.remote.address_label")),
+  const urlLabel = element(
+      "label",
+      HarnessI18n.t("admin.remote.address_label"),
+    ),
     keyLabel = element("label", HarnessI18n.t("admin.remote.key_label")),
     url = element("input"),
     key = element("input");
@@ -404,19 +432,22 @@ function remoteServersPanel(info) {
   key.autocomplete = "off";
   urlLabel.append(url);
   keyLabel.append(key);
-  const add = element("button", HarnessI18n.t("admin.remote.add"), "button secondary");
+  const add = element(
+    "button",
+    HarnessI18n.t("admin.remote.add"),
+    "button secondary",
+  );
   add.onclick = () =>
     action(async () => {
-      if (!url.value.trim()) throw Error(HarnessI18n.t("admin.remote.address_required"));
+      if (!url.value.trim())
+        throw Error(HarnessI18n.t("admin.remote.address_required"));
       const result = await request("remote-model-add", {
         url: url.value.trim(),
         key: key.value.trim(),
       });
       key.value = "";
       await refreshInventory();
-      say(
-        HarnessI18n.t("admin.remote.added", { count: result.models.length }),
-      );
+      say(HarnessI18n.t("admin.remote.added", { count: result.models.length }));
     });
   const saved = element("div", undefined, "remote-server-list");
   for (const server of info.remote_servers || []) {
@@ -437,10 +468,17 @@ function remoteServersPanel(info) {
         "connector-status connector-status-" +
           (server.reachable ? "connected" : "failed"),
       ),
-      remove = element("button", HarnessI18n.t("admin.common.remove"), "button secondary");
+      remove = element(
+        "button",
+        HarnessI18n.t("admin.common.remove"),
+        "button secondary",
+      );
     if (server.error) name.append(element("small", server.error));
     status.setAttribute("role", "status");
-    remove.setAttribute("aria-label", HarnessI18n.t("admin.remote.remove_aria", { url: server.url }));
+    remove.setAttribute(
+      "aria-label",
+      HarnessI18n.t("admin.remote.remove_aria", { url: server.url }),
+    );
     remove.onclick = () =>
       action(async () => {
         if (
@@ -458,11 +496,7 @@ function remoteServersPanel(info) {
   }
   panel.append(
     element("h4", HarnessI18n.t("admin.remote.title")),
-    element(
-      "p",
-      HarnessI18n.t("admin.remote.hint"),
-      "hint",
-    ),
+    element("p", HarnessI18n.t("admin.remote.hint"), "hint"),
     urlLabel,
     keyLabel,
     add,
@@ -522,7 +556,9 @@ function providerCard(info) {
   );
   const check = element(
     "button",
-    id === "local" ? HarnessI18n.t("admin.provider.check_models") : HarnessI18n.t("admin.account.check"),
+    id === "local"
+      ? HarnessI18n.t("admin.provider.check_models")
+      : HarnessI18n.t("admin.account.check"),
     "button secondary",
   );
   check.disabled = !info.found;
@@ -569,7 +605,9 @@ function providerCard(info) {
   }
   if (id === "local" && (info.runtimes || []).length) {
     const servers = element("div", undefined, "detected-servers");
-    servers.append(element("strong", HarnessI18n.t("admin.provider.servers_found")));
+    servers.append(
+      element("strong", HarnessI18n.t("admin.provider.servers_found")),
+    );
     for (const runtime of info.runtimes) {
       const row = element(
         "p",
@@ -585,7 +623,10 @@ function providerCard(info) {
   }
   if (id === "local") body.append(remoteServersPanel(info));
   if (id === "deepseek") {
-    const tokenLabel = element("label", HarnessI18n.t("admin.provider.deepseek_key_label")),
+    const tokenLabel = element(
+        "label",
+        HarnessI18n.t("admin.provider.deepseek_key_label"),
+      ),
       token = element("input");
     token.type = "password";
     token.autocomplete = "off";
@@ -614,9 +655,7 @@ function providerCard(info) {
         state.models[id] = result.models || {};
         state.authentication[id] = result.authenticated === true;
         if (!result.authenticated)
-          throw Error(
-            HarnessI18n.t("admin.provider.deepseek_not_confirmed"),
-          );
+          throw Error(HarnessI18n.t("admin.provider.deepseek_not_confirmed"));
         state.credentials = { ...state.credentials, deepseek: true };
         renderProviders();
         say(
@@ -638,14 +677,14 @@ function providerCard(info) {
     );
   }
 
-  const label = element("p", HarnessI18n.t("admin.provider.models_label"), "field-label");
+  const label = element(
+    "p",
+    HarnessI18n.t("admin.provider.models_label"),
+    "field-label",
+  );
   body.append(
     label,
-    element(
-      "p",
-      HarnessI18n.t("admin.provider.models_hint"),
-      "hint",
-    ),
+    element("p", HarnessI18n.t("admin.provider.models_hint"), "hint"),
   );
   const choices = element("div", undefined, "model-list");
   const models =
@@ -691,19 +730,11 @@ function providerCard(info) {
   body.append(choices);
   if (id === "gemini")
     body.append(
-      element(
-        "p",
-        HarnessI18n.t("admin.provider.gemini_ended"),
-        "hint",
-      ),
+      element("p", HarnessI18n.t("admin.provider.gemini_ended"), "hint"),
     );
   if (id === "claude")
     body.append(
-      element(
-        "p",
-        HarnessI18n.t("admin.provider.claude_ids"),
-        "hint",
-      ),
+      element("p", HarnessI18n.t("admin.provider.claude_ids"), "hint"),
     );
   if (id !== "local")
     body.append(
@@ -720,11 +751,7 @@ function providerCard(info) {
   const advanced = element("details", undefined, "advanced");
   advanced.append(
     element("summary", HarnessI18n.t("admin.provider.access")),
-    element(
-      "p",
-      HarnessI18n.t("admin.provider.access_hint"),
-      "hint",
-    ),
+    element("p", HarnessI18n.t("admin.provider.access_hint"), "hint"),
   );
   body.append(advanced);
 
@@ -784,11 +811,7 @@ function renderProviders() {
   );
   if (!$("provider-options").children.length)
     $("provider-options").append(
-      element(
-        "p",
-        HarnessI18n.t("admin.provider.all_added"),
-        "hint",
-      ),
+      element("p", HarnessI18n.t("admin.provider.all_added"), "hint"),
     );
   $("provider-options").hidden = !!editing;
   $("provider-discovery-heading").hidden = !!editing;
@@ -801,11 +824,7 @@ function renderProviders() {
     if (info.id === "local") {
       advanced.hidden = true;
       $("permission-editor").append(
-        element(
-          "p",
-          HarnessI18n.t("admin.provider.permissions_hint"),
-          "hint",
-        ),
+        element("p", HarnessI18n.t("admin.provider.permissions_hint"), "hint"),
       );
     }
   }
@@ -840,7 +859,10 @@ const connectorIdentity = {
   sites: [HarnessI18n.t("admin.connector.sites"), "🌐"],
   browser: [HarnessI18n.t("admin.connector.browser"), "🧭"],
   chrome: ["Chrome", "🌐"],
-  "unified-computer-use": [HarnessI18n.t("admin.connector.computer_control"), "🖥️"],
+  "unified-computer-use": [
+    HarnessI18n.t("admin.connector.computer_control"),
+    "🖥️",
+  ],
   visualize: [HarnessI18n.t("admin.connector.visualizations"), "📈"],
   documents: [HarnessI18n.t("admin.connector.documents"), "📝"],
   pdf: ["PDF", "📄"],
@@ -881,7 +903,9 @@ const NOTICE_SCOPE = "sem-projeto";
 const providerNotices = new Map(); // provider id -> the Notice list of its last provider-state read
 const toasted = new Set(); // notice ids already announced in this page session (memory only)
 const onOff = (enabled) =>
-  enabled ? HarnessI18n.t("admin.common.on") : HarnessI18n.t("admin.common.off");
+  enabled
+    ? HarnessI18n.t("admin.common.on")
+    : HarnessI18n.t("admin.common.off");
 const acked = new Set(); // dismissed notice ids; they embed detected_at, so one never legitimately returns
 function setProviderNotices(provider, list) {
   providerNotices.set(
@@ -964,8 +988,15 @@ function showProviderNotices() {
     const items = element("ul", undefined, "provider-notices-list");
     for (const { provider, notice } of all) {
       const [lead, id, tail] = noticeParts(provider, notice);
-      const dismiss = element("button", HarnessI18n.t("admin.common.dismiss"), "button secondary");
-      dismiss.setAttribute("aria-label", HarnessI18n.t("admin.notices.dismiss_aria", { text: lead + id + tail }));
+      const dismiss = element(
+        "button",
+        HarnessI18n.t("admin.common.dismiss"),
+        "button secondary",
+      );
+      dismiss.setAttribute(
+        "aria-label",
+        HarnessI18n.t("admin.notices.dismiss_aria", { text: lead + id + tail }),
+      );
       dismiss.onclick = () => ackProviderNotices(provider, [notice]);
       const line = element("span");
       line.append(lead, element("code", id), tail);
@@ -983,7 +1014,10 @@ function showProviderNotices() {
     // Several changes fold into one line so up to 100 of them never push the page down.
     const folded = element("details");
     folded.open = box.querySelector("details")?.open || false;
-    folded.append(element("summary", HarnessI18n.t("admin.notices.show_each")), items);
+    folded.append(
+      element("summary", HarnessI18n.t("admin.notices.show_each")),
+      items,
+    );
     box.replaceChildren(head, folded);
   }
   // Only the Plugins and Providers screens toast; an id announced elsewhere would be lost, so it waits.
@@ -1553,7 +1587,9 @@ async function browseFolders(path = "") {
   $("folder-picker-error").hidden = true;
   $("folder-picker-list").replaceChildren();
   $("folder-picker-breadcrumb").replaceChildren();
-  $("folder-picker-status").textContent = HarnessI18n.t("admin.folders.loading");
+  $("folder-picker-status").textContent = HarnessI18n.t(
+    "admin.folders.loading",
+  );
   $("folder-picker-list").setAttribute("aria-busy", "true");
   try {
     const data = await request(
@@ -1596,7 +1632,9 @@ async function browseFolders(path = "") {
         );
   } catch (e) {
     if (sequence !== folderPickerSequence) return;
-    $("folder-picker-status").textContent = HarnessI18n.t("admin.folders.list_failed");
+    $("folder-picker-status").textContent = HarnessI18n.t(
+      "admin.folders.list_failed",
+    );
     $("folder-picker-error").textContent = e.message;
     $("folder-picker-error").hidden = false;
   } finally {
@@ -1668,9 +1706,7 @@ $("integration-run").onclick = () =>
       try {
         data.command = JSON.parse(source);
       } catch {
-        throw Error(
-          HarnessI18n.t("admin.integrations.command_json_example"),
-        );
+        throw Error(HarnessI18n.t("admin.integrations.command_json_example"));
       }
       if (
         !Array.isArray(data.command) ||
@@ -1678,9 +1714,7 @@ $("integration-run").onclick = () =>
         data.command.some((value) => typeof value !== "string") ||
         !data.command[0].trim()
       )
-        throw Error(
-          HarnessI18n.t("admin.integrations.command_list_strings"),
-        );
+        throw Error(HarnessI18n.t("admin.integrations.command_list_strings"));
     }
     await request("integration", data);
     say(HarnessI18n.t("admin.operations.started"));
@@ -1691,9 +1725,7 @@ $("integration-refresh").onclick = () =>
     const fresh = await request("state");
     state.integrations = fresh.integrations;
     renderProviders();
-    say(
-      HarnessI18n.t("admin.integrations.updated"),
-    );
+    say(HarnessI18n.t("admin.integrations.updated"));
   });
 $("install-model-button").onclick = () =>
   action(async () => {
@@ -1769,7 +1801,11 @@ async function pollOperations() {
             ? DEVICE_CODE.exec(j.output || "")?.[0]
             : null;
         if (deviceCode) {
-          const code = element("p", HarnessI18n.t("admin.login.your_code"), "login-code");
+          const code = element(
+            "p",
+            HarnessI18n.t("admin.login.your_code"),
+            "login-code",
+          );
           const value = element("strong", deviceCode);
           value.dataset.testid = "login-code";
           code.append(value);
@@ -1811,7 +1847,11 @@ async function pollOperations() {
           input.spellcheck = false;
           input.required = true;
           label.htmlFor = input.id;
-          const submit = element("button", HarnessI18n.t("admin.login.send_code"), "button primary");
+          const submit = element(
+            "button",
+            HarnessI18n.t("admin.login.send_code"),
+            "button primary",
+          );
           submit.type = "submit";
           form.append(label, input, submit);
           form.onsubmit = (event) => {
@@ -1829,7 +1869,11 @@ async function pollOperations() {
           d.append(form);
         }
         if (j.state === "running") {
-          const cancel = element("button", HarnessI18n.t("admin.operations.cancel"), "button secondary");
+          const cancel = element(
+            "button",
+            HarnessI18n.t("admin.operations.cancel"),
+            "button secondary",
+          );
           cancel.onclick = () =>
             action(async () => {
               await request("cancel-operation", { id: j.id });
@@ -1886,8 +1930,10 @@ $("local-files").onclick = () =>
     });
     discoveredModelFiles = result.files;
     renderProfile();
-    $("local-files-status").textContent =
-      HarnessI18n.t("admin.local_models.files_found", { count: result.files.length });
+    $("local-files-status").textContent = HarnessI18n.t(
+      "admin.local_models.files_found",
+      { count: result.files.length },
+    );
   });
 $("add-local-model").onclick = () => {
   $("local-add").hidden = false;
@@ -1913,7 +1959,10 @@ $("use-local-file").onclick = () => {
     say(HarnessI18n.t("admin.local_models.select_gguf"), true);
     return;
   }
-  if (profileDirty && !confirm(HarnessI18n.t("admin.local_models.discard_confirm")))
+  if (
+    profileDirty &&
+    !confirm(HarnessI18n.t("admin.local_models.discard_confirm"))
+  )
     return;
   profileModel = file;
   profileDirty = false;
@@ -1924,11 +1973,10 @@ $("use-local-file").onclick = () => {
 };
 $("local-start").onclick = () =>
   action(async () => {
-    if (profileDirty) throw Error(HarnessI18n.t("admin.local_models.save_before_start"));
+    if (profileDirty)
+      throw Error(HarnessI18n.t("admin.local_models.save_before_start"));
     await request("local-start", { file: profileModel, use_profile: true });
-    say(
-      HarnessI18n.t("admin.local_models.starting"),
-    );
+    say(HarnessI18n.t("admin.local_models.starting"));
     pollOperations();
   });
 
@@ -1939,12 +1987,18 @@ const workspace = element("div", undefined, "provider-workspace");
 $("configured-providers").before(workspace);
 const list = element("div", undefined, "provider-list");
 const listHeading = element("div", undefined, "provider-list-heading");
-listHeading.append(element("h2", HarnessI18n.t("admin.providers.list_heading")), $("add-provider"));
+listHeading.append(
+  element("h2", HarnessI18n.t("admin.providers.list_heading")),
+  $("add-provider"),
+);
 list.append(listHeading, $("configured-providers"));
 workspace.append(list);
 document.body.append(providerDialog);
 const emptyInspector = element("section", undefined, "dashboard-live");
-emptyInspector.setAttribute("aria-label", HarnessI18n.t("admin.dashboard.aria_label"));
+emptyInspector.setAttribute(
+  "aria-label",
+  HarnessI18n.t("admin.dashboard.aria_label"),
+);
 emptyInspector.id = "inspector-empty";
 $("dashboard").before(emptyInspector);
 emptyInspector.innerHTML =
@@ -1965,17 +2019,15 @@ emptyInspector.innerHTML =
   "</p>";
 const executionPage = element("section", undefined, "dashboard-live");
 executionPage.id = "execution-page";
-executionPage.setAttribute("aria-label", HarnessI18n.t("admin.dashboard.runs_label"));
+executionPage.setAttribute(
+  "aria-label",
+  HarnessI18n.t("admin.dashboard.runs_label"),
+);
 executionPage.append($("recent-runs").closest("section"));
 const metricHint = emptyInspector.querySelector(".hint");
-metricHint.textContent =
-  HarnessI18n.t("admin.dashboard.metric_hint");
+metricHint.textContent = HarnessI18n.t("admin.dashboard.metric_hint");
 executionPage.append(
-  element(
-    "p",
-    HarnessI18n.t("admin.dashboard.history_hint"),
-    "hint",
-  ),
+  element("p", HarnessI18n.t("admin.dashboard.history_hint"), "hint"),
 );
 emptyInspector.after(executionPage);
 
@@ -2077,8 +2129,7 @@ document.addEventListener(
     ) {
       e.preventDefault();
       e.stopImmediatePropagation();
-      busyStatus.textContent =
-        HarnessI18n.t("admin.operations.busy_wait");
+      busyStatus.textContent = HarnessI18n.t("admin.operations.busy_wait");
     }
   },
   true,
@@ -2137,9 +2188,17 @@ title.id = "operation-title";
 const message = element("p");
 message.id = "operation-message";
 message.setAttribute("role", "status");
-const close = element("button", HarnessI18n.t("admin.operations.close"), "button secondary");
+const close = element(
+  "button",
+  HarnessI18n.t("admin.operations.close"),
+  "button secondary",
+);
 close.onclick = () => operationDialog.close();
-const retry = element("button", HarnessI18n.t("admin.operations.retry"), "button primary");
+const retry = element(
+  "button",
+  HarnessI18n.t("admin.operations.retry"),
+  "button primary",
+);
 retry.id = "operation-retry";
 retry.hidden = true;
 retry.onclick = () => {
@@ -2237,19 +2296,25 @@ function showStepBase(value) {
     : "";
   $("wizard-back").hidden = !wizard || (step === 0 && (!editing || existing));
   $("wizard-back").textContent =
-    step === 0 ? HarnessI18n.t("admin.wizard.choose_other_provider") : HarnessI18n.t("admin.wizard.back");
+    step === 0
+      ? HarnessI18n.t("admin.wizard.choose_other_provider")
+      : HarnessI18n.t("admin.wizard.back");
   $("wizard-next").hidden = !wizard || existing || step === 2;
   $("save").hidden = !wizard || (!existing && step !== 2);
-  $("save").textContent = existing ? HarnessI18n.t("admin.wizard.save_changes") : HarnessI18n.t("admin.wizard.complete_save");
+  $("save").textContent = existing
+    ? HarnessI18n.t("admin.wizard.save_changes")
+    : HarnessI18n.t("admin.wizard.complete_save");
   $("wizard-progress").hidden = existing;
   $("save").title = state.status.running
     ? HarnessI18n.t("admin.wizard.save_title")
     : "";
   if (editing) {
-    $("provider-review").textContent =
-      HarnessI18n.t("admin.wizard.review_summary", {
+    $("provider-review").textContent = HarnessI18n.t(
+      "admin.wizard.review_summary",
+      {
         name: visibleProviders().find((i) => i.id === editing)?.name || editing,
-    });
+      },
+    );
   }
 }
 $("wizard-back").onclick = () => {
@@ -2281,9 +2346,7 @@ $("add-provider").onclick = () =>
   action(async () => {
     if (
       (unsaved || profileDirty) &&
-      !confirm(
-        HarnessI18n.t("admin.providers.discard_before_add"),
-      )
+      !confirm(HarnessI18n.t("admin.providers.discard_before_add"))
     )
       return;
     unsaved = false;
@@ -2344,11 +2407,20 @@ const hardwareFields = [
   ["cache-type-v", HarnessI18n.t("admin.localmodel.field.cache_type_v")],
   ["cache-ram", HarnessI18n.t("admin.localmodel.field.cache_ram")],
   ["reasoning", HarnessI18n.t("admin.localmodel.field.reasoning")],
-  ["reasoning-format", HarnessI18n.t("admin.localmodel.field.reasoning_format")],
-  ["reasoning-budget", HarnessI18n.t("admin.localmodel.field.reasoning_budget")],
+  [
+    "reasoning-format",
+    HarnessI18n.t("admin.localmodel.field.reasoning_format"),
+  ],
+  [
+    "reasoning-budget",
+    HarnessI18n.t("admin.localmodel.field.reasoning_budget"),
+  ],
   ["load-mode", HarnessI18n.t("admin.localmodel.field.load_mode")],
   ["cpu-strict", HarnessI18n.t("admin.localmodel.field.cpu_strict")],
-  ["cpu-strict-batch", HarnessI18n.t("admin.localmodel.field.cpu_strict_batch")],
+  [
+    "cpu-strict-batch",
+    HarnessI18n.t("admin.localmodel.field.cpu_strict_batch"),
+  ],
   ["temp", HarnessI18n.t("admin.localmodel.field.temp")],
   ["top-k", HarnessI18n.t("admin.localmodel.field.top_k")],
   ["top-p", HarnessI18n.t("admin.localmodel.field.top_p")],
@@ -2360,14 +2432,22 @@ const profilePanel = $("local-profile-summary").parentElement;
 const profilePicker = element("select");
 profilePicker.id = "hardware-model";
 profilePicker.className = "form-select";
-const profileLabel = element("label", HarnessI18n.t("admin.localmodel.model_for_profile"));
+const profileLabel = element(
+  "label",
+  HarnessI18n.t("admin.localmodel.model_for_profile"),
+);
 profileLabel.htmlFor = "hardware-model";
 profileLabel.append(profilePicker);
 profilePanel.insertBefore(profileLabel, $("local-profile-summary"));
 const editor = element("details", undefined, "advanced");
-editor.append(element("summary", HarnessI18n.t("admin.localmodel.advanced_summary")));
+editor.append(
+  element("summary", HarnessI18n.t("admin.localmodel.advanced_summary")),
+);
 const editorGrid = element("div", undefined, "hardware-editor");
-const binaryLabel = element("label", HarnessI18n.t("admin.localmodel.binary_label"));
+const binaryLabel = element(
+  "label",
+  HarnessI18n.t("admin.localmodel.binary_label"),
+);
 const binaryInput = element("input");
 binaryInput.id = "profile-binary";
 binaryInput.className = "form-control";
@@ -2382,56 +2462,39 @@ descriptionInput.id = "profile-description";
 descriptionInput.className = "form-control";
 descriptionInput.rows = 4;
 descriptionInput.maxLength = 2000;
-descriptionInput.placeholder = HarnessI18n.t("admin.localmodel.description_placeholder");
+descriptionInput.placeholder = HarnessI18n.t(
+  "admin.localmodel.description_placeholder",
+);
 descriptionLabel.append(descriptionInput);
 editor.append(descriptionLabel);
 const hardwareHelp = {
-  "n-gpu-layers":
-    HarnessI18n.t("admin.localmodel.help.n_gpu_layers"),
-  "n-cpu-moe":
-    HarnessI18n.t("admin.localmodel.help.n_cpu_moe"),
-  "cpu-range":
-    HarnessI18n.t("admin.localmodel.help.cpu_range"),
+  "n-gpu-layers": HarnessI18n.t("admin.localmodel.help.n_gpu_layers"),
+  "n-cpu-moe": HarnessI18n.t("admin.localmodel.help.n_cpu_moe"),
+  "cpu-range": HarnessI18n.t("admin.localmodel.help.cpu_range"),
   "cpu-range-batch": HarnessI18n.t("admin.localmodel.help.cpu_range_batch"),
   threads: HarnessI18n.t("admin.localmodel.help.threads"),
   "threads-batch": HarnessI18n.t("admin.localmodel.help.threads_batch"),
-  "ctx-size":
-    HarnessI18n.t("admin.localmodel.help.ctx_size"),
-  device:
-    HarnessI18n.t("admin.localmodel.help.device"),
+  "ctx-size": HarnessI18n.t("admin.localmodel.help.ctx_size"),
+  device: HarnessI18n.t("admin.localmodel.help.device"),
   "main-gpu": HarnessI18n.t("admin.localmodel.help.main_gpu"),
-  "split-mode":
-    HarnessI18n.t("admin.localmodel.help.split_mode"),
-  "tensor-split":
-    HarnessI18n.t("admin.localmodel.help.tensor_split"),
-  parallel:
-    HarnessI18n.t("admin.localmodel.help.parallel"),
-  "flash-attn":
-    HarnessI18n.t("admin.localmodel.help.flash_attn"),
-  "cache-type-k":
-    HarnessI18n.t("admin.localmodel.help.cache_type_k"),
-  "cache-type-v":
-    HarnessI18n.t("admin.localmodel.help.cache_type_v"),
-  "cache-ram":
-    HarnessI18n.t("admin.localmodel.help.cache_ram"),
-  reasoning:
-    HarnessI18n.t("admin.localmodel.help.reasoning"),
-  "reasoning-format":
-    HarnessI18n.t("admin.localmodel.help.reasoning_format"),
-  "reasoning-budget":
-    HarnessI18n.t("admin.localmodel.help.reasoning_budget"),
+  "split-mode": HarnessI18n.t("admin.localmodel.help.split_mode"),
+  "tensor-split": HarnessI18n.t("admin.localmodel.help.tensor_split"),
+  parallel: HarnessI18n.t("admin.localmodel.help.parallel"),
+  "flash-attn": HarnessI18n.t("admin.localmodel.help.flash_attn"),
+  "cache-type-k": HarnessI18n.t("admin.localmodel.help.cache_type_k"),
+  "cache-type-v": HarnessI18n.t("admin.localmodel.help.cache_type_v"),
+  "cache-ram": HarnessI18n.t("admin.localmodel.help.cache_ram"),
+  reasoning: HarnessI18n.t("admin.localmodel.help.reasoning"),
+  "reasoning-format": HarnessI18n.t("admin.localmodel.help.reasoning_format"),
+  "reasoning-budget": HarnessI18n.t("admin.localmodel.help.reasoning_budget"),
   "load-mode": HarnessI18n.t("admin.localmodel.help.load_mode"),
-  "cpu-strict":
-    HarnessI18n.t("admin.localmodel.help.cpu_strict"),
-  "cpu-strict-batch":
-    HarnessI18n.t("admin.localmodel.help.cpu_strict_batch"),
+  "cpu-strict": HarnessI18n.t("admin.localmodel.help.cpu_strict"),
+  "cpu-strict-batch": HarnessI18n.t("admin.localmodel.help.cpu_strict_batch"),
   temp: HarnessI18n.t("admin.localmodel.help.temp"),
   "top-k": HarnessI18n.t("admin.localmodel.help.top_k"),
   "top-p": HarnessI18n.t("admin.localmodel.help.top_p"),
-  "min-p":
-    HarnessI18n.t("admin.localmodel.help.min_p"),
-  "repeat-penalty":
-    HarnessI18n.t("admin.localmodel.help.repeat_penalty"),
+  "min-p": HarnessI18n.t("admin.localmodel.help.min_p"),
+  "repeat-penalty": HarnessI18n.t("admin.localmodel.help.repeat_penalty"),
   seed: HarnessI18n.t("admin.localmodel.help.seed"),
 };
 for (const [key, label] of hardwareFields) {
@@ -2443,7 +2506,9 @@ for (const [key, label] of hardwareFields) {
   wrap.append(input);
   fieldHelp(
     input,
-    HarnessI18n.t("admin.localmodel.help_with_blank", { help: hardwareHelp[key] }),
+    HarnessI18n.t("admin.localmodel.help_with_blank", {
+      help: hardwareHelp[key],
+    }),
   );
   editorGrid.append(wrap);
 }
@@ -2463,7 +2528,9 @@ editorGrid
   .setAttribute("list", deviceOptions.id);
 detectDevices.onclick = () =>
   action(async () => {
-    deviceStatus.textContent = HarnessI18n.t("admin.localmodel.querying_devices");
+    deviceStatus.textContent = HarnessI18n.t(
+      "admin.localmodel.querying_devices",
+    );
     try {
       const result = await request("local-devices", {
         binary: binaryInput.value.trim(),
@@ -2498,19 +2565,11 @@ editor.append(
   detectDevices,
   deviceStatus,
   deviceOptions,
-  element(
-    "p",
-    HarnessI18n.t("admin.localmodel.device_hint"),
-    "hint",
-  ),
+  element("p", HarnessI18n.t("admin.localmodel.device_hint"), "hint"),
 );
 editor.append(
   editorGrid,
-  element(
-    "p",
-    HarnessI18n.t("admin.localmodel.save_hint"),
-    "hint",
-  ),
+  element("p", HarnessI18n.t("admin.localmodel.save_hint"), "hint"),
 );
 const profileSave = element(
   "button",
@@ -2521,17 +2580,15 @@ profileSave.id = "profile-save";
 profilePanel.append(editor, profileSave);
 function markProfileDirty() {
   profileDirty = true;
-  profileSave.textContent = HarnessI18n.t("admin.localmodel.profile_save_dirty");
+  profileSave.textContent = HarnessI18n.t(
+    "admin.localmodel.profile_save_dirty",
+  );
 }
 editor.addEventListener("input", markProfileDirty);
 const localPermissions = $("local-model-permissions");
 localPermissions.append(
   element("h3", HarnessI18n.t("admin.localmodel.permissions_title")),
-  element(
-    "p",
-    HarnessI18n.t("admin.localmodel.permissions_hint"),
-    "hint",
-  ),
+  element("p", HarnessI18n.t("admin.localmodel.permissions_hint"), "hint"),
 );
 const toolsLabel = element("label", undefined, "toggle-row"),
   toolsInput = element("input");
@@ -2543,11 +2600,7 @@ toolsLabel.append(
 );
 localPermissions.append(
   toolsLabel,
-  element(
-    "p",
-    HarnessI18n.t("admin.localmodel.tools_hint"),
-    "hint",
-  ),
+  element("p", HarnessI18n.t("admin.localmodel.tools_hint"), "hint"),
 );
 const modelPermissionFields = [
   ["read", HarnessI18n.t("admin.localmodel.perm_read_label")],
@@ -2578,11 +2631,7 @@ for (const [key, label] of modelPermissionFields) {
 }
 localPermissions.append(
   permissionGrid,
-  element(
-    "p",
-    HarnessI18n.t("admin.localmodel.permissions_footer"),
-    "hint",
-  ),
+  element("p", HarnessI18n.t("admin.localmodel.permissions_footer"), "hint"),
 );
 function refreshPermissionAvailability() {
   for (const [key] of modelPermissionFields)
@@ -2597,24 +2646,31 @@ let modelRoots = [];
 const modelRootsSection = element("section", undefined, "model-roots");
 modelRootsSection.append(
   element("h3", HarnessI18n.t("admin.localmodel.roots_title")),
-  element(
-    "p",
-    HarnessI18n.t("admin.localmodel.roots_hint"),
-    "hint",
-  ),
+  element("p", HarnessI18n.t("admin.localmodel.roots_hint"), "hint"),
 );
 const modelRootsList = element("div");
 modelRootsList.id = "model-roots-list";
-const modelRootsAdd = element("button", HarnessI18n.t("admin.localmodel.roots_add"), "button secondary");
+const modelRootsAdd = element(
+  "button",
+  HarnessI18n.t("admin.localmodel.roots_add"),
+  "button secondary",
+);
 modelRootsAdd.id = "model-roots-add";
 modelRootsAdd.type = "button";
 function renderModelRoots() {
   modelRootsList.replaceChildren();
   for (const root of modelRoots) {
     const row = element("div", undefined, "model-root-row"),
-      remove = element("button", HarnessI18n.t("sidebar.project.folder_remove"), "button secondary");
+      remove = element(
+        "button",
+        HarnessI18n.t("sidebar.project.folder_remove"),
+        "button secondary",
+      );
     remove.type = "button";
-    remove.setAttribute("aria-label", HarnessI18n.t("admin.localmodel.root_remove_label", { path: root }));
+    remove.setAttribute(
+      "aria-label",
+      HarnessI18n.t("admin.localmodel.root_remove_label", { path: root }),
+    );
     remove.onclick = () => {
       modelRoots = modelRoots.filter((path) => path !== root);
       renderModelRoots();
@@ -2625,11 +2681,7 @@ function renderModelRoots() {
   }
   if (!modelRoots.length)
     modelRootsList.append(
-      element(
-        "p",
-        HarnessI18n.t("admin.localmodel.roots_empty"),
-        "hint",
-      ),
+      element("p", HarnessI18n.t("admin.localmodel.roots_empty"), "hint"),
     );
 }
 modelRootsAdd.onclick = () =>
@@ -2653,7 +2705,10 @@ function profiles() {
 }
 
 profilePicker.onchange = () => {
-  if (profileDirty && !confirm(HarnessI18n.t("admin.localmodel.discard_confirm"))) {
+  if (
+    profileDirty &&
+    !confirm(HarnessI18n.t("admin.localmodel.discard_confirm"))
+  ) {
     profilePicker.value = profileModel;
     return;
   }
@@ -2682,13 +2737,17 @@ function renderProfile() {
       (path) =>
         new Option(
           path.split("/").pop() +
-            (saved[path] ? " · " + HarnessI18n.t("admin.localmodel.saved_profile") : " · " + HarnessI18n.t("admin.localmodel.no_saved_profile")),
+            (saved[path]
+              ? " · " + HarnessI18n.t("admin.localmodel.saved_profile")
+              : " · " + HarnessI18n.t("admin.localmodel.no_saved_profile")),
           path,
         ),
     ),
   );
   if (!paths.length)
-    profilePicker.append(new Option(HarnessI18n.t("admin.localmodel.find_gguf"), ""));
+    profilePicker.append(
+      new Option(HarnessI18n.t("admin.localmodel.find_gguf"), ""),
+    );
   profilePicker.value = profileModel;
   profilePicker.disabled = !paths.length;
   deviceStatus.replaceChildren();
@@ -2705,7 +2764,10 @@ function renderProfile() {
       const row = element("div", undefined, "hardware-row");
       row.append(
         element("span", name),
-        element("strong", value ?? HarnessI18n.t("admin.localmodel.not_provided")),
+        element(
+          "strong",
+          value ?? HarnessI18n.t("admin.localmodel.not_provided"),
+        ),
       );
       card.append(row);
     }
@@ -2715,7 +2777,9 @@ function renderProfile() {
     section(HarnessI18n.t("admin.localmodel.section_model"), [
       [
         HarnessI18n.t("admin.localmodel.row_model"),
-        profileModel ? profileModel.split("/").pop() : HarnessI18n.t("admin.localmodel.no_file_selected"),
+        profileModel
+          ? profileModel.split("/").pop()
+          : HarnessI18n.t("admin.localmodel.no_file_selected"),
       ],
       [
         HarnessI18n.t("admin.localmodel.saved_profile"),
@@ -2743,9 +2807,18 @@ function renderProfile() {
   grid.append(
     section(HarnessI18n.t("admin.localmodel.section_gpu"), [
       [HarnessI18n.t("admin.localmodel.row_device"), p.device],
-      [HarnessI18n.t("admin.localmodel.row_requested_layers"), p["n-gpu-layers"]],
-      [HarnessI18n.t("admin.localmodel.row_loaded_layers"), HarnessI18n.t("admin.localmodel.not_measured")],
-      [HarnessI18n.t("admin.localmodel.vram_in_use"), HarnessI18n.t("admin.localmodel.no_telemetry")],
+      [
+        HarnessI18n.t("admin.localmodel.row_requested_layers"),
+        p["n-gpu-layers"],
+      ],
+      [
+        HarnessI18n.t("admin.localmodel.row_loaded_layers"),
+        HarnessI18n.t("admin.localmodel.not_measured"),
+      ],
+      [
+        HarnessI18n.t("admin.localmodel.vram_in_use"),
+        HarnessI18n.t("admin.localmodel.no_telemetry"),
+      ],
     ]),
     section(HarnessI18n.t("admin.localmodel.section_cpu"), [
       [HarnessI18n.t("admin.localmodel.row_moe_cpu"), p["n-cpu-moe"]],
@@ -2764,7 +2837,10 @@ function renderProfile() {
     running.append(
       element("summary", HarnessI18n.t("admin.localmodel.summary_running")),
       section(HarnessI18n.t("admin.localmodel.section_detected"), [
-        [HarnessI18n.t("admin.localmodel.running_gpu_layers"), perf["n-gpu-layers"]],
+        [
+          HarnessI18n.t("admin.localmodel.running_gpu_layers"),
+          perf["n-gpu-layers"],
+        ],
         [HarnessI18n.t("admin.localmodel.running_moe"), perf["n-cpu-moe"]],
         [HarnessI18n.t("admin.localmodel.row_logical_cpus"), perf["cpu-range"]],
         [HarnessI18n.t("admin.localmodel.running_ctx"), perf["ctx-size"]],
@@ -2773,11 +2849,7 @@ function renderProfile() {
     summary.append(running);
   }
   summary.append(
-    element(
-      "p",
-      HarnessI18n.t("admin.localmodel.detected_hint"),
-      "hint",
-    ),
+    element("p", HarnessI18n.t("admin.localmodel.detected_hint"), "hint"),
   );
   if (profileModel) {
     const details = element("details");
@@ -2787,16 +2859,21 @@ function renderProfile() {
     );
     summary.append(details);
   }
-  $("dashboard-profile").textContent =
-    HarnessI18n.t("admin.localmodel.dashboard_count", { count: Object.keys(saved).length });
+  $("dashboard-profile").textContent = HarnessI18n.t(
+    "admin.localmodel.dashboard_count",
+    { count: Object.keys(saved).length },
+  );
   $("local-import").hidden = !active;
-  $("local-import").textContent =
-    HarnessI18n.t("admin.localmodel.import_running");
+  $("local-import").textContent = HarnessI18n.t(
+    "admin.localmodel.import_running",
+  );
   editor.hidden = !profileModel || step !== 0;
   profileSave.disabled = !profileModel;
   localPermissions.hidden = step !== 0;
   profilePanel.querySelector("h3").textContent = profileModel
-    ? HarnessI18n.t("admin.localmodel.panel_title_model", { name: profileModel.split("/").pop() })
+    ? HarnessI18n.t("admin.localmodel.panel_title_model", {
+        name: profileModel.split("/").pop(),
+      })
     : HarnessI18n.t("admin.localmodel.panel_title_none");
   if (!profileDirty) {
     modelRoots = [...(profile.allowed_roots || [])];
@@ -2863,16 +2940,16 @@ profileSave.onclick = () =>
     profileDirty = false;
     renderProfile();
     HarnessUI.toast(
-      HarnessI18n.t("admin.localmodel.profile_saved", { file: profile.model_file.split("/").pop() }),
+      HarnessI18n.t("admin.localmodel.profile_saved", {
+        file: profile.model_file.split("/").pop(),
+      }),
     );
   });
 $("local-import").onclick = () =>
   action(async () => {
     if (
       profileDirty &&
-      !confirm(
-        HarnessI18n.t("admin.localmodel.import_confirm"),
-      )
+      !confirm(HarnessI18n.t("admin.localmodel.import_confirm"))
     )
       return;
     const profile = await request("local-import", { file: profileModel });
@@ -2898,9 +2975,7 @@ $("export-settings").onclick = () =>
     link.download = "keepharness-settings.json";
     link.click();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
-    say(
-      HarnessI18n.t("admin.settings.export_done"),
-    );
+    say(HarnessI18n.t("admin.settings.export_done"));
   });
 $("import-settings").onchange = () =>
   action(async () => {
@@ -2908,27 +2983,31 @@ $("import-settings").onchange = () =>
     $("import-preview").hidden = true;
     const file = $("import-settings").files[0];
     if (!file) return;
-    if (file.size > 60000) throw Error(HarnessI18n.t("admin.settings.file_too_large"));
+    if (file.size > 60000)
+      throw Error(HarnessI18n.t("admin.settings.file_too_large"));
     let candidate;
     try {
       candidate = JSON.parse(await file.text());
     } catch {
-      throw Error(
-        HarnessI18n.t("admin.settings.invalid_json"),
-      );
+      throw Error(HarnessI18n.t("admin.settings.invalid_json"));
     }
     const preview = await request("settings-import", {
       bundle: candidate,
       apply: false,
     });
     importBundle = candidate;
-    $("import-summary").textContent = HarnessI18n.t("admin.settings.import_summary", {
-      services: preview.services.join(", "),
-      projects: HarnessI18n.t("admin.settings.import_projects", { count: preview.projects }),
-      profile: preview.local_profile
-        ? HarnessI18n.t("admin.settings.import_with_profile")
-        : HarnessI18n.t("admin.settings.import_keeps_profile"),
-    });
+    $("import-summary").textContent = HarnessI18n.t(
+      "admin.settings.import_summary",
+      {
+        services: preview.services.join(", "),
+        projects: HarnessI18n.t("admin.settings.import_projects", {
+          count: preview.projects,
+        }),
+        profile: preview.local_profile
+          ? HarnessI18n.t("admin.settings.import_with_profile")
+          : HarnessI18n.t("admin.settings.import_keeps_profile"),
+      },
+    );
     $("import-preview").hidden = false;
   });
 $("apply-import").onclick = () =>
@@ -2939,9 +3018,7 @@ $("apply-import").onclick = () =>
     $("import-preview").hidden = true;
     await load();
     $("network").close();
-    say(
-      HarnessI18n.t("admin.settings.import_done"),
-    );
+    say(HarnessI18n.t("admin.settings.import_done"));
   });
 $("cancel-import").onclick = () => {
   importBundle = null;

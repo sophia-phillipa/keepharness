@@ -1,6 +1,6 @@
 // First statement: the deferred script runs after parsing, so static markup is translated before ui.js writes text.
 HarnessI18n.apply(document);
-window.keepharnessDesktop?.setLanguage?.(HarnessI18n.tag());
+window.keepharnessDesktop?.setLanguage?.(HarnessI18n.tag())?.catch?.(() => {});
 let workspaceResourceRequest = 0;
 const MAX_ATTACHMENTS = 20;
 const MAX_ATTACHMENT_BYTES = 100 * 1024 * 1024;
@@ -172,7 +172,8 @@ let fileTree = {
 function setConversationTitle(value) {
   const full = temporarySession
       ? t("static.composer.temporary_title")
-      : String(value || t("sidebar.conversation.new_title")).trim() || t("sidebar.conversation.new_title"),
+      : String(value || t("sidebar.conversation.new_title")).trim() ||
+        t("sidebar.conversation.new_title"),
     el = $("conversation-title");
   el.textContent = full.length > 80 ? truncateTitle(full, 79) + "…" : full;
   el.title = full;
@@ -340,7 +341,10 @@ function renderResourceChips() {
     const chip = document.createElement("button");
     chip.type = "button";
     chip.className = "resource-chip";
-    chip.setAttribute("aria-label", t("composer.resource.remove", { token: selection.token }));
+    chip.setAttribute(
+      "aria-label",
+      t("composer.resource.remove", { token: selection.token }),
+    );
     chip.textContent = selection.token + " ×";
     chip.onclick = () => {
       const input = $("prompt"),
@@ -601,7 +605,9 @@ function catalogResourceMeta(item) {
         ),
     dirty = item.catalog_dirty ? " · " + t("composer.catalog.dirty_tree") : "";
   return {
-    short: short + (item.catalog_dirty ? " · " + t("composer.catalog.modified") : ""),
+    short:
+      short +
+      (item.catalog_dirty ? " · " + t("composer.catalog.modified") : ""),
     preview:
       t(
         item.catalog_pinned
@@ -842,11 +848,15 @@ function renderResourcePreview(item) {
   const title = document.createElement("strong"),
     description = document.createElement("p"),
     details = document.createElement("small");
-  title.textContent = (item.kind || t("composer.resource.kind_resource")) + " · " + item.name;
-  description.textContent = item.description || t("composer.resource.no_description");
+  title.textContent =
+    (item.kind || t("composer.resource.kind_resource")) + " · " + item.name;
+  description.textContent =
+    item.description || t("composer.resource.no_description");
   const catalog = catalogResourceMeta(item);
   details.textContent = [
-    item.argument_hint ? t("composer.resource.arguments", { hint: item.argument_hint }) : "",
+    item.argument_hint
+      ? t("composer.resource.arguments", { hint: item.argument_hint })
+      : "",
     catalog?.preview || "",
     item.source || "",
     item.preflight_hint || item.unavailable_reason || "",
@@ -1334,7 +1344,10 @@ async function api(path, options = {}) {
             ? Number(after)
             : Math.max(0, (Date.parse(after) - Date.now()) / 1000);
       message += Number.isFinite(seconds)
-        ? " " + t("common.request.retry_in", { count: Math.max(1, Math.ceil(seconds)) })
+        ? " " +
+          t("common.request.retry_in", {
+            count: Math.max(1, Math.ceil(seconds)),
+          })
         : " " + t("common.request.wait");
     }
     const providerState = path.startsWith("/v1/provider-state/");
@@ -1361,9 +1374,7 @@ async function json(path, options) {
   try {
     data = await r.json();
   } catch {
-    throw Error(
-      t("common.request.invalid_data"),
-    );
+    throw Error(t("common.request.invalid_data"));
   }
   if (session) {
     if (temporarySession !== session)
@@ -1461,7 +1472,8 @@ async function refreshProjectPermissions(timeout = 30000) {
       { signal: AbortSignal.timeout(timeout) },
     );
     if (sequence !== policySequence) return;
-    if (!Array.isArray(data.models)) throw Error(t("composer.permissions.invalid_catalog"));
+    if (!Array.isArray(data.models))
+      throw Error(t("composer.permissions.invalid_catalog"));
     const previous = $("model").value,
       previousName = modelName(previous),
       effort = $("effort").value;
@@ -1640,7 +1652,9 @@ function quotaWindows(q, backend = selected()?.backend) {
                   duration > 0
                 ? duration < 60
                   ? t("quota.window.minutes", { count: Math.round(duration) })
-                  : t("quota.window.hours", { count: Math.round(duration / 60) })
+                  : t("quota.window.hours", {
+                      count: Math.round(duration / 60),
+                    })
                 : t("quota.window.quota"),
         remaining = Math.max(
           0,
@@ -1663,7 +1677,11 @@ function quotaText(q) {
   if (!q?.available) return t("quota.unavailable");
   const windows = quotaWindows(q);
   return windows.length
-    ? windows.map((w) => t("quota.window.remaining", { label: w.label, percent: w.percent })).join(" · ")
+    ? windows
+        .map((w) =>
+          t("quota.window.remaining", { label: w.label, percent: w.percent }),
+        )
+        .join(" · ")
     : t("quota.percentage_unavailable");
 }
 const quotaPrimedAt = new Map(); // backend -> last /v1/usage read, in memory only
@@ -1701,7 +1719,9 @@ function renderQuotaIdentity() {
   quotaIdentityBackend = backend;
   quotaView = view;
   $("quota-model-icon").textContent = model ? modelIcon(model.id) : "◈";
-  $("quota-model-name").textContent = model ? modelName(model.id) : t("static.composer.model_trigger.aria_label");
+  $("quota-model-name").textContent = model
+    ? modelName(model.id)
+    : t("static.composer.model_trigger.aria_label");
   $("quota-model-identity").title = model
     ? modelName(model.id) + " · " + (providerNames[backend] || backend)
     : t("quota.identity.selected");
@@ -1721,7 +1741,9 @@ function renderQuotaIdentity() {
   if (backend === "codex" || backend === "claude") {
     if (modelChanged)
       $("quota-short").textContent = t(
-        backend === "claude" ? "quota.short.checking_claude" : "quota.short.checking",
+        backend === "claude"
+          ? "quota.short.checking_claude"
+          : "quota.short.checking",
       );
   } else {
     $("quota-short").textContent = t(states[backend] || "quota.unavailable");
@@ -1764,15 +1786,20 @@ function paintQuota(q, backend = quotaViewBackend()) {
   const available = q?.available === true,
     windows = available ? quotaWindows(q, backend) : [];
   const source =
-    backend === "claude"
-      ? t("quota.source.claude")
-      : t("quota.source.codex");
+    backend === "claude" ? t("quota.source.claude") : t("quota.source.codex");
   // The header summary describes the selected model; another provider's meter only fills the panel.
   const forSelected = selected()?.backend === backend;
   if (forSelected)
     $("quota-short").textContent = available
       ? windows.length
-        ? windows.map((w) => t("quota.window.remaining", { label: w.label, percent: w.percent })).join(" · ")
+        ? windows
+            .map((w) =>
+              t("quota.window.remaining", {
+                label: w.label,
+                percent: w.percent,
+              }),
+            )
+            .join(" · ")
         : t("quota.percentage_unavailable")
       : backend === "claude"
         ? t("quota.claude.not_reported")
@@ -1784,7 +1811,9 @@ function paintQuota(q, backend = quotaViewBackend()) {
         ? q.checked_at * 1000
         : Date.parse(q.checked_at);
     if (Number.isFinite(timestamp))
-      checked = " · " + t("quota.updated_on", { time: new Date(timestamp).toLocaleString() });
+      checked =
+        " · " +
+        t("quota.updated_on", { time: new Date(timestamp).toLocaleString() });
   }
   if (forSelected) {
     $("quota-toggle").setAttribute(
@@ -1809,8 +1838,7 @@ function paintQuota(q, backend = quotaViewBackend()) {
     return;
   }
   if (!windows.length) {
-    $("quota-current").textContent =
-      t("quota.not_reported");
+    $("quota-current").textContent = t("quota.not_reported");
     return;
   }
   if (backend === "claude") {
@@ -1822,14 +1850,19 @@ function paintQuota(q, backend = quotaViewBackend()) {
     const wrap = document.createElement("div");
     wrap.className = "quota-window";
     const label = document.createElement("div");
-    label.textContent = t("quota.window.remaining", { label: window.label, percent: window.percent });
+    label.textContent = t("quota.window.remaining", {
+      label: window.label,
+      percent: window.percent,
+    });
     const bar = document.createElement("progress");
     bar.max = 100;
     bar.value = window.remaining;
     const reset = document.createElement("small");
     reset.textContent =
       Number.isFinite(window.resetsAt) && window.resetsAt > 0
-        ? t("quota.renews_on", { time: new Date(window.resetsAt * 1000).toLocaleString() })
+        ? t("quota.renews_on", {
+            time: new Date(window.resetsAt * 1000).toLocaleString(),
+          })
         : t("quota.renewal_unavailable");
     wrap.append(label, bar, reset);
     $("quota-current").append(wrap);
@@ -1842,22 +1875,25 @@ function paintBalance(value) {
     for (const b of value.balances || []) {
       const row = document.createElement("div");
       row.className = "quota-window";
-      row.textContent = t("quota.balance.available", { amount: `${b.currency} ${b.total}` });
+      row.textContent = t("quota.balance.available", {
+        amount: `${b.currency} ${b.total}`,
+      });
       const detail = document.createElement("small");
-      detail.textContent = t("quota.balance.detail", { granted: b.granted, topped_up: b.topped_up });
+      detail.textContent = t("quota.balance.detail", {
+        granted: b.granted,
+        topped_up: b.topped_up,
+      });
       row.append(detail);
       notes.push(row);
     }
     if (value.account_active === false) {
       const warn = document.createElement("p");
-      warn.textContent =
-        t("quota.balance.inactive");
+      warn.textContent = t("quota.balance.inactive");
       notes.push(warn);
     }
   } else {
     const miss = document.createElement("p");
-    miss.textContent =
-      t("quota.balance.unread");
+    miss.textContent = t("quota.balance.unread");
     notes.push(miss);
   }
   $("quota-current").replaceChildren(...notes);
@@ -1899,7 +1935,10 @@ function quotaSnapshot(kind, q) {
     p.id = id;
     $("quota-comparison").append(p);
   }
-  p.textContent = t(kind === "before" ? "quota.snapshot.before" : "quota.snapshot.after", { quota: quotaText(q) });
+  p.textContent = t(
+    kind === "before" ? "quota.snapshot.before" : "quota.snapshot.after",
+    { quota: quotaText(q) },
+  );
 }
 function conversationState(c = {}) {
   const value = String(c.state || "").toLowerCase();
@@ -1920,8 +1959,10 @@ function conversationAge(c = {}) {
   if (!stamp) return "";
   const seconds = Math.max(0, Date.now() / 1000 - stamp);
   if (seconds < 60) return t("sidebar.age.now");
-  if (seconds < 3600) return t("sidebar.age.minutes", { count: Math.floor(seconds / 60) });
-  if (seconds < 86400) return t("sidebar.age.hours", { count: Math.floor(seconds / 3600) });
+  if (seconds < 3600)
+    return t("sidebar.age.minutes", { count: Math.floor(seconds / 60) });
+  if (seconds < 86400)
+    return t("sidebar.age.hours", { count: Math.floor(seconds / 3600) });
   return t("sidebar.age.days", { count: Math.floor(seconds / 86400) });
 }
 function conversationUpdated(c = {}) {
@@ -1952,7 +1993,9 @@ function conversationSummary(c = {}) {
   if (state === "needs-you")
     return t("conversation.summary.waiting_for_approval");
   if (state === "running")
-    return c.live_activity || c.activity || t("run_status.activity.in_progress");
+    return (
+      c.live_activity || c.activity || t("run_status.activity.in_progress")
+    );
   if (state === "queued") return t("run_status.activity.queued");
   return (
     {
@@ -1970,7 +2013,8 @@ function runTiming(result = {}) {
     queued = Number(result.queue_seconds),
     waited =
       Number.isFinite(queued) && queued >= 1 && queued < total ? queued : 0,
-    seconds = (value) => t("run_console.duration.seconds", { seconds: value.toFixed(1) });
+    seconds = (value) =>
+      t("run_console.duration.seconds", { seconds: value.toFixed(1) });
   return {
     worked:
       Number.isFinite(total) && total - waited > 0
@@ -2100,18 +2144,30 @@ function providerQuotaMeter(reading) {
   let description;
   if (state === "balance") {
     value.textContent = formatBalance(reading, true);
-    description = t("quota.meter.balance", { provider: providerNames[backend] || backend, amount: formatBalance(reading, false) });
+    description = t("quota.meter.balance", {
+      provider: providerNames[backend] || backend,
+      amount: formatBalance(reading, false),
+    });
   } else if (state === "ok") {
     bar.style.setProperty("--quota", reading.remaining + "%");
     value.textContent = Math.round(reading.remaining) + "%";
-    description = t("quota.meter.remaining", { provider: providerNames[backend] || backend, percent: Math.round(reading.remaining) });
+    description = t("quota.meter.remaining", {
+      provider: providerNames[backend] || backend,
+      percent: Math.round(reading.remaining),
+    });
   } else {
     bar.style.setProperty("--quota", "0%");
     value.textContent = t("quota.meter.na");
-    description = t("quota.meter.unavailable", { provider: providerNames[backend] || backend, reason: t(quotaReasonTexts[reading.reason] || "quota.reason.unavailable") });
+    description = t("quota.meter.unavailable", {
+      provider: providerNames[backend] || backend,
+      reason: t(quotaReasonTexts[reading.reason] || "quota.reason.unavailable"),
+    });
     railQuotaSummaries.set(backend, description);
   }
-  meter.setAttribute("aria-label", description + " " + t("quota.meter.open_details"));
+  meter.setAttribute(
+    "aria-label",
+    description + " " + t("quota.meter.open_details"),
+  );
   meter.title = meter.getAttribute("aria-label");
   meter.append(...(state === "balance" ? [logo, value] : [logo, bar, value]));
   return meter;
@@ -2188,7 +2244,11 @@ function notifyAttention(data = {}) {
     const id = item.gate_id || item.approval_id;
     if (seenRequests.has(id)) continue;
     seenRequests.add(id);
-    alerts.push(t("run_status.notice.needs_you", { title: item.title || t("run_status.notice.untitled_run") }));
+    alerts.push(
+      t("run_status.notice.needs_you", {
+        title: item.title || t("run_status.notice.untitled_run"),
+      }),
+    );
   }
   for (const job of data.jobs || []) {
     const alert = jobAlert(job, seenJobStates.get(job.job_id));
@@ -2295,7 +2355,8 @@ const history = async (timeout = 30000, background = false) => {
       data = { conversations: old.jobs.map((r) => ({ ...r, legacy: true })) };
       legacyHistory = true;
     }
-    if (!Array.isArray(data.conversations)) throw Error(t("sidebar.history.invalid"));
+    if (!Array.isArray(data.conversations))
+      throw Error(t("sidebar.history.invalid"));
     if (request !== historyRequest) return false;
     conversations = data.conversations;
     conversations.forEach(observeConversation);
@@ -2318,10 +2379,7 @@ const history = async (timeout = 30000, background = false) => {
     return true;
   } catch (e) {
     if (request === historyRequest)
-      status(
-        t("sidebar.history.load_failed", { detail: e.message }),
-        "error",
-      );
+      status(t("sidebar.history.load_failed", { detail: e.message }), "error");
     return false;
   }
 };
@@ -2341,7 +2399,10 @@ function conversationRow(c) {
   actions.hidden = !!c.legacy;
   const trigger = document.createElement("summary");
   trigger.textContent = "⋯";
-  trigger.setAttribute("aria-label", t("sidebar.conversation.actions_for", { title: open.textContent }));
+  trigger.setAttribute(
+    "aria-label",
+    t("sidebar.conversation.actions_for", { title: open.textContent }),
+  );
   trigger.title = t("sidebar.conversation.actions");
   const menu = document.createElement("div");
   menu.className = "conversation-actions-menu";
@@ -2351,7 +2412,10 @@ function conversationRow(c) {
     if (busy || loading || uploads) return;
     openRenameConversation(c, trigger);
   };
-  const handoff = menuAction("message-plus", t("sidebar.menu.continue_other_app"));
+  const handoff = menuAction(
+    "message-plus",
+    t("sidebar.menu.continue_other_app"),
+  );
   handoff.onclick = () => {
     actions.open = false;
     if (busy || loading || uploads) return;
@@ -2446,9 +2510,13 @@ function conversationRow(c) {
     const scheduled = document.createElement("span");
     scheduled.className = "conversation-scheduled";
     scheduled.textContent = t("sidebar.conversation.scheduled");
-    scheduled.title = t("sidebar.conversation.scheduled_title", { title: c.schedule_title });
+    scheduled.title = t("sidebar.conversation.scheduled_title", {
+      title: c.schedule_title,
+    });
     meta.prepend(scheduled);
-    open.title += "\n" + t("sidebar.conversation.scheduled_title", { title: c.schedule_title });
+    open.title +=
+      "\n" +
+      t("sidebar.conversation.scheduled_title", { title: c.schedule_title });
   }
   open.append(meta);
   if (conversationState(c) === "needs-you") {
@@ -2488,7 +2556,9 @@ function openRenameConversation(c, trigger) {
     error.textContent = message;
     input.setAttribute("aria-invalid", String(!!message));
     save.disabled = saving || !!message;
-    $("rename-conversation-count").textContent = t("sidebar.rename.count", { count: length });
+    $("rename-conversation-count").textContent = t("sidebar.rename.count", {
+      count: length,
+    });
     return !message;
   };
   input.oninput = validate;
@@ -2536,8 +2606,10 @@ const HANDOFF_APP_NAMES = { chatgpt: "ChatGPT", claude: "Claude" };
 const handoffErrors = {
   handoff_forbidden: () => t("conversation.handoff.error_forbidden"),
   handoff_invalid: () => t("conversation.handoff.error_invalid"),
-  handoff_app_missing: (app) => t("conversation.handoff.error_app_missing", { app }),
-  handoff_open_failed: (app) => t("conversation.handoff.error_open_failed", { app }),
+  handoff_app_missing: (app) =>
+    t("conversation.handoff.error_app_missing", { app }),
+  handoff_open_failed: (app) =>
+    t("conversation.handoff.error_open_failed", { app }),
 };
 function continuationFilename(title, target) {
   const clean = String(title || "")
@@ -2608,7 +2680,9 @@ function openContinuation(c, trigger) {
     } catch (e) {
       if (mine !== controller) return;
       summary.textContent = "";
-      error.textContent = t("conversation.handoff.prepare_failed", { detail: e.message });
+      error.textContent = t("conversation.handoff.prepare_failed", {
+        detail: e.message,
+      });
     }
   };
   // Asked only after the user copied or saved, and only for an app the desktop bridge lists.
@@ -2622,8 +2696,14 @@ function openContinuation(c, trigger) {
     } catch {}
     if (text !== current || app !== target || !apps.includes(app)) return;
     const name = HANDOFF_APP_NAMES[app];
-    $("continuation-open-question").textContent = t("conversation.handoff.open_question", { app: name });
-    $("continuation-open-yes").textContent = t("conversation.handoff.open_app", { app: name });
+    $("continuation-open-question").textContent = t(
+      "conversation.handoff.open_question",
+      { app: name },
+    );
+    $("continuation-open-yes").textContent = t(
+      "conversation.handoff.open_app",
+      { app: name },
+    );
     $("continuation-open-yes").disabled = false;
     offer.hidden = false;
   };
@@ -2721,18 +2801,15 @@ async function archiveConversation(c, archived) {
     });
     if (archived && conversation === c.id) newConversation();
     status(
-      archived
-        ? t("sidebar.archive.archived")
-        : t("sidebar.archive.restored"),
+      archived ? t("sidebar.archive.archived") : t("sidebar.archive.restored"),
       "neutral",
     );
     await history();
     if (!$("settings-archived").hidden) await loadArchived();
   } catch (e) {
-    const message =
-      archived
-        ? t("sidebar.archive.archive_failed", { detail: e.message })
-        : t("sidebar.archive.unarchive_failed", { detail: e.message });
+    const message = archived
+      ? t("sidebar.archive.archive_failed", { detail: e.message })
+      : t("sidebar.archive.unarchive_failed", { detail: e.message });
     if ($("settings-archived").hidden) status(message, "error");
     else $("archived-error").textContent = message;
   }
@@ -2743,12 +2820,17 @@ function storageLine(data) {
     n >= 1024 ** 3
       ? (n / 1024 ** 3).toFixed(1) + " GB"
       : Math.ceil(n / 1024 ** 2) + " MB";
-  return t(data.warning ? "settings.storage.usage_almost_full" : "settings.storage.usage", {
-    runs_used: data.runs.used.toLocaleString("en"),
-    runs_limit: data.runs.limit.toLocaleString("en"),
-    bytes_used: bytes(data.bytes.used),
-    bytes_limit: bytes(data.bytes.limit),
-  });
+  return t(
+    data.warning
+      ? "settings.storage.usage_almost_full"
+      : "settings.storage.usage",
+    {
+      runs_used: data.runs.used.toLocaleString("en"),
+      runs_limit: data.runs.limit.toLocaleString("en"),
+      bytes_used: bytes(data.bytes.used),
+      bytes_limit: bytes(data.bytes.limit),
+    },
+  );
 }
 async function loadArchived() {
   const list = $("archived-list"),
@@ -2777,7 +2859,10 @@ async function loadArchived() {
         restore.className = remove.className = "btn";
         restore.textContent = t("sidebar.archive.restore");
         remove.textContent = t("sidebar.menu.delete_permanently");
-        restore.setAttribute("aria-label", t("sidebar.archive.unarchive_label", { title: title.textContent }));
+        restore.setAttribute(
+          "aria-label",
+          t("sidebar.archive.unarchive_label", { title: title.textContent }),
+        );
         remove.setAttribute(
           "aria-label",
           t("sidebar.archive.delete_label", { title: title.textContent }),
@@ -2790,8 +2875,9 @@ async function loadArchived() {
     );
     $("archived-empty").hidden = archived.conversations.length > 0;
   } catch (e) {
-    $("archived-error").textContent =
-      t("sidebar.archive.load_failed", { detail: e.message });
+    $("archived-error").textContent = t("sidebar.archive.load_failed", {
+      detail: e.message,
+    });
   }
 }
 function openDeleteConversation(c, trigger) {
@@ -2799,7 +2885,8 @@ function openDeleteConversation(c, trigger) {
     confirm = $("delete-conversation-confirm"),
     cancel = $("delete-conversation-cancel"),
     error = $("delete-conversation-error");
-  $("delete-conversation-name").textContent = c.title || t("sidebar.conversation.untitled");
+  $("delete-conversation-name").textContent =
+    c.title || t("sidebar.conversation.untitled");
   error.textContent = "";
   let deleting = false;
   cancel.onclick = () => dialog.close();
@@ -2924,10 +3011,7 @@ function newConversation(
     loading ||
     uploads
   ) {
-    status(
-      t("sidebar.new.busy"),
-      "neutral",
-    );
+    status(t("sidebar.new.busy"), "neutral");
     return;
   }
   if (!keepTemporary && !leaveTemporaryChat()) return false;
@@ -3017,7 +3101,8 @@ function newConversation(
 }
 function chooseProject(id) {
   if (busy || loading || uploads) return;
-  if (newConversation(t("sidebar.conversation.new_title"), id) === false) return;
+  if (newConversation(t("sidebar.conversation.new_title"), id) === false)
+    return;
   renderProjects();
   history();
   closeSidebar();
@@ -3084,18 +3169,13 @@ function openDeleteProjectFolder(project, label, trigger) {
   const url = "/v1/project-folder?project_id=" + encodeURIComponent(project);
   const request = new AbortController();
   const messages = {
-    project_folder_busy:
-      t("sidebar.project_folder.busy"),
-    project_directory_shared:
-      t("sidebar.project_folder.shared"),
-    project_directory_forbidden:
-      t("sidebar.project_folder.forbidden"),
+    project_folder_busy: t("sidebar.project_folder.busy"),
+    project_directory_shared: t("sidebar.project_folder.shared"),
+    project_directory_forbidden: t("sidebar.project_folder.forbidden"),
     project_directory_required: t("sidebar.project_folder.no_main_folder"),
     project_root_unavailable: t("sidebar.project_folder.root_unavailable"),
-    project_folder_changed:
-      t("sidebar.project_folder.changed"),
-    project_folder_delete_failed:
-      t("sidebar.project_folder.delete_failed"),
+    project_folder_changed: t("sidebar.project_folder.changed"),
+    project_folder_delete_failed: t("sidebar.project_folder.delete_failed"),
   };
   let preview = null,
     deleting = false;
@@ -3106,7 +3186,9 @@ function openDeleteProjectFolder(project, label, trigger) {
   check.disabled = true;
   confirm.disabled = true;
   cancel.disabled = false;
-  $("delete-project-folder-status").textContent = t("sidebar.project_folder.loading_path");
+  $("delete-project-folder-status").textContent = t(
+    "sidebar.project_folder.loading_path",
+  );
   check.onchange = () => {
     confirm.disabled = !preview || !check.checked || deleting;
   };
@@ -3236,7 +3318,10 @@ function renderProjects() {
           star.textContent = "★ ";
           star.setAttribute("aria-hidden", "true");
           button.prepend(star);
-          button.setAttribute("aria-label", t("sidebar.project.favorite_label", { name: o.textContent }));
+          button.setAttribute(
+            "aria-label",
+            t("sidebar.project.favorite_label", { name: o.textContent }),
+          );
         }
         const projectIcon = projectIcons[o.value],
           showIcon = !!projectIcon && !projectPreferences[o.value]?.hide_icon;
@@ -3245,7 +3330,9 @@ function renderProjects() {
           img.className = "project-logo";
           img.src = projectIcon.src;
           img.alt = "";
-          img.title = t("sidebar.project.icon_detected", { path: projectIcon.path });
+          img.title = t("sidebar.project.icon_detected", {
+            path: projectIcon.path,
+          });
           img.onerror = () => img.remove();
           button.prepend(img);
         }
@@ -3282,7 +3369,9 @@ function renderProjects() {
         pin.append(
           HarnessUI.icon("star"),
           document.createTextNode(
-            favorite ? t("sidebar.project.remove_favorite") : t("sidebar.project.add_favorite"),
+            favorite
+              ? t("sidebar.project.remove_favorite")
+              : t("sidebar.project.add_favorite"),
           ),
         );
         pin.onclick = () => {
@@ -3346,7 +3435,9 @@ function renderProjects() {
         iconToggle.append(
           HarnessUI.icon("scan"),
           document.createTextNode(
-            showIcon ? t("sidebar.project.hide_icon") : t("sidebar.project.show_icon"),
+            showIcon
+              ? t("sidebar.project.hide_icon")
+              : t("sidebar.project.show_icon"),
           ),
         );
         iconToggle.title = projectIcon
@@ -3371,8 +3462,7 @@ function renderProjects() {
         pin.title = favorite
           ? t("sidebar.project.unfavorite_hint")
           : t("sidebar.project.favorite_hint");
-        deleteFolder.title =
-          t("sidebar.project.delete_folder_hint");
+        deleteFolder.title = t("sidebar.project.delete_folder_hint");
         trigger.title = t("sidebar.project.actions");
         trigger.replaceChildren(HarnessUI.icon("settings"));
         menu.append(edit, navigate, pin, iconToggle, remove, deleteFolder);
@@ -3390,7 +3480,9 @@ function renderProjects() {
           heading.insertBefore(
             statusDot(
               urgent,
-              t("sidebar.project.status_in_project", { status: STATUS_DOTS[urgent] }),
+              t("sidebar.project.status_in_project", {
+                status: STATUS_DOTS[urgent],
+              }),
               "project-indicator",
             ),
             actions,
@@ -3409,14 +3501,13 @@ function renderProjects() {
         create.onclick = (event) => {
           event.preventDefault();
           if (submitting || cancelling || loading || uploads) {
-            status(
-              t("sidebar.new.busy_chat"),
-              "neutral",
-            );
+            status(t("sidebar.new.busy_chat"), "neutral");
             return;
           }
           newConversation(
-            t("sidebar.project.new_conversation_in", { project: o.textContent }),
+            t("sidebar.project.new_conversation_in", {
+              project: o.textContent,
+            }),
             o.value,
             { resetExecutionMode: true },
           );
@@ -3604,8 +3695,7 @@ function setAnswer(answer, value, notice = "", code = "") {
 // (above the answer, which re-renders from its raw text) rather than in the transient status.
 function showSkippedHookNotice(data) {
   if (!active) return;
-  const text =
-    userError(data.reason) || t("conversation.hook_skipped");
+  const text = userError(data.reason) || t("conversation.hook_skipped");
   const shown = active.el.querySelectorAll(
     '[data-testid="catalog-hook-notice"]',
   );
@@ -3718,7 +3808,10 @@ function messageAttachments(message, attachments = []) {
       close.type = "button";
       close.className = "dialog-close";
       close.textContent = "×";
-      close.setAttribute("aria-label", t("conversation.attachment.close_label"));
+      close.setAttribute(
+        "aria-label",
+        t("conversation.attachment.close_label"),
+      );
       close.autofocus = true;
       close.onclick = () => dialog.close();
       const full = document.createElement("img");
@@ -3844,7 +3937,11 @@ function safeToolId(tool) {
 // C-03: like the Codex and Claude CLIs, a shell step shows its command and a file step its path.
 // WP7: one table of step categories; the icon and verb of a run step come from here.
 const TOOL_MARKERS = {
-  read: { icon: "file-text", verb: "activity.verb.reading", tools: "read read_file" },
+  read: {
+    icon: "file-text",
+    verb: "activity.verb.reading",
+    tools: "read read_file",
+  },
   edit: {
     icon: "pencil",
     verb: "activity.verb.editing",
@@ -3860,14 +3957,22 @@ const TOOL_MARKERS = {
     verb: "activity.verb.searching",
     tools: "glob grep search search_files",
   },
-  list: { icon: "folder", verb: "activity.verb.listing", tools: "list_directory list_dir" },
+  list: {
+    icon: "folder",
+    verb: "activity.verb.listing",
+    tools: "list_directory list_dir",
+  },
   web: {
     icon: "world",
     verb: "activity.verb.browsing",
     tools: "websearch webfetch web_search web_fetch fetch",
   },
   skill: { icon: "cube", verb: "activity.verb.skill", tools: "skill" },
-  agent: { icon: "robot", verb: "activity.verb.delegating", tools: "task agent" },
+  agent: {
+    icon: "robot",
+    verb: "activity.verb.delegating",
+    tools: "task agent",
+  },
   plan: {
     icon: "list-check",
     verb: "activity.verb.updating",
@@ -3922,7 +4027,11 @@ function targetTitle(data) {
           : "";
   return subject && entry?.tools ? t(entry.verb) + " " + subject : "";
 }
-const THINKING_EVENT_TYPES = ["thinking", "reasoning_delta", "reasoning_summary"];
+const THINKING_EVENT_TYPES = [
+  "thinking",
+  "reasoning_delta",
+  "reasoning_summary",
+];
 function activityTitle(e) {
   const data = e.data || {},
     type = e.type,
@@ -3932,7 +4041,8 @@ function activityTitle(e) {
     data.backend,
   );
   if (condition) return condition.title;
-  if (type === "provider_warning") return data.message || t("activity.provider_warning");
+  if (type === "provider_warning")
+    return data.message || t("activity.provider_warning");
   if (type === "hook_scope") {
     return (
       {
@@ -3979,7 +4089,9 @@ function activityTitle(e) {
           webSearch: t("activity.tool.search_web"),
           WebSearch: t("activity.tool.search_web"),
         }[data.tool] ||
-          t("activity.tool.running", { tool: tool || t("activity.tool.generic") });
+          t("activity.tool.running", {
+            tool: tool || t("activity.tool.generic"),
+          });
   if (type === "tool_end")
     return data.status === "failed"
       ? t("activity.tool.failed")
@@ -4003,7 +4115,8 @@ function activityTitle(e) {
   )
     return runLabel(type) || t("run_status.terminal.interrupted");
   if (type === "plan_updated") return t("run_status.label.plan_updated");
-  if (type === "maestro_planning") return t("run_status.label.maestro_planning");
+  if (type === "maestro_planning")
+    return t("run_status.label.maestro_planning");
   if (type === "maestro_plan") return t("activity.workflow.plan_set");
   if (type === "maestro_step") return t("activity.workflow.step_started");
   return (
@@ -4225,7 +4338,9 @@ function assistant(id = "", model = $("model").value, replayTools = false) {
   badge.textContent = modelIcon(model);
   title.append(
     badge,
-    document.createTextNode(model ? modelName(model) : t("conversation.turn.response")),
+    document.createTextNode(
+      model ? modelName(model) : t("conversation.turn.response"),
+    ),
   );
   a.el.prepend(title);
   const chip = document.createElement("p");
@@ -4357,7 +4472,9 @@ function turnReviewRow(file) {
     const moved = document.createElement("span");
     moved.className = "turn-review-moved";
     moved.dataset.testid = "turn-review-moved";
-    moved.textContent = t("conversation.review.renamed_from", { path: movedFrom });
+    moved.textContent = t("conversation.review.renamed_from", {
+      path: movedFrom,
+    });
     button.append(moved);
   }
   const diff = turnReviewDiffNode(file);
@@ -4379,7 +4496,9 @@ function renderTurnReview(slot, data) {
   toggle.className = "turn-review-toggle";
   toggle.dataset.testid = "turn-review-toggle";
   toggle.setAttribute("aria-expanded", "false");
-  toggle.textContent = t("conversation.review.files_changed", { count: files.length });
+  toggle.textContent = t("conversation.review.files_changed", {
+    count: files.length,
+  });
   const list = document.createElement("ul");
   list.className = "turn-review-list";
   list.dataset.testid = "turn-review-list";
@@ -4390,7 +4509,9 @@ function renderTurnReview(slot, data) {
   if (files.length > TURN_REVIEW_MAX_ROWS) {
     const more = document.createElement("li");
     more.className = "turn-review-more";
-    more.textContent = t("conversation.review.more", { count: files.length - TURN_REVIEW_MAX_ROWS });
+    more.textContent = t("conversation.review.more", {
+      count: files.length - TURN_REVIEW_MAX_ROWS,
+    });
     list.append(more);
   }
   toggle.addEventListener("click", () => {
@@ -4401,17 +4522,11 @@ function renderTurnReview(slot, data) {
   const notices = [];
   if (data.job_state !== "completed")
     notices.push(
-      turnReviewNote(
-        t("conversation.review.stopped"),
-        "turn-review-stopped",
-      ),
+      turnReviewNote(t("conversation.review.stopped"), "turn-review-stopped"),
     );
   if (data.shell_unattributed)
     notices.push(
-      turnReviewNote(
-        t("conversation.review.shell"),
-        "turn-review-shell",
-      ),
+      turnReviewNote(t("conversation.review.shell"), "turn-review-shell"),
     );
   if (data.truncated)
     notices.push(
@@ -4430,7 +4545,11 @@ function renderTurnReview(slot, data) {
 // from /v1/jobs/{id}) is fetched as before, so a streaming turn still gets its list.
 async function loadTurnReview(answer, jobId, state, hasEdits = true) {
   const slot = answer.review;
-  if (!hasEdits || !TURN_REVIEW_TERMINAL.includes(state) || slot.dataset.job === jobId)
+  if (
+    !hasEdits ||
+    !TURN_REVIEW_TERMINAL.includes(state) ||
+    slot.dataset.job === jobId
+  )
     return;
   slot.dataset.job = jobId;
   let data;
@@ -4448,7 +4567,11 @@ async function loadTurnReview(answer, jobId, state, hasEdits = true) {
 }
 // D37: "Ask again" sends the question this answer replied to as a new turn, on the model now selected.
 function askAgainButton(answer) {
-  const button = answerAction("ask-again", t("conversation.turn.ask_again"), "refresh");
+  const button = answerAction(
+    "ask-again",
+    t("conversation.turn.ask_again"),
+    "refresh",
+  );
   button.onclick = () => {
     let asked = answer.previousElementSibling;
     while (asked && !asked.matches("article.message.user"))
@@ -4629,7 +4752,9 @@ function showWorkflowRecovery(run) {
     run.workflow_completed_steps === 0
       ? t("run_status.recovery.none_reusable")
       : (Number.isInteger(run.workflow_completed_steps)
-          ? t("run_status.recovery.reusable", { count: run.workflow_completed_steps }) + " "
+          ? t("run_status.recovery.reusable", {
+              count: run.workflow_completed_steps,
+            }) + " "
           : t("run_status.recovery.checkpoint") + " ") +
         t("run_status.recovery.reuse_rule");
   note.setAttribute("role", "status");
@@ -4671,8 +4796,7 @@ function showWorkflowRecovery(run) {
       }
       await load(resumedConversation);
       if (conversation !== resumedConversation) {
-        note.textContent =
-          t("run_status.recovery.resumed_open_failed");
+        note.textContent = t("run_status.recovery.resumed_open_failed");
         resume.disabled = false;
       }
       void history();
@@ -4961,21 +5085,18 @@ function executionCondition(code, backend, detail) {
     {
       authentication: {
         title: t("run_status.condition.deepseek_auth_title"),
-        message:
-          t("run_status.condition.deepseek_auth_message"),
+        message: t("run_status.condition.deepseek_auth_message"),
       },
       quota: {
         title: t("run_status.condition.deepseek_quota_title"),
-        message:
-          t("run_status.condition.deepseek_quota_message"),
+        message: t("run_status.condition.deepseek_quota_message"),
       },
     }[kind];
   // D47: the admin has no Gemini card, so there is nothing to open or renew.
   const gemini = backend === "gemini" &&
     ["unavailable", "authentication"].includes(kind) && {
       title: t("run_status.condition.gemini_title"),
-      message:
-        t("run_status.condition.gemini_message"),
+      message: t("run_status.condition.gemini_message"),
     };
   const copy =
     deepseek ||
@@ -4998,7 +5119,8 @@ function executionCondition(code, backend, detail) {
         message: t("run_status.condition.rate_message", { name }),
       },
     }[kind];
-  if (reason) copy.message += " " + t("run_status.condition.says", { name, reason });
+  if (reason)
+    copy.message += " " + t("run_status.condition.says", { name, reason });
   return copy;
 }
 // The prose after an adapter's "<code>: " prefix, never the code itself.
@@ -5067,7 +5189,12 @@ async function result(
   if (active) {
     active.chip.textContent = $("activity-state").textContent;
     // A live read (no snapshot) has no has_turn_edits: fetch as before.
-    loadTurnReview(active, expectedJob, r.state, snapshot ? r.has_turn_edits : true);
+    loadTurnReview(
+      active,
+      expectedJob,
+      r.state,
+      snapshot ? r.has_turn_edits : true,
+    );
     const data = r.result || {};
     if (data.context_usage) paintContext(data.context_usage, data.metrics);
     else if (data.metrics) paintLocalUsage(data.metrics);
@@ -5203,8 +5330,7 @@ function showHeldTurn(response, held) {
     }
   };
   run.onclick = () => choose("/run-queued", t("run_status.queued.released"));
-  discard.onclick = () =>
-    choose("/cancel", t("run_status.queued.discarded"));
+  discard.onclick = () => choose("/cancel", t("run_status.queued.discarded"));
   actions.append(run, discard);
   response.heldActions = actions;
   response.el.insertBefore(actions, response.body);
@@ -6328,7 +6454,9 @@ async function loadProjectFileRoots(force = false) {
       button.append(
         projectFileIcon(root.id, true),
         document.createTextNode(
-          root.id === "home" ? t("files.roots.local") : t("files.roots.external"),
+          root.id === "home"
+            ? t("files.roots.local")
+            : t("files.roots.external"),
         ),
       );
       button.onclick = () => {
@@ -6616,12 +6744,7 @@ function deleteTemporarySession(id) {
 function leaveTemporaryChat() {
   if (!temporarySession) return true;
   if (submitting || cancelling || loading || uploads) return false;
-  if (
-    !window.confirm(
-      t("conversation.temporary.close_confirm"),
-    )
-  )
-    return false;
+  if (!window.confirm(t("conversation.temporary.close_confirm"))) return false;
   discardTemporaryChat();
   return true;
 }
@@ -6667,7 +6790,10 @@ async function renewTemporaryChat() {
     await json("/v1/temporary/" + encodeURIComponent(id));
   } catch (error) {
     if (temporarySession === id)
-      status(t("conversation.temporary.connection", { detail: error.message }), "neutral");
+      status(
+        t("conversation.temporary.connection", { detail: error.message }),
+        "neutral",
+      );
   }
 }
 async function startTemporaryChat() {
@@ -6705,7 +6831,10 @@ async function startTemporaryChat() {
     temporaryStarting = false; // newConversation refuses to run while a start is pending
     if (replacing) await returnFromTemporaryChat();
     temporaryPreviousDraft = null;
-    status(t("conversation.temporary.start_failed", { detail: error.message }), "error");
+    status(
+      t("conversation.temporary.start_failed", { detail: error.message }),
+      "error",
+    );
   } finally {
     temporaryStarting = false;
     setBusy(busy);
@@ -7076,7 +7205,9 @@ $("project-button").onclick = () => {
       item.append(
         HarnessUI.icon("folder"),
         document.createTextNode(
-          option.value === "sem-projeto" ? t("sidebar.project.none") : option.textContent,
+          option.value === "sem-projeto"
+            ? t("sidebar.project.none")
+            : option.textContent,
         ),
       );
       item.onclick = () => {
@@ -7140,8 +7271,9 @@ function renderProjectTrust() {
   if (trust?.inherited_from) {
     const inherited = document.createElement("p");
     inherited.className = "project-trust-inherited";
-    inherited.textContent =
-      t("customize.trust.inherited", { from: trust.inherited_from });
+    inherited.textContent = t("customize.trust.inherited", {
+      from: trust.inherited_from,
+    });
     panel.append(inherited);
   }
   if (trust?.required) {
@@ -7150,13 +7282,16 @@ function renderProjectTrust() {
       warning = document.createElement("p"),
       accept = document.createElement("button");
     copy.className = "project-trust-copy";
-    heading.textContent = t("customize.trust.question", { project: context.label });
-    warning.textContent =
-      t("customize.trust.explain");
+    heading.textContent = t("customize.trust.question", {
+      project: context.label,
+    });
+    warning.textContent = t("customize.trust.explain");
     copy.append(heading, warning);
     accept.type = "button";
     accept.className = "project-trust-action";
-    accept.textContent = t("customize.trust.accept", { project: context.label });
+    accept.textContent = t("customize.trust.accept", {
+      project: context.label,
+    });
     accept.disabled = projectTrustWriting;
     accept.onclick = () => writeProjectTrust(context, "trust", {});
     panel.append(copy, accept);
@@ -7164,11 +7299,12 @@ function renderProjectTrust() {
   if (trust?.trusted) {
     const copy = document.createElement("p"),
       revoke = document.createElement("button");
-    copy.textContent =
-      t("customize.trust.trusted_note");
+    copy.textContent = t("customize.trust.trusted_note");
     revoke.type = "button";
     revoke.className = "project-trust-action";
-    revoke.textContent = t("customize.trust.revoke", { project: context.label });
+    revoke.textContent = t("customize.trust.revoke", {
+      project: context.label,
+    });
     revoke.disabled = projectTrustWriting;
     revoke.onclick = () =>
       writeProjectTrust(context, "trust", { trusted: false });
@@ -7193,9 +7329,12 @@ function renderProjectTrust() {
     copy.append(name, detail);
     toggle.type = "button";
     toggle.className = "project-trust-action";
-    toggle.textContent = t(item.approved ? "customize.mcp.revoke" : "customize.mcp.approve", {
-      server: item.server,
-    });
+    toggle.textContent = t(
+      item.approved ? "customize.mcp.revoke" : "customize.mcp.approve",
+      {
+        server: item.server,
+      },
+    );
     toggle.disabled = projectTrustWriting;
     toggle.onclick = () =>
       writeProjectTrust(context, "mcp-approvals", {
@@ -7303,7 +7442,9 @@ async function refreshProjectTrust() {
     projectTrustData = data;
   } catch (error) {
     if (!currentProjectTrust(context)) return;
-    projectTrustError = t("composer.trust.check_failed", { detail: error.message });
+    projectTrustError = t("composer.trust.check_failed", {
+      detail: error.message,
+    });
   }
   renderProjectTrust();
 }
@@ -7311,7 +7452,9 @@ async function refreshProjectTrust() {
 function usageAge(seconds) {
   const age = Math.max(0, Date.now() / 1000 - Number(seconds || 0));
   return age < 3600
-    ? t("composer.connectors.age_minutes", { n: Math.max(1, Math.round(age / 60)) })
+    ? t("composer.connectors.age_minutes", {
+        n: Math.max(1, Math.round(age / 60)),
+      })
     : age < 86400
       ? t("composer.connectors.age_hours", { n: Math.round(age / 3600) })
       : t("composer.connectors.age_days", { n: Math.round(age / 86400) });
@@ -7343,10 +7486,7 @@ function setElsewhere(key, list) {
   const chip = $("plugins-chip");
   if (elsewhereView.list.length) {
     chip.dataset.elsewhere = "true";
-    chip.setAttribute(
-      "aria-label",
-      t("composer.connectors.elsewhere_label"),
-    );
+    chip.setAttribute("aria-label", t("composer.connectors.elsewhere_label"));
   } else {
     delete chip.dataset.elsewhere;
     chip.removeAttribute("aria-label");
@@ -7395,7 +7535,10 @@ function elsewhereSection(list, backend, menu) {
     meta.textContent =
       entry.here === "enable"
         ? t("composer.connectors.elsewhere_off", { provider: here })
-        : t("composer.connectors.elsewhere_absent", { provider: here, others: on });
+        : t("composer.connectors.elsewhere_absent", {
+            provider: here,
+            others: on,
+          });
     text.append(name, meta);
     box.append(HarnessUI.icon("plug"), text);
     // Provider state lives in the Plugins facade where the admin is reachable, and in the native
@@ -7428,7 +7571,11 @@ function carryoverToolLines(from, next) {
     )
     .map((entry) =>
       entry.here === "absent"
-        ? t("composer.connectors.carry_absent", { label: entry.label, from: was, to })
+        ? t("composer.connectors.carry_absent", {
+            label: entry.label,
+            from: was,
+            to,
+          })
         : t("composer.connectors.carry_enable", { label: entry.label, to }),
     );
 }
@@ -7447,7 +7594,8 @@ function integrationRow(item, sharedReason = "") {
   name.textContent = item.name;
   meta.textContent = [
     item.kind === "mcp"
-      ? t("composer.connectors.kind_connector") + (item.transport ? " · " + item.transport : "")
+      ? t("composer.connectors.kind_connector") +
+        (item.transport ? " · " + item.transport : "")
       : t("composer.connectors.kind_plugin"),
     item.used?.count
       ? t("composer.connectors.used", {
@@ -7535,9 +7683,14 @@ function showIntegrationDetail(item) {
           count: item.used.count,
           age: usageAge(item.used.last_used),
         })
-      : t("composer.connectors.not_in_window", { days: data.window_days || 30 }),
+      : t("composer.connectors.not_in_window", {
+          days: data.window_days || 30,
+        }),
   );
-  fact(t("composer.connectors.fact_tools"), (item.used?.tools || []).join(", "));
+  fact(
+    t("composer.connectors.fact_tools"),
+    (item.used?.tools || []).join(", "),
+  );
   fact(
     t("composer.connectors.fact_approvals"),
     item.effective !== false
@@ -7570,7 +7723,9 @@ async function renderPluginsMenu() {
   heading.className = "access-menu-heading";
   heading.textContent = t("composer.connectors.heading", {
     provider:
-      providerNames[m.backend] || m.backend || t("composer.connectors.no_model"),
+      providerNames[m.backend] ||
+      m.backend ||
+      t("composer.connectors.no_model"),
   });
   const body = document.createElement("div");
   body.className = "plugins-body";
@@ -7625,7 +7780,9 @@ async function renderPluginsMenu() {
       return wrap;
     };
     if (configured.length)
-      parts.push(section(t("composer.connectors.section_configured"), configured, ""));
+      parts.push(
+        section(t("composer.connectors.section_configured"), configured, ""),
+      );
     else
       parts.push(
         section(
@@ -7635,7 +7792,9 @@ async function renderPluginsMenu() {
         ),
       );
     if (others.length)
-      parts.push(section(t("composer.connectors.section_installed"), others, ""));
+      parts.push(
+        section(t("composer.connectors.section_installed"), others, ""),
+      );
     if (elsewhere.length)
       parts.push(elsewhereSection(elsewhere, m.backend, menu));
     const tools = Array.isArray(data.other_tools) ? data.other_tools : [];
@@ -7644,8 +7803,9 @@ async function renderPluginsMenu() {
         summary = document.createElement("summary"),
         list = document.createElement("ul");
       details.className = "plugins-tools";
-      summary.textContent =
-        t("composer.connectors.other_tools", { days: data.window_days || 30 });
+      summary.textContent = t("composer.connectors.other_tools", {
+        days: data.window_days || 30,
+      });
       list.replaceChildren(
         ...tools.map((tool) =>
           Object.assign(document.createElement("li"), {
@@ -7685,8 +7845,9 @@ async function renderPluginsMenu() {
     body.replaceChildren(...parts);
     pluginsView = { data, parts };
   } catch (error) {
-    body.textContent =
-      t("composer.connectors.check_failed", { detail: error.message });
+    body.textContent = t("composer.connectors.check_failed", {
+      detail: error.message,
+    });
   }
 }
 function openChipMenu(menu, chip, render) {
@@ -7780,17 +7941,19 @@ async function renderFilesMenu() {
     heading = document.createElement("p"),
     body = document.createElement("div"),
     attachable = canUpload() && !busy && !loading && !uploads,
-    uploadButton = menuButton(t("composer.files.upload"), () => $("file").click(), {
-      testid: "files-menu-upload",
-      icon: HarnessUI.icon("paperclip"),
-    });
+    uploadButton = menuButton(
+      t("composer.files.upload"),
+      () => $("file").click(),
+      {
+        testid: "files-menu-upload",
+        icon: HarnessUI.icon("paperclip"),
+      },
+    );
   heading.className = "access-menu-heading";
   heading.textContent = t("composer.files.attach_heading");
   body.className = "plugins-body files-body";
   uploadButton.disabled = !attachable;
-  if (!attachable)
-    uploadButton.title =
-      t("composer.files.unavailable");
+  if (!attachable) uploadButton.title = t("composer.files.unavailable");
   const recent = recentUploads()
     .filter(
       (entry) =>
@@ -7805,7 +7968,11 @@ async function renderFilesMenu() {
       }),
     );
   for (const button of recent) button.disabled = !attachable;
-  const pagesSection = menuSection(t("composer.files.space_pages"), [], t("admin.providers.checking"));
+  const pagesSection = menuSection(
+    t("composer.files.space_pages"),
+    [],
+    t("admin.providers.checking"),
+  );
   body.append(
     uploadButton,
     menuSection(
@@ -7837,11 +8004,19 @@ async function renderFilesMenu() {
     );
     for (const button of buttons) button.disabled = !attachable;
     pagesSection.replaceWith(
-      menuSection(t("composer.files.space_pages"), buttons, t("composer.files.pages_empty")),
+      menuSection(
+        t("composer.files.space_pages"),
+        buttons,
+        t("composer.files.pages_empty"),
+      ),
     );
   } catch (error) {
     pagesSection.replaceWith(
-      menuSection(t("composer.files.space_pages"), [], t("composer.files.pages_failed", { detail: error.message })),
+      menuSection(
+        t("composer.files.space_pages"),
+        [],
+        t("composer.files.pages_failed", { detail: error.message }),
+      ),
     );
   }
 }
@@ -7996,8 +8171,7 @@ function setReadiness(ready, message = "") {
   $("startup-gate").hidden = ready;
   $("startup-gate").querySelector("span").textContent = ready
     ? ""
-    : message ||
-      t("static.status.waiting_server");
+    : message || t("static.status.waiting_server");
   document.body.dataset.connectionReady = String(ready);
   if (ready) {
     syncWorkspaceModal();
@@ -8031,8 +8205,7 @@ function modelAvailability(
     ? t("composer.availability.title_error")
     : t("composer.availability.title_none");
   $("model-availability-detail").textContent =
-    error ||
-    t("composer.availability.detail_setup");
+    error || t("composer.availability.detail_setup");
   const link = $("admin-link");
   link.hidden = true;
   {
@@ -8276,7 +8449,8 @@ async function probeReadiness() {
       "/v1/models?project_id=" + encodeURIComponent(project),
       { signal: AbortSignal.timeout(5000) },
     );
-    if (!Array.isArray(scoped.models)) throw Error(t("composer.error.permissions_invalid"));
+    if (!Array.isArray(scoped.models))
+      throw Error(t("composer.error.permissions_invalid"));
     if (
       !busy &&
       !loading &&
@@ -8329,7 +8503,8 @@ async function probeReadiness() {
       const h = await json("/v1/conversations", {
         signal: AbortSignal.timeout(5000),
       });
-      if (!Array.isArray(h.conversations)) throw Error(t("history.error.invalid"));
+      if (!Array.isArray(h.conversations))
+        throw Error(t("history.error.invalid"));
     } catch (e) {
       if (e.status !== 404) throw e;
       const h = await json("/v1/history", {
@@ -8351,7 +8526,10 @@ async function probeReadiness() {
         ? t("composer.status.waiting_authorization")
         : t("composer.status.waiting_server_checking"),
     );
-    status(t("composer.status.connection_lost", { detail: e.message }), "neutral");
+    status(
+      t("composer.status.connection_lost", { detail: e.message }),
+      "neutral",
+    );
   } finally {
     probing = false;
   }
@@ -8623,23 +8801,23 @@ async function checkVersion() {
     const restartPending =
       v.disk_source_build && v.disk_source_build !== v.source_build;
     $("version").textContent = t(
-      restartPending ? "static.version.restart_pending" : "static.version.release",
+      restartPending
+        ? "static.version.restart_pending"
+        : "static.version.release",
       { version: v.version },
     );
     $("version").title = "";
-    $("about-version").textContent = t("static.about.version", { version: v.version });
+    $("about-version").textContent = t("static.about.version", {
+      version: v.version,
+    });
     if (v.config_reload_error)
-      status(
-        t("composer.status.config_reload_failed"),
-        "error",
-      );
+      status(t("composer.status.config_reload_failed"), "error");
     if (uiBuild && v.ui_build && uiBuild !== v.ui_build) reloadPending = true;
     uiBuild = v.ui_build;
     if (reloadPending && !busy && !loading && !uploads && saveView()) {
       location.reload();
     } else if (reloadPending) {
-      $("version").title =
-        t("static.version.update_pending");
+      $("version").title = t("static.version.update_pending");
     }
   } catch {}
 }
@@ -8909,7 +9087,9 @@ async function loadAuthorizedProjectRoots() {
               const state = document.createElement("b");
               state.className = "file-status-badge";
               state.textContent = entry.status;
-              state.title = t("static.files.git_status", { status: entry.status });
+              state.title = t("static.files.git_status", {
+                status: entry.status,
+              });
               row.append(state);
             }
             list.append(row);
@@ -8932,7 +9112,8 @@ async function loadAuthorizedProjectRoots() {
         loadNextRoot(),
       ),
     );
-    if (!roots.length) holder.textContent = t("static.files.no_root_authorized");
+    if (!roots.length)
+      holder.textContent = t("static.files.no_root_authorized");
   } catch {
     if (request !== authorizedRootsRequest) return;
     holder.textContent = t("static.files.roots_unavailable");
@@ -8955,7 +9136,9 @@ function resetActivity(clearHistory = true) {
     $("response-details")?.replaceChildren();
     $("activity-previous").replaceChildren();
     $("activity-current").dataset.job = "";
-    $("activity-run-title").textContent = t("run_status.activity.waiting_for_execution");
+    $("activity-run-title").textContent = t(
+      "run_status.activity.waiting_for_execution",
+    );
   }
   if ($("activity-reasoning")) $("activity-reasoning").textContent = "";
   const list = $("activity-events");
@@ -9085,7 +9268,9 @@ function beginActivity(id, model = $("model").value) {
     modelIcon(model) +
     " " +
     t("run_console.activity.run_title", {
-      model: model ? modelName(model) : t("static.composer.model_trigger.aria_label"),
+      model: model
+        ? modelName(model)
+        : t("static.composer.model_trigger.aria_label"),
       id,
     });
 }
@@ -9507,8 +9692,9 @@ async function refreshCatalog() {
       (data.warnings.length ? " " + data.warnings.join(" ") : "");
   } catch (e) {
     if (request !== catalogRequest) return;
-    $("catalog-status").textContent =
-      t("catalogs.status.unavailable", { message: e.message });
+    $("catalog-status").textContent = t("catalogs.status.unavailable", {
+      message: e.message,
+    });
     $("catalog-skills").textContent = t("catalogs.error.skills_unavailable");
   }
 }
@@ -10012,9 +10198,7 @@ function projectChoices(select, value) {
     ...[...$("project").options].map(
       (o) =>
         new Option(
-          o.value === "sem-projeto"
-            ? t("sidebar.project.none")
-            : o.textContent,
+          o.value === "sem-projeto" ? t("sidebar.project.none") : o.textContent,
           o.value,
         ),
     ),
@@ -10618,19 +10802,23 @@ $("schedule-run").onclick = async () => {
   }
 };
 $("schedule-delete").onclick = () =>
-  void confirmTwice($("schedule-delete"), t("admin.providers.delete"), async () => {
-    try {
-      await json("/v1/schedules/" + encodeURIComponent(currentSchedule.id), {
-        method: "DELETE",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ revision: currentSchedule.revision }),
-      });
-      showScheduleEditor(undefined);
-      await loadSchedules(null);
-    } catch (error) {
-      showScheduleError("", error.message);
-    }
-  });
+  void confirmTwice(
+    $("schedule-delete"),
+    t("admin.providers.delete"),
+    async () => {
+      try {
+        await json("/v1/schedules/" + encodeURIComponent(currentSchedule.id), {
+          method: "DELETE",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ revision: currentSchedule.revision }),
+        });
+        showScheduleEditor(undefined);
+        await loadSchedules(null);
+      } catch (error) {
+        showScheduleError("", error.message);
+      }
+    },
+  );
 $("schedule-new").onclick = () => {
   showScheduleEditor(null);
   $("schedule-title").focus();
@@ -10688,10 +10876,7 @@ function agentFormBody() {
 }
 function agentFormProblem(body) {
   if (!/^[a-z0-9][a-z0-9-]{1,47}$/.test(body.name))
-    return [
-      "name",
-      t("agents.name_rule"),
-    ];
+    return ["name", t("agents.name_rule")];
   if (!body.purpose) return ["purpose", t("agents.purpose_required")];
   if (!body.instructions)
     return ["instructions", t("agents.instructions_required")];
@@ -10777,8 +10962,7 @@ async function loadHarnessAgents() {
   try {
     const data = await json("/v1/harness-agents");
     harnessAgents = Array.isArray(data.agents) ? data.agents : [];
-    $("harness-agents-empty").textContent =
-      t("agents.empty");
+    $("harness-agents-empty").textContent = t("agents.empty");
   } catch {
     harnessAgents = [];
     $("harness-agents-empty").textContent = t("agents.load_failed");
@@ -11123,10 +11307,15 @@ function renderConversationSearch() {
   group(
     t("search.group_commands"),
     commandMatches.map((item) =>
-      resultButton("command:" + item.id, item.title, t("search.kind_command"), () => {
-        $("conversation-search-dialog").close();
-        item.run();
-      }),
+      resultButton(
+        "command:" + item.id,
+        item.title,
+        t("search.kind_command"),
+        () => {
+          $("conversation-search-dialog").close();
+          item.run();
+        },
+      ),
     ),
   );
   group(
@@ -11280,8 +11469,7 @@ $("conversation-search-title").textContent = t("search.title");
 document.querySelector('label[for="conversation-search"]').textContent =
   t("search.label");
 $("conversation-search").placeholder = t("search.placeholder");
-$("search-conversations").querySelector("span").textContent =
-  t("search.title");
+$("search-conversations").querySelector("span").textContent = t("search.title");
 $("search-conversations").querySelector("kbd").textContent =
   shortcutModifier + " K";
 $("search-conversations").title = t("search.open_title", {
@@ -11654,13 +11842,20 @@ languageSelect.onchange = () => {
 fetch("/assets/locales/index.json")
   .then((response) => (response.ok ? response.json() : null))
   .then((index) => {
-    const locales = (index?.locales ?? []).filter((locale) => locale.complete === true);
+    const locales = (index?.locales ?? []).filter(
+      (locale) => locale.complete === true,
+    );
     if (!locales.length) return;
-    languageSelect.replaceChildren(...locales.map((locale) => new Option(locale.name, locale.tag)));
+    languageSelect.replaceChildren(
+      ...locales.map((locale) => new Option(locale.name, locale.tag)),
+    );
     languageSelect.value = HarnessI18n.tag();
   })
   .catch(() => {});
 HarnessI18n.onChange(() => {
+  window.keepharnessDesktop
+    ?.setLanguage?.(HarnessI18n.tag())
+    ?.catch?.(() => {});
   renderProjects();
   renderConversationHeader();
   updateComposer();
@@ -11682,7 +11877,15 @@ setWideLayout(prefs.get("wide_layout", false) === true);
 const editorPane = $("editor-pane"),
   editorText = $("editor-textarea"),
   editorNarrow = matchMedia("(max-width: 999px)");
-let editor = { project: "", rootId: "", path: "", etag: "", eol: "lf", writable: true, saved: "" };
+let editor = {
+  project: "",
+  rootId: "",
+  path: "",
+  etag: "",
+  eol: "lf",
+  writable: true,
+  saved: "",
+};
 let editorPending = null;
 let editorDrag = null;
 const editorUrl = (file) =>
@@ -11722,7 +11925,8 @@ function setEditorOpen(on) {
 }
 function openEditor() {
   // Below 1000 px both panels are overlays; only one may cover the page.
-  if (editorNarrow.matches && !$("activity-panel").hidden) setPanelOpen(false, false);
+  if (editorNarrow.matches && !$("activity-panel").hidden)
+    setPanelOpen(false, false);
   window.terminalPane?.closeForPanel();
   setEditorOpen(true);
   if (editorNarrow.matches) $("editor-close").focus();
@@ -11770,7 +11974,13 @@ async function loadEditorFile(file) {
   try {
     const data = await (await api(editorUrl(file))).json();
     editorText.value = data.text.replace(/\r\n/g, "\n");
-    editor = { ...file, etag: data.etag, eol: data.eol, writable: data.writable, saved: editorText.value };
+    editor = {
+      ...file,
+      etag: data.etag,
+      eol: data.eol,
+      writable: data.writable,
+      saved: editorText.value,
+    };
     editorText.readOnly = !data.writable;
     $("editor-path").textContent = file.path;
     $("editor-empty").hidden = true;
@@ -11785,7 +11995,11 @@ async function loadEditorFile(file) {
 }
 function openEditorFromTree(path) {
   guardEditorDirty(() =>
-    loadEditorFile({ project: fileTree.project, rootId: fileTree.rootId, path }),
+    loadEditorFile({
+      project: fileTree.project,
+      rootId: fileTree.rootId,
+      path,
+    }),
   );
 }
 // PUT with If-Match; CRLF files get CRLF back on every line. A 412 keeps the text and offers reload or overwrite.
@@ -11815,7 +12029,12 @@ async function saveEditor(ifMatch = editor.etag) {
 }
 // Below 1000 px the pane is a modal dialog: Tab cycles inside it, Escape closes it and returns focus to the toggle.
 document.addEventListener("keydown", (event) => {
-  if (editorPane.hidden || !editorNarrow.matches || $("editor-dirty-dialog").open) return;
+  if (
+    editorPane.hidden ||
+    !editorNarrow.matches ||
+    $("editor-dirty-dialog").open
+  )
+    return;
   if (event.key === "Escape" && !foreignModalOpen()) {
     event.preventDefault();
     closeEditor(() => $("editor-toggle").focus());
@@ -11825,8 +12044,12 @@ document.addEventListener("keydown", (event) => {
     );
     const at = items.indexOf(document.activeElement);
     const next = event.shiftKey
-      ? at <= 0 ? items.length - 1 : at - 1
-      : at < 0 || at === items.length - 1 ? 0 : at + 1;
+      ? at <= 0
+        ? items.length - 1
+        : at - 1
+      : at < 0 || at === items.length - 1
+        ? 0
+        : at + 1;
     event.preventDefault();
     items[next].focus();
   }
@@ -11846,10 +12069,12 @@ document.addEventListener("keydown", (event) => {
 });
 editorNarrow.addEventListener("change", (event) => {
   syncEditorMode();
-  if (event.matches && !editorPane.hidden && !$("activity-panel").hidden) setPanelOpen(false, false);
+  if (event.matches && !editorPane.hidden && !$("activity-panel").hidden)
+    setPanelOpen(false, false);
 });
 syncEditorMode();
-$("editor-toggle").onclick = () => (editorPane.hidden ? openEditor() : closeEditor());
+$("editor-toggle").onclick = () =>
+  editorPane.hidden ? openEditor() : closeEditor();
 $("editor-close").onclick = () => closeEditor();
 $("editor-settings-toggle").onchange = (event) =>
   event.target.checked ? openEditor() : closeEditor();
@@ -11885,7 +12110,10 @@ const editorResize = $("editor-resize");
 editorResize.addEventListener("pointerdown", (event) => {
   if (event.button !== 0) return;
   event.preventDefault();
-  editorDrag = { x: event.clientX, width: editorPane.getBoundingClientRect().width };
+  editorDrag = {
+    x: event.clientX,
+    width: editorPane.getBoundingClientRect().width,
+  };
   editorResize.setPointerCapture(event.pointerId);
 });
 editorResize.addEventListener("pointermove", (event) => {
@@ -11894,11 +12122,15 @@ editorResize.addEventListener("pointermove", (event) => {
 const endEditorDrag = () => {
   if (!editorDrag) return;
   editorDrag = null;
-  prefs.set("editor_width", Math.round(editorPane.getBoundingClientRect().width));
+  prefs.set(
+    "editor_width",
+    Math.round(editorPane.getBoundingClientRect().width),
+  );
 };
 editorResize.addEventListener("pointerup", endEditorDrag);
 editorResize.addEventListener("pointercancel", endEditorDrag);
-if (Number(prefs.get("editor_width", 0))) sizeEditor(Number(prefs.get("editor_width", 0)));
+if (Number(prefs.get("editor_width", 0)))
+  sizeEditor(Number(prefs.get("editor_width", 0)));
 setEditorOpen(prefs.get("editor_open", false) === true);
 $("visual-markers-toggle").checked = visualMarkersOn();
 $("visual-markers-toggle").onchange = (event) => {
@@ -12004,16 +12236,20 @@ function finishGate(id, state, data = {}) {
     box.dataset.publish !== "true"
   ) {
     title.textContent = t("approval.answered_elsewhere");
-    note.textContent =
-      t("approval.answer_unavailable");
+    note.textContent = t("approval.answer_unavailable");
     return;
   }
   note.textContent =
     state === "resolved"
-      ? t(data.resolved_by ? "approval.resolved_by_note" : "approval.resolved_note", {
-          status: resolvedOutcome(box, data),
-          name: data.resolved_by,
-        })
+      ? t(
+          data.resolved_by
+            ? "approval.resolved_by_note"
+            : "approval.resolved_note",
+          {
+            status: resolvedOutcome(box, data),
+            name: data.resolved_by,
+          },
+        )
       : box.dataset.publish === "true"
         ? t("approval.publication_inactive")
         : state === "invalidated"
@@ -12111,7 +12347,9 @@ function showGate(data) {
         finishGate(data.gate_id, error.code.slice(5));
       else if (box.dataset.state === "submitting") {
         box.dataset.state = "pending";
-        note.textContent = t("approval.choice_send_failed", { message: error.message });
+        note.textContent = t("approval.choice_send_failed", {
+          message: error.message,
+        });
         box.querySelectorAll("button,input").forEach((node) => {
           node.disabled = false;
         });
@@ -12160,7 +12398,10 @@ function appendPublishEvidence(container, data) {
   add(t("run_console.effect.label_arguments_digest"), data.arguments_digest);
   add(t("approval.field.artifact_preview"), data.artifact_preview, true);
   add(t("run_console.effect.label_artifact_digest"), data.artifact_digest);
-  add(t("run_console.effect.label_approval"), t("approval.enrollment_required"));
+  add(
+    t("run_console.effect.label_approval"),
+    t("approval.enrollment_required"),
+  );
   container.append(evidence);
 }
 
@@ -12208,7 +12449,9 @@ function showPublishGate(data) {
           finishGate(data.gate_id, error.code.slice(5));
         else if (box.dataset.state === "submitting") {
           box.dataset.state = "pending";
-          note.textContent = t("approval.decision_send_failed", { message: error.message });
+          note.textContent = t("approval.decision_send_failed", {
+            message: error.message,
+          });
           box.querySelectorAll("button").forEach((node) => {
             node.disabled = false;
           });
@@ -12357,7 +12600,9 @@ function showApproval(data) {
           box.dataset.enrollment = "required";
           status(e.message);
         } else if (box.dataset.state !== "expired")
-          progress.textContent = t("approval.decision_confirm_failed", { message: e.message });
+          progress.textContent = t("approval.decision_confirm_failed", {
+            message: e.message,
+          });
       } finally {
         deciding = false;
         if (box.dataset.state !== "expired") {
@@ -12449,40 +12694,72 @@ for (const button of document.querySelectorAll("[data-settings]")) {
 
 function attachmentNotice(filename, code) {
   const reasons = {
-    model_video_unavailable: t("composer.attachment_reason.model_video_unavailable"),
-    video_processing_unavailable: t("composer.attachment_reason.video_processing_unavailable"),
+    model_video_unavailable: t(
+      "composer.attachment_reason.model_video_unavailable",
+    ),
+    video_processing_unavailable: t(
+      "composer.attachment_reason.video_processing_unavailable",
+    ),
     invalid_video: t("composer.attachment_reason.invalid_video"),
     video_frame_failed: t("composer.attachment_reason.video_frame_failed"),
     video_duration_limit: t("composer.attachment_reason.video_duration_limit"),
-    audio_transcription_unavailable: t("composer.attachment_reason.audio_transcription_unavailable"),
-    audio_transcription_failed: t("composer.attachment_reason.audio_transcription_failed"),
-    attachment_source_unavailable: t("composer.attachment_reason.attachment_source_unavailable"),
+    audio_transcription_unavailable: t(
+      "composer.attachment_reason.audio_transcription_unavailable",
+    ),
+    audio_transcription_failed: t(
+      "composer.attachment_reason.audio_transcription_failed",
+    ),
+    attachment_source_unavailable: t(
+      "composer.attachment_reason.attachment_source_unavailable",
+    ),
     file_limit: t("composer.attachment_reason.file_limit"),
     upload_limit: t("composer.attachment_reason.upload_limit"),
     sensitive_file: t("composer.attachment_reason.sensitive_file"),
     symlink_denied: t("composer.attachment_reason.symlink_denied"),
     invalid_image: t("composer.attachment_reason.invalid_image"),
-    image_validation_unavailable: t("composer.attachment_reason.image_validation_unavailable"),
-    image_validation_timeout: t("composer.attachment_reason.image_validation_timeout"),
+    image_validation_unavailable: t(
+      "composer.attachment_reason.image_validation_unavailable",
+    ),
+    image_validation_timeout: t(
+      "composer.attachment_reason.image_validation_timeout",
+    ),
     invalid_document: t("composer.attachment_reason.invalid_document"),
     unsafe_document_xml: t("composer.attachment_reason.unsafe_document_xml"),
-    document_expansion_limit: t("composer.attachment_reason.document_expansion_limit"),
-    model_images_unavailable: t("composer.attachment_reason.model_images_unavailable"),
-    local_vision_not_enabled: t("composer.attachment_reason.local_vision_not_enabled"),
-    images_require_native_service: t("composer.attachment_reason.images_require_native_service"),
-    unsupported_binary_format: t("composer.attachment_reason.unsupported_binary_format"),
+    document_expansion_limit: t(
+      "composer.attachment_reason.document_expansion_limit",
+    ),
+    model_images_unavailable: t(
+      "composer.attachment_reason.model_images_unavailable",
+    ),
+    local_vision_not_enabled: t(
+      "composer.attachment_reason.local_vision_not_enabled",
+    ),
+    images_require_native_service: t(
+      "composer.attachment_reason.images_require_native_service",
+    ),
+    unsupported_binary_format: t(
+      "composer.attachment_reason.unsupported_binary_format",
+    ),
     binary_denied: t("composer.attachment_reason.binary_denied"),
     invalid_pdf: t("composer.attachment_reason.invalid_pdf"),
-    document_tools_unavailable: t("composer.attachment_reason.document_tools_unavailable"),
-    pdf_extraction_failed: t("composer.attachment_reason.pdf_extraction_failed"),
-    document_text_unavailable: t("composer.attachment_reason.document_text_unavailable"),
+    document_tools_unavailable: t(
+      "composer.attachment_reason.document_tools_unavailable",
+    ),
+    pdf_extraction_failed: t(
+      "composer.attachment_reason.pdf_extraction_failed",
+    ),
+    document_text_unavailable: t(
+      "composer.attachment_reason.document_text_unavailable",
+    ),
     document_text_limit: t("composer.attachment_reason.document_text_limit"),
     audio_decode_failed: t("composer.attachment_reason.audio_decode_failed"),
     audio_no_speech: t("composer.attachment_reason.audio_no_speech"),
     audio_duration_limit: t("composer.attachment_reason.audio_duration_limit"),
     invalid_audio: t("composer.attachment_reason.invalid_audio"),
     video_decode_failed: t("composer.attachment_reason.video_decode_failed"),
-    video_processing_timeout: t("composer.attachment_reason.video_processing_timeout"),
+    video_processing_timeout: t(
+      "composer.attachment_reason.video_processing_timeout",
+    ),
     image_size_limit: t("composer.attachment_reason.image_size_limit"),
     file_too_large: t("composer.attachment_reason.file_too_large"),
     tool_output_limit: t("composer.attachment_reason.tool_output_limit"),
@@ -12498,50 +12775,89 @@ function attachmentNotice(filename, code) {
   notice.chip.textContent = t("composer.attachments.skipped_chip");
   notice.body.textContent =
     names.length === 1
-      ? t("composer.attachments.skipped_one", { name: names[0], reason: reasons[code] })
-      : t("composer.attachments.skipped_many", { count: names.length, reason: reasons[code], names: names.map((name) => `“${name}”`).join(", ") });
+      ? t("composer.attachments.skipped_one", {
+          name: names[0],
+          reason: reasons[code],
+        })
+      : t("composer.attachments.skipped_many", {
+          count: names.length,
+          reason: reasons[code],
+          names: names.map((name) => `“${name}”`).join(", "),
+        });
   $("messages").scrollTop = $("messages").scrollHeight;
 }
 function attachmentError(code) {
   if (imageRefusalCodes.has(code))
-    return imageUnreadableCopy() + " " + t("composer.attachments.image_not_attached");
+    return (
+      imageUnreadableCopy() + " " + t("composer.attachments.image_not_attached")
+    );
   return {
-    video_capability_unavailable: t("composer.attachment_error.video_capability_unavailable"),
-    model_video_unavailable: t("composer.attachment_error.model_video_unavailable"),
-    video_processing_unavailable: t("composer.attachment_error.video_processing_unavailable"),
+    video_capability_unavailable: t(
+      "composer.attachment_error.video_capability_unavailable",
+    ),
+    model_video_unavailable: t(
+      "composer.attachment_error.model_video_unavailable",
+    ),
+    video_processing_unavailable: t(
+      "composer.attachment_error.video_processing_unavailable",
+    ),
     invalid_video: t("composer.attachment_error.invalid_video"),
     video_duration_limit: t("composer.attachment_error.video_duration_limit"),
     video_decode_failed: t("composer.attachment_error.video_decode_failed"),
     video_frame_failed: t("composer.attachment_error.video_frame_failed"),
-    video_processing_timeout: t("composer.attachment_error.video_processing_timeout"),
+    video_processing_timeout: t(
+      "composer.attachment_error.video_processing_timeout",
+    ),
     invalid_image: t("composer.attachment_error.invalid_image"),
-    image_validation_unavailable: t("composer.attachment_error.image_validation_unavailable"),
-    image_validation_timeout: t("composer.attachment_error.image_validation_timeout"),
+    image_validation_unavailable: t(
+      "composer.attachment_error.image_validation_unavailable",
+    ),
+    image_validation_timeout: t(
+      "composer.attachment_error.image_validation_timeout",
+    ),
     invalid_filename: t("composer.attachment_error.invalid_filename"),
     upload_limit: t("composer.attachment_error.upload_limit"),
-    audio_transcription_unavailable: t("composer.attachment_error.audio_transcription_unavailable"),
+    audio_transcription_unavailable: t(
+      "composer.attachment_error.audio_transcription_unavailable",
+    ),
     audio_duration_limit: t("composer.attachment_error.audio_duration_limit"),
     invalid_audio: t("composer.attachment_error.invalid_audio"),
-    audio_transcription_failed: t("composer.attachment_error.audio_transcription_failed"),
-    image_capability_unavailable: t("composer.attachment_error.image_capability_unavailable"),
-    select_model_for_image: t("composer.attachment_error.select_model_for_image"),
+    audio_transcription_failed: t(
+      "composer.attachment_error.audio_transcription_failed",
+    ),
+    image_capability_unavailable: t(
+      "composer.attachment_error.image_capability_unavailable",
+    ),
+    select_model_for_image: t(
+      "composer.attachment_error.select_model_for_image",
+    ),
     image_size_limit: t("composer.attachment_error.image_size_limit"),
-    unsupported_binary_format: t("composer.attachment_error.unsupported_binary_format"),
+    unsupported_binary_format: t(
+      "composer.attachment_error.unsupported_binary_format",
+    ),
     binary_denied: t("composer.attachment_error.binary_denied"),
     invalid_document: t("composer.attachment_error.invalid_document"),
-    document_expansion_limit: t("composer.attachment_error.document_expansion_limit"),
+    document_expansion_limit: t(
+      "composer.attachment_error.document_expansion_limit",
+    ),
     invalid_pdf: t("composer.attachment_error.invalid_pdf"),
-    document_tools_unavailable: t("composer.attachment_error.document_tools_unavailable"),
+    document_tools_unavailable: t(
+      "composer.attachment_error.document_tools_unavailable",
+    ),
     pdf_extraction_failed: t("composer.attachment_error.pdf_extraction_failed"),
     unsafe_document_xml: t("composer.attachment_error.unsafe_document_xml"),
     xml_entities_denied: t("composer.attachment_error.xml_entities_denied"),
-    document_text_unavailable: t("composer.attachment_error.document_text_unavailable"),
+    document_text_unavailable: t(
+      "composer.attachment_error.document_text_unavailable",
+    ),
     document_text_limit: t("composer.attachment_error.document_text_limit"),
     audio_decode_failed: t("composer.attachment_error.audio_decode_failed"),
     audio_no_speech: t("composer.attachment_error.audio_no_speech"),
     file_too_large: t("composer.attachment_error.file_too_large"),
     tool_output_limit: t("composer.attachment_error.tool_output_limit"),
-    attachment_source_unavailable: t("composer.attachment_error.attachment_source_unavailable"),
+    attachment_source_unavailable: t(
+      "composer.attachment_error.attachment_source_unavailable",
+    ),
     file_limit: t("composer.attachment_error.file_limit"),
     sensitive_file: t("composer.attachment_error.sensitive_file"),
     symlink_denied: t("composer.attachment_error.symlink_denied"),
@@ -12560,7 +12876,8 @@ document.addEventListener("click", (event) => {
 // Shared native popovers for the three concrete composer controls.
 // OP-R2-2: one label per access mode, the same in the composer menu and the header chip.
 const accessLabel = () =>
-  $("access-mode").selectedOptions[0]?.textContent || t("static.access.ask_title");
+  $("access-mode").selectedOptions[0]?.textContent ||
+  t("static.access.ask_title");
 // D11: the menu offers Full access only to the owner, once turned on in the admin.
 function offerFullAccess(offered) {
   fullAccessOffered = offered;
@@ -12628,17 +12945,20 @@ function syncComposerPickers() {
       const identity = selectedIdentity();
       $("model-trigger-icon").title = identity?.model || "";
       trigger.title = identity
-        ? t("composer.picker.choose_model_identity", { provider: identity.provider, model: identity.model })
+        ? t("composer.picker.choose_model_identity", {
+            provider: identity.provider,
+            model: identity.model,
+          })
         : t("composer.picker.choose_model");
     }
     if (id !== "model")
-      trigger.title = t("composer.picker.choose_effort", { label: $(id + "-label").textContent });
+      trigger.title = t("composer.picker.choose_effort", {
+        label: $(id + "-label").textContent,
+      });
     select.disabled =
       !models.length || submitting || loading || uploads > 0 || policyPending;
     trigger.disabled = select.disabled || !select.options.length;
-    if (busy)
-      trigger.title +=
-        " · " + t("composer.picker.applies_next_detail");
+    if (busy) trigger.title += " · " + t("composer.picker.applies_next_detail");
     if (trigger.disabled && $(id + "-menu").matches(":popover-open"))
       $(id + "-menu").hidePopover();
   }
@@ -12739,14 +13059,12 @@ function renderPicker(id) {
           ? providers[model?.backend] ||
             model?.backend ||
             t("composer.picker.model_default")
-          : descriptions[option.value] ||
-            t("composer.picker.effort_default");
+          : descriptions[option.value] || t("composer.picker.effort_default");
       button.title =
         t("composer.picker.select", {
           option: option.textContent,
           detail: detail.textContent,
-        }) +
-        (busy ? " · " + t("composer.picker.applies_next") : "");
+        }) + (busy ? " · " + t("composer.picker.applies_next") : "");
       text.append(title);
       if (id !== "model") text.append(detail);
       const check = document.createElement("span");
@@ -12769,7 +13087,9 @@ function renderPicker(id) {
           heading.setAttribute("aria-controls", list.id);
           heading.append(providerModelIcon(backend));
           const label =
-            HarnessUI.providerNames[backend] || model?.backend || t("composer.provider.others");
+            HarnessUI.providerNames[backend] ||
+            model?.backend ||
+            t("composer.provider.others");
           group.setAttribute("role", "group");
           group.setAttribute("aria-label", label);
           heading.className = "model-provider-heading";
@@ -13009,8 +13329,10 @@ async function loadProjectDirectories(
     if (request === projectDirectory.request) {
       projectDirectory.expanded.delete(path);
       renderProjectFolders();
-      $("project-directory-error").textContent =
-        t("projects.folder.list_error", { message: error.message });
+      $("project-directory-error").textContent = t(
+        "projects.folder.list_error",
+        { message: error.message },
+      );
     }
   }
 }
@@ -13055,7 +13377,9 @@ function renderSelectedProjectDirectories() {
     primary.type = "button";
     primary.append(
       HarnessUI.icon("home"),
-      document.createTextNode(isPrimary ? t("projects.folder.main") : t("projects.folder.make_main")),
+      document.createTextNode(
+        isPrimary ? t("projects.folder.main") : t("projects.folder.make_main"),
+      ),
     );
     primary.title = isPrimary
       ? t("projects.folder.main_hint")
@@ -13063,7 +13387,9 @@ function renderSelectedProjectDirectories() {
     primary.setAttribute("aria-pressed", String(isPrimary));
     primary.setAttribute(
       "aria-label",
-      isPrimary ? t("projects.folder.main_label", { name }) : t("projects.folder.make_main_label", { name }),
+      isPrimary
+        ? t("projects.folder.main_label", { name })
+        : t("projects.folder.make_main_label", { name }),
     );
     primary.onclick = () => {
       projectDirectory.selected = new Map([
@@ -13115,7 +13441,9 @@ function openProjectDialog(projectId = null) {
   $("project-create").replaceChildren(
     HarnessUI.icon(projectId ? "pencil" : "folder-plus"),
     document.createTextNode(
-      projectId ? t("sidebar.project.save_changes") : t("sidebar.project.create"),
+      projectId
+        ? t("sidebar.project.save_changes")
+        : t("sidebar.project.create"),
     ),
   );
   $("project-create").title = projectId
@@ -13225,10 +13553,8 @@ $("project-form").onsubmit = async (event) => {
       {
         project_busy: t("projects.error.busy"),
         project_name_exists: t("projects.error.name_exists"),
-        project_directory_required:
-          t("projects.error.folder_missing"),
-        project_directory_forbidden:
-          t("projects.error.folder_protected"),
+        project_directory_required: t("projects.error.folder_missing"),
+        project_directory_forbidden: t("projects.error.folder_protected"),
       }[e.code] || e.message;
     note.textContent = t("projects.save_failed", { reason });
   } finally {
@@ -13300,8 +13626,7 @@ async function refreshWorkspaceResources() {
     refreshVisualMarkers();
     if (pendingResourceFocus) focusResourceRow(pendingResourceFocus);
     pendingResourceFocus = "";
-    if (!items.length)
-      target.textContent = t("projects.resources.empty");
+    if (!items.length) target.textContent = t("projects.resources.empty");
     for (const warning of data.warnings || []) {
       const note = document.createElement("p");
       note.textContent = warning;
@@ -13309,8 +13634,7 @@ async function refreshWorkspaceResources() {
     }
   } catch {
     if (request !== workspaceResourceRequest) return;
-    target.textContent =
-      t("projects.resources.load_failed");
+    target.textContent = t("projects.resources.load_failed");
     refreshVisualMarkers();
   }
 }
@@ -13349,7 +13673,8 @@ function renderWorkspaceTasks(jobs) {
     );
     target.append(row);
   }
-  if (!active.length) target.textContent = t("static.activity.no_background_tasks");
+  if (!active.length)
+    target.textContent = t("static.activity.no_background_tasks");
 }
 for (const names of ACCORDION_GROUPS) {
   const heads = names.map((name) => $("workspace-" + name + "-head"));
