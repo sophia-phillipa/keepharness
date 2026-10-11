@@ -232,14 +232,19 @@ async function closeAllowed({ ownsBackend, busy, confirm }) {
   if (working === false) return true;
   return confirm(working);
 }
-function closePrompt(working) {
+// The English text is the default; main passes the translated desktop.dialog.close_* and desktop.button.* text.
+const CLOSE_PROMPT = {
+  message: 'Closing KeepHarness stops the service.',
+  running: 'Tasks are running or queued; the running and queued tasks stop with it.',
+  unknown: 'KeepHarness could not confirm that nothing is running.',
+  keep: 'Keep working',
+  stop: 'Close and stop the work',
+};
+function closePrompt(working, text = CLOSE_PROMPT) {
   return {
-    message: 'Closing KeepHarness stops the service.',
-    detail:
-      working === true
-        ? 'Tasks are running or queued; the running and queued tasks stop with it.'
-        : 'KeepHarness could not confirm that nothing is running.',
-    buttons: ['Keep working', 'Close and stop the work'],
+    message: text.message,
+    detail: working === true ? text.running : text.unknown,
+    buttons: [text.keep, text.stop],
   };
 }
 // `keepharness approve-device --owner local --yes` prints the one-time enrollment link last. The

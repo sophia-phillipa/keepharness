@@ -74,7 +74,7 @@ async function boot(options = {}) {
       const res = new EventEmitter(); res.statusCode = options.status || 200; res.headers = {}; if (url.includes('v1/version') && (options.rejectCredential || opts.headers?.cookie !== `keepharness-local=${ownerSession}`)) res.statusCode=401; if (url.includes('/open?')) { res.statusCode=options.failOpen ? 500 : 303; res.headers['set-cookie']=['admin=abcdefghijklmnop; Path=/', `keepharness-local=${ownerSession}; Path=/`]; } res.resume = () => {}; res.setEncoding = () => {};
       callback(res);
       if (options.dieDuringVersion && url.includes('v1/version') && children.length) { children.at(-1).exitCode=1; children.at(-1).emit('exit',1,null); }
-      res.emit('data', url.includes('v1/version') ? (options.version ?? '{"product":"keepharness"}') : url.endsWith('api/state') ? JSON.stringify({status:{busy:options.busy,running:options.running}}) : '{}'); res.emit('end');
+      res.emit('data', url.includes('v1/version') ? (options.version ?? '{"product":"keepharness"}') : url.endsWith('api/state') ? JSON.stringify({status:{busy:options.busy,running:options.running}}) : options.locales?.[/\/assets\/locales\/([\w.-]+\.json)$/.exec(url)?.[1]] ?? '{}'); res.emit('end');
     }); return req;
   } };
   // Hand-off host mode (D-030): options.host is {answers: {codex, claude}} or {exec: (args) => ({code, stdout, error})}.
@@ -600,7 +600,7 @@ test('the enrollment route restore is single-use even when enrollment is refused
 // WP5 continuation hand-off bridge: preload, the two IPC handlers and the packaged file list.
 const HARNESS = 'http://127.0.0.1:8095/';
 const fromFrame = url => ({ senderFrame: { url } });
-const APPS = 'keepharness:handoff-apps', OPEN = 'keepharness:handoff-open';
+const APPS = 'keepharness:handoff-apps', OPEN = 'keepharness:handoff-open', LANGUAGE = 'keepharness:set-language';
 // Results come from the vm realm: compare them by value.
 const plain = value => JSON.parse(JSON.stringify(value));
 
@@ -618,7 +618,7 @@ test('only the main window gets the hand-off preload; splash and secondary windo
   assert.ok(fs.existsSync(preload));
 });
 
-test('the preload exposes exactly two invoke wrappers and no raw ipcRenderer', () => {
+test('the preload exposes exactly three invoke wrappers and no raw ipcRenderer', () => {
   const exposed = [], calls = [];
   const electron = {
     contextBridge: { exposeInMainWorld: (name, api) => exposed.push([name, api]) },
@@ -628,9 +628,9 @@ test('the preload exposes exactly two invoke wrappers and no raw ipcRenderer', (
   assert.equal(exposed.length, 1);
   const [name, api] = exposed[0];
   assert.equal(name, 'keepharnessDesktop');
-  assert.deepEqual(Object.keys(api).sort(), ['handoffApps', 'openHandoff']);
-  return Promise.all([api.handoffApps(), api.openHandoff('claude', 'hello')]).then(() => {
-    assert.deepEqual(plain(calls), [[APPS], [OPEN, { target: 'claude', text: 'hello' }]]);
+  assert.deepEqual(Object.keys(api).sort(), ['handoffApps', 'openHandoff', 'setLanguage']);
+  return Promise.all([api.handoffApps(), api.openHandoff('claude', 'hello'), api.setLanguage('pt-BR')]).then(() => {
+    assert.deepEqual(plain(calls), [[APPS], [OPEN, { target: 'claude', text: 'hello' }], [LANGUAGE, 'pt-BR']]);
   });
 });
 
@@ -810,6 +810,48 @@ test('the Linux packager copies every local module main.cjs loads, preload inclu
 });
 test('the tray and menus add no IPC channel', async () => {
   const h = await boot();
-  assert.deepEqual([...h.handlers.keys()].sort(), [APPS, OPEN]);
+  assert.deepEqual([...h.handlers.keys()].sort(), [APPS, LANGUAGE, OPEN].sort());
   assert.ok(!/ipcRenderer|ipcMain\.on\b/.test(source.replace(/ipcMain\.handle/g, '')));
+});
+const locales = name => fs.readFileSync(path.join(__dirname, '..', 'harness_ui', 'assets', 'locales', name), 'utf8');
+const localeIndex = complete => JSON.stringify({locales: [{tag: 'en', file: 'en.json', complete: true}, {tag: 'pt-BR', file: 'pt-br.json', complete}]});
+const setLanguage = (h, sender, tag) => h.handlers.get(LANGUAGE)({senderFrame: {url: sender}}, tag);
+test('every desktop key used by main.cjs exists in en.json and pt-br.json', () => {
+  const used = [...new Set([...source.matchAll(/'(desktop\.[\w.]+)'/g)].map(match => match[1]))];
+  const en = JSON.parse(locales('en.json')), pt = JSON.parse(locales('pt-br.json'));
+  assert.ok(used.length > 0);
+  for (const key of used) { assert.ok(key in en, `en.json lacks ${key}`); assert.ok(key in pt, `pt-br.json lacks ${key}`); }
+});
+test('FALLBACK holds exactly the en.json desktop keys with the same values', () => {
+  const block = /^const FALLBACK = (\{[\s\S]*?^\});$/m.exec(source);
+  assert.ok(block, 'FALLBACK literal not found in main.cjs');
+  const fallback = vm.runInNewContext(`(${block[1]})`);
+  const en = JSON.parse(locales('en.json'));
+  const desktop = Object.fromEntries(Object.entries(en).filter(([key]) => key.startsWith('desktop.')));
+  assert.deepEqual(Object.keys(fallback).sort(), Object.keys(desktop).sort());
+  assert.deepEqual({...fallback}, desktop);
+});
+test('setLanguage from the harness page rebuilds the menus and tray in the routed pt-BR catalog', async () => {
+  const h = await boot({locales: {'index.json': localeIndex(true), 'en.json': locales('en.json'), 'pt-br.json': locales('pt-br.json')}});
+  assert.equal(await setLanguage(h, h.main.url, 'pt-BR'), true);
+  const pt = JSON.parse(locales('pt-br.json'));
+  assert.deepEqual(plain(h.menu.map(entry => entry.label)), ['KeepHarness', pt['desktop.menu.file'], pt['desktop.menu.edit'], pt['desktop.menu.view']]);
+  assert.ok(items(h.menu, pt['desktop.menu.about']));
+  assert.deepEqual(plain(h.trays[0].menu.map(item => item.label)), [pt['desktop.tray.open'], pt['desktop.menu.new_chat'], pt['desktop.menu.always_on_top'], pt['desktop.menu.quit']]);
+  assert.ok(h.requests.some(url => url.endsWith('/assets/locales/pt-br.json')));
+});
+test('setLanguage refuses a sender from another origin and a tag the index does not list as complete', async () => {
+  const h = await boot({locales: {'index.json': localeIndex(false), 'en.json': locales('en.json'), 'pt-br.json': locales('pt-br.json')}});
+  assert.equal(await setLanguage(h, 'http://127.0.0.1:18194/', 'pt-BR'), false);
+  assert.ok(!h.requests.some(url => url.includes('assets/locales')));
+  assert.equal(await setLanguage(h, h.main.url, 'pt-BR'), false); // listed but not complete
+  assert.equal(await setLanguage(h, h.main.url, 'fr'), false); // not listed
+  assert.deepEqual(plain(h.menu.map(entry => entry.label)), ['KeepHarness', 'File', 'Edit', 'View']);
+});
+test('a key missing from the pt-BR catalog shows its English text', async () => {
+  const pt = JSON.parse(locales('pt-br.json')); delete pt['desktop.menu.edit'];
+  const h = await boot({locales: {'index.json': localeIndex(true), 'en.json': locales('en.json'), 'pt-br.json': JSON.stringify(pt)}});
+  assert.equal(await setLanguage(h, h.main.url, 'pt-BR'), true);
+  const en = JSON.parse(locales('en.json'));
+  assert.deepEqual(plain(h.menu.map(entry => entry.label)), ['KeepHarness', pt['desktop.menu.file'], en['desktop.menu.edit'], pt['desktop.menu.view']]);
 });

@@ -107,6 +107,7 @@ Each file in `tests/operator/areas/` is one area; the id is what `--areas` takes
 - `16-window-sizes.cjs` (`window-sizes`): window sizes 1440, 1024, 800 and 390.
 - `17-themes.cjs` (`themes`): light and dark themes.
 - `18-desktop.cjs` (`desktop`): the packaged desktop app.
+  - Language (P13): with the stored language `pt-BR` and `pt-BR` marked `complete` in `harness_ui/assets/locales/index.json`, reopen the app and confirm the File, Edit and View menus, the tray menu and the About dialog are in pt-BR.
 - `19-desktop-wp18.cjs` (`desktop-wp18`): desktop WP-18 journeys.
 - `20-chat-real-providers.cjs` (`chat-real`): chat with real providers; a self-run area.
 - `21-temporary-chat.cjs` (`temporary-chat`): temporary chat; nothing saved, discard and return. Providers the fixture lacks (Codex, DeepSeek) are skipped.
