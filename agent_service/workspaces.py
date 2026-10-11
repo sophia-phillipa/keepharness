@@ -430,10 +430,10 @@ def replace_project_file(root, name, expected_etag, text):
         parent = open_parent_dir(path)
         try:
             current = _read_at(parent, path.name)
+            decode_text(current)  # a non-text file is file_not_text (415) before anything else
             eol = line_endings(current)
             if eol == "mixed":
                 raise ToolError("file_not_writable")
-            decode_text(current)
             if etag_of(current) != expected_etag:
                 raise StaleFileError(etag_of(current))
             data = encode_text(text, eol)

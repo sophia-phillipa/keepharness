@@ -1,6 +1,7 @@
 """Uploaded files, uploaded workspaces and project file browsing."""
 
 import asyncio
+import errno
 import hashlib
 import json
 import re
@@ -13,11 +14,12 @@ from pathlib import Path
 from starlette.responses import FileResponse, JSONResponse
 
 from .. import maestro, tools, workspaces
+from ..approval_sessions import require_approval_session
 from ..config import MAX_PROJECT_UPLOAD_BYTES
 from ..errors import APIError
 from ..persistence.db import encoded
 from ..services.conversation_service import excerpt_metadata, preview_metadata
-from . import api_route, body
+from . import api_route, body, error_response
 
 # Bidirectional embedding, override and isolate controls: they can reorder how a name
 # is displayed and hide its real extension ("invoice\u202etxt.exe").
@@ -484,6 +486,81 @@ async def file_preview(request, service, identity):
     )
 
 
+EDITOR_BODY_BYTES = 6 * 1024 * 1024  # a 1 MiB text escaped as JSON, with headroom
+EDITOR_STATUS = {"file_too_large": 413, "file_not_text": 415}
+
+
+def editor_file_call(function, *args):
+    """Run a workspace editor helper; failures become API codes and never carry a path."""
+    try:
+        return function(*args)
+    except tools.ToolError as exc:
+        raise APIError(exc.code, EDITOR_STATUS.get(exc.code, 403)) from None
+    except OSError as exc:
+        if exc.errno == errno.ELOOP:
+            raise APIError("symlink_denied", 403) from None
+        if exc.errno in (errno.ENOENT, errno.ENOTDIR):
+            raise APIError("path_not_authorized", 403) from None
+        raise APIError("file_unavailable", 500) from None
+
+
+def approval_held(request, config, identity):
+    try:
+        require_approval_session(request, config, identity)
+    except APIError:
+        return False
+    return True
+
+
+async def project_file_content(request, service, identity):
+    """GET reads a project file with its ETag; PUT saves it when If-Match still matches."""
+    if identity[0] != "local":
+        raise APIError("editor_local_only", 403)
+    project = request.query_params.get("project_id")
+    identity = require_current_read(request, service, project)
+    root = editor_file_call(
+        workspaces.project_root,
+        service.project(identity, project),
+        request.query_params.get("root_id", "root"),
+    )
+    name = request.query_params.get("path")
+    if request.method == "GET":
+        file = await asyncio.to_thread(editor_file_call, workspaces.read_project_file, root, name)
+        writable = file.eol != "mixed" and approval_held(request, service.config, identity)
+        return JSONResponse(
+            {
+                "text": file.text,
+                "etag": file.etag,
+                "size": file.size,
+                "eol": file.eol,
+                "writable": writable,
+            },
+            headers={"ETag": file.etag},
+        )
+    require_approval_session(request, service.config, identity, revalidate=True)
+    editor_file_call(workspaces.editable_path, root, name)
+    expected = request.headers.get("if-match")
+    if not expected:
+        raise APIError("precondition_required", 428)
+    data = await body(request, limit=EDITOR_BODY_BYTES)
+    if not isinstance(data.get("text"), str):
+        raise APIError("invalid_text", 422)
+    try:
+        etag, size = await asyncio.to_thread(
+            editor_file_call,
+            workspaces.replace_project_file,
+            root,
+            name,
+            expected,
+            data["text"],
+        )
+    except workspaces.StaleFileError as exc:
+        response = error_response(APIError("file_changed", 412))
+        response.headers["ETag"] = exc.etag
+        return response
+    return JSONResponse({"etag": etag, "size": size}, headers={"ETag": etag})
+
+
 ROUTES = [
     api_route("/v1/workspaces", workspaces_collection, methods=["GET", "POST"]),
     api_route("/v1/workspaces/{workspace}", workspace),
@@ -492,4 +569,5 @@ ROUTES = [
     api_route("/v1/project-files/attach", attach_project_files, methods=["POST"]),
     api_route("/v1/files", upload_file, methods=["POST"]),
     api_route("/v1/files/{file}/preview", file_preview, methods=["GET"]),
+    api_route("/v1/project-files/content", project_file_content, methods=["GET", "PUT"]),
 ]
