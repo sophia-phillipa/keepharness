@@ -199,7 +199,9 @@ const FALLBACK = {
 };
 let catalogs = {active: null, english: null};
 function t(key, params = {}) {
-  const text = catalogs.active?.[key] ?? catalogs.english?.[key] ?? FALLBACK[key] ?? key;
+  const text = [catalogs.active, catalogs.english, FALLBACK]
+    .map(source => (source && Object.hasOwn(source, key) ? source[key] : null))
+    .find(value => typeof value === 'string') ?? key;
   return text.replace(/\{(\w+)\}/g, (match, name) => (name in params ? String(params[name]) : match));
 }
 // Window and tray menus share these items. New chat clicks the harness page's own button, so it
@@ -395,32 +397,40 @@ function registerLanguage() {
 // The tag must be a locale the catalog index lists as complete (or English). Only the two JSON files
 // are read from the harness origin; a failed read leaves that catalog out and FALLBACK covers it.
 let languageRequest = 0;
+const CATALOG_MAX_BYTES = 1024 * 1024;
 async function setLanguage(event, tag) {
   if (!fromHarness(event)) return false;
-  const request = ++languageRequest;
-  const index = await fetchJson(harnessUrl + 'assets/locales/index.json');
-  const locales = Array.isArray(index?.locales) ? index.locales : [];
-  const locale = locales.find(item => item?.tag === tag && (item.complete === true || tag === 'en') && /^[\w-]+\.json$/.test(item.file));
-  if (!locale) return false;
-  const english = await fetchJson(harnessUrl + 'assets/locales/en.json');
-  const active = locale.tag === 'en' ? null : await fetchJson(harnessUrl + 'assets/locales/' + locale.file);
-  if (request !== languageRequest) return false; // a newer switch has started
-  catalogs = {active: active ?? null, english: english ?? null};
-  refreshMenus();
-  return true;
+  try {
+    const index = await fetchJson(harnessUrl + 'assets/locales/index.json');
+    const locales = Array.isArray(index?.locales) ? index.locales : [];
+    const locale = locales.find(item => item?.tag === tag && (item.complete === true || tag === 'en') && /^[\w-]+\.json$/.test(item.file));
+    if (!locale) return false;
+    const request = ++languageRequest;
+    const english = await fetchJson(harnessUrl + 'assets/locales/en.json');
+    const active = locale.tag === 'en' ? null : await fetchJson(harnessUrl + 'assets/locales/' + locale.file);
+    if (request !== languageRequest) return false; // a newer switch has started
+    if (!english || (locale.tag !== 'en' && !active)) return false; // keep the previous catalogs
+    catalogs = {active, english};
+    refreshMenus();
+    return true;
+  } catch (error) {
+    log(error.message);
+    return false;
+  }
 }
 // A catalog is small; the loopback harness answers at once. Anything else (status, size, JSON) gives null.
 function fetchJson(url) {
   return new Promise(resolve => {
     const request = http.get(url, {timeout:1500}, response => {
-      let body = '';
-      response.setEncoding('utf8');
+      const chunks = [];
+      let size = 0;
       response.on('data', chunk => {
-        body += chunk;
-        if (body.length > 262144) { resolve(null); request.destroy(); }
+        size += Buffer.byteLength(chunk);
+        if (size > CATALOG_MAX_BYTES) { resolve(null); request.destroy(); return; }
+        chunks.push(chunk);
       });
       response.on('end', () => {
-        try { resolve(response.statusCode === 200 ? JSON.parse(body) : null); } catch { resolve(null); }
+        try { resolve(response.statusCode === 200 ? JSON.parse(Buffer.concat(chunks.map(chunk => Buffer.from(chunk))).toString('utf8')) : null); } catch { resolve(null); }
       });
       response.on('error', () => resolve(null));
     });

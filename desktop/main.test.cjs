@@ -855,3 +855,12 @@ test('a key missing from the pt-BR catalog shows its English text', async () => 
   const en = JSON.parse(locales('en.json'));
   assert.deepEqual(plain(h.menu.map(entry => entry.label)), ['KeepHarness', pt['desktop.menu.file'], en['desktop.menu.edit'], pt['desktop.menu.view']]);
 });
+test('a failed pt-BR fetch keeps the previous catalogs and a non-string value falls back to English', async () => {
+  const bad = await boot({locales: {'index.json': localeIndex(true), 'en.json': locales('en.json'), 'pt-br.json': 'not json'}});
+  assert.equal(await setLanguage(bad, bad.main.url, 'pt-BR'), false);
+  assert.deepEqual(plain(bad.menu.map(entry => entry.label)), ['KeepHarness', 'File', 'Edit', 'View']);
+  const pt = JSON.parse(locales('pt-br.json')); pt['desktop.menu.edit'] = 5;
+  const odd = await boot({locales: {'index.json': localeIndex(true), 'en.json': locales('en.json'), 'pt-br.json': JSON.stringify(pt)}});
+  assert.equal(await setLanguage(odd, odd.main.url, 'pt-BR'), true);
+  assert.equal(plain(odd.menu.map(entry => entry.label))[2], 'Edit');
+});
