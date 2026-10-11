@@ -19,8 +19,7 @@ MARKETPLACE_UNAVAILABLE = (
     "Adding a marketplace is not available for this provider. Refresh Plugins and try again."
 )
 OPERATIONS_FOLDER_UNSAFE = (
-    "The operations folder must be a real directory readable only by you. "
-    "Remove it and try again."
+    "The operations folder must be a real directory readable only by you. Remove it and try again."
 )
 OPERATIONS_FOLDER_NOT_EMPTIED = (
     "The operations folder could not be emptied. Remove it and try again."
@@ -439,7 +438,9 @@ class AdminSecurityTest(unittest.IsolatedAsyncioTestCase):
         with patch.object(manager.operations, "launch") as launch:
             self.client.cookies.clear()
             self.assertEqual(
-                (await self.client.post("/api/integration", json=body, headers=self.headers)).status_code,
+                (
+                    await self.client.post("/api/integration", json=body, headers=self.headers)
+                ).status_code,
                 401,
             )
             self.assertEqual(

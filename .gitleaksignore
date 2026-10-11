@@ -26,3 +26,6 @@ c5b683def08495c6829d27d659af84fe9c055af8:tests/test_provider_state_notices.py:ge
 51d19b3d213c9c71ec45a95042cfdb88e96497b3:tests/test_hook_command_masking.py:curl-auth-user:22
 51d19b3d213c9c71ec45a95042cfdb88e96497b3:tests/test_hook_command_masking.py:curl-auth-user:74
 d07a6f63516f33c8e1cb312b7c19b71663494bcc:tests/test_provider_orchestration_security.py:curl-auth-header:131
+# Made-up DeepSeek key strings ("fixture…") used as file content and mocked API input.
+3111d3e90ccf196744e29bc4c08100844fb66a89:tests/test_deepseek_key_presence.py:generic-api-key:14
+843dc324a6a8d8f9840e06533e03539468feddbe:tests/test_scoped_home_security.py:generic-api-key:418
