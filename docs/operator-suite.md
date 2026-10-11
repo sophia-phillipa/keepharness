@@ -113,6 +113,7 @@ Each file in `tests/operator/areas/` is one area; the id is what `--areas` takes
 - `22-hooks-rules.cjs` (`hooks-rules`): the admin Hooks and Rules sections (#61): secret
   masking in page text and provider-state JSON, names-only env and headers, capped rule
   preview, no switches, source path and the changed marker. Codex and DeepSeek skip (no stand-in).
+- `25-plugins-add.cjs` (`plugins-add`): the admin Plugins Add menu (#27 P6): entries per CLI with no DeepSeek entry, a rejected source keeps the dialog open with an error, and accepted sources (real mode only, from `OPERATOR_MARKETPLACE_SOURCE` and `OPERATOR_MARKETPLACE_NAME`) for Claude and Codex.
 
 ## Add a step
 
