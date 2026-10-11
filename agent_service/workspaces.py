@@ -3,9 +3,12 @@
 import hashlib
 import os
 import re
+import secrets
 import shutil
 import stat
+import threading
 import zipfile
+from dataclasses import dataclass
 from itertools import islice
 from pathlib import Path, PurePosixPath
 
@@ -14,6 +17,7 @@ from .tools import ToolError, safe_file
 MAX_BYTES = 200 * 1024 * 1024
 MAX_FILES = 10000
 MAX_ATTACHMENTS = 20
+MAX_EDITABLE_BYTES = 1024 * 1024
 EXCLUDED = {
     ".git",
     ".ssh",
@@ -278,17 +282,30 @@ def system_root(root_id):
     return roots[root_id]
 
 
-def open_attachment_source(path):
-    """Open the selected regular file without following replaceable symlinks."""
-    path = Path(path)
-    if not path.is_absolute() or ".." in path.parts:
-        raise ToolError("path_not_authorized")
+def open_parent_dir(path):
+    """Return an fd for the directory holding ``path``, walking from the anchor without symlinks."""
     parent = os.open(path.anchor, os.O_RDONLY | os.O_DIRECTORY)
     try:
         for part in path.parts[1:-1]:
             child = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=parent)
             os.close(parent)
             parent = child
+    except BaseException:
+        os.close(parent)
+        raise
+    return parent
+
+
+def open_attachment_source(path):
+    """Open the selected regular file without following replaceable symlinks."""
+    path = Path(path)
+    if not path.is_absolute() or ".." in path.parts:
+        raise ToolError("path_not_authorized")
+    try:
+        parent = open_parent_dir(path)
+    except OSError:
+        raise ToolError("attachment_source_unavailable") from None
+    try:
         fd = os.open(path.name, os.O_RDONLY | os.O_NONBLOCK | os.O_NOFOLLOW, dir_fd=parent)
         try:
             if not stat.S_ISREG(os.fstat(fd).st_mode):
@@ -301,6 +318,131 @@ def open_attachment_source(path):
         raise ToolError("attachment_source_unavailable") from None
     finally:
         os.close(parent)
+
+
+class StaleFileError(Exception):
+    """The file changed since the ETag the client read; ``etag`` is its current ETag."""
+
+    def __init__(self, etag):
+        super().__init__("stale_etag")
+        self.etag = etag
+
+
+@dataclass(frozen=True)
+class EditableFile:
+    text: str
+    etag: str
+    size: int
+    eol: str
+
+
+_WRITE_LOCK = threading.Lock()
+
+
+def editable_path(root, name):
+    """Resolve a project file the editor may read and write; credential files are refused."""
+    if not isinstance(name, str) or credential_path(name):
+        raise ToolError("path_not_authorized")
+    return project_path(root, name)
+
+
+def line_endings(data):
+    """Return "lf", "crlf" or "mixed"; a lone CR counts as mixed."""
+    crlf = data.count(b"\r\n")
+    if data.count(b"\r") > crlf or (crlf and data.count(b"\n") > crlf):
+        return "mixed"
+    return "crlf" if crlf else "lf"
+
+
+def _to_lf(text):
+    return text.replace("\r\n", "\n").replace("\r", "\n")
+
+
+def decode_text(data):
+    """Strict UTF-8 text with newlines normalized to LF."""
+    try:
+        text = data.decode("utf-8")
+    except UnicodeDecodeError:
+        raise ToolError("file_not_text") from None
+    return _to_lf(text)
+
+
+def encode_text(text, eol):
+    """Encode editor text back to bytes using the file's original line endings."""
+    text = _to_lf(text)
+    if eol == "crlf":
+        text = text.replace("\n", "\r\n")
+    return text.encode("utf-8")
+
+
+def etag_of(data):
+    return f'"{hashlib.sha256(data).hexdigest()}"'
+
+
+def _read_at(dir_fd, name):
+    fd = os.open(name, os.O_RDONLY | os.O_NONBLOCK | os.O_NOFOLLOW, dir_fd=dir_fd)
+    with os.fdopen(fd, "rb") as handle:
+        if not stat.S_ISREG(os.fstat(handle.fileno()).st_mode):
+            raise ToolError("path_not_authorized")
+        data = handle.read(MAX_EDITABLE_BYTES + 1)
+    if len(data) > MAX_EDITABLE_BYTES:
+        raise ToolError("file_too_large")
+    return data
+
+
+def _write_at(dir_fd, name, data):
+    """Atomically replace ``name`` in ``dir_fd`` with ``data``, keeping its mode."""
+    mode = os.stat(name, dir_fd=dir_fd, follow_symlinks=False).st_mode & 0o7777
+    tmp = f".{name}.{secrets.token_hex(8)}.tmp"
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=dir_fd)
+    try:
+        with os.fdopen(fd, "wb") as handle:
+            handle.write(data)
+            handle.flush()
+            os.fchmod(handle.fileno(), mode)
+            os.fsync(handle.fileno())
+        os.replace(tmp, name, src_dir_fd=dir_fd, dst_dir_fd=dir_fd)
+        os.fsync(dir_fd)
+    except BaseException:
+        try:
+            os.unlink(tmp, dir_fd=dir_fd)
+        except FileNotFoundError:
+            pass
+        raise
+
+
+def read_project_file(root, name):
+    path = editable_path(root, name)
+    parent = open_parent_dir(path)
+    try:
+        data = _read_at(parent, path.name)
+    finally:
+        os.close(parent)
+    return EditableFile(
+        text=decode_text(data), etag=etag_of(data), size=len(data), eol=line_endings(data)
+    )
+
+
+def replace_project_file(root, name, expected_etag, text):
+    """Write ``text`` only if the file still matches ``expected_etag``; return (etag, size)."""
+    path = editable_path(root, name)
+    with _WRITE_LOCK:
+        parent = open_parent_dir(path)
+        try:
+            current = _read_at(parent, path.name)
+            eol = line_endings(current)
+            if eol == "mixed":
+                raise ToolError("file_not_writable")
+            decode_text(current)
+            if etag_of(current) != expected_etag:
+                raise StaleFileError(etag_of(current))
+            data = encode_text(text, eol)
+            if len(data) > MAX_EDITABLE_BYTES:
+                raise ToolError("file_too_large")
+            _write_at(parent, path.name, data)
+        finally:
+            os.close(parent)
+    return etag_of(data), len(data)
 
 
 def system_path(root, name=""):
