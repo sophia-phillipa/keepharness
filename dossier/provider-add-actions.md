@@ -80,7 +80,7 @@ Dialog submit ──POST /api/integration {provider, action:"marketplace_add", s
 - Styling: `--th-*` tokens only; contrast ≥ 4.5:1 in Paper and Graphite; works at 390 px.
 - Must-not: call any API on render or menu open; write `localStorage`/`sessionStorage`; remember the last provider or source (no preference is needed).
 
-**C9 Create plugin — PENDING SOPHIA'S APPROVAL (P7; excluded from P2–P6)**
+**C9 Create plugin — DEFERRED UNTIL AFTER 1.0 (Sophia, 2026-10-11; P7, excluded from P2–P6)**
 - Probe: `"plugin_create"` when provider is `claude` and `{"init","new"} ∩ C1(plugin help)` is non-empty; the verb used is `init` if listed, else `new`. Codex: absent.
 - `operation` branch: `[binary, "plugin", verb, name]` with `name` matching `^[a-z0-9][a-z0-9-]{0,63}$`.
 - Pre-check in `change_integration`: refuse with "A skill named <name> already exists." when `<claude home>/skills/<name>` exists, with `<claude home>` resolved by the same provider-state reader as D-038 (honors `CLAUDE_CONFIG_DIR`). No `--force`; the CLI never gets the chance to overwrite.
@@ -186,7 +186,7 @@ Done when: the review returns APPROVED with no open blocking or major finding, r
 **P6 — Visible pass (D-029).** On Sophia's screen: Codex and Claude each show `Add a marketplace` and `Add MCP server`; DeepSeek contributes nothing (SKIP with the reason "no catalog command"); a rejected source shows the message in the dialog; one accepted source starts an operation that completes and appears after Refresh. The test source and its later removal (`plugin marketplace remove`) need Sophia's go-ahead, because this writes the real CLI state (D-038).
 Done when: the visible-pass log lists Codex, Claude and DeepSeek with PASS or SKIP-with-reason for every step and no unexplained failure.
 
-**P7 — Create plugin (Claude). PENDING SOPHIA'S APPROVAL; not part of P2–P6.** C9 end to end with pytest (fake home) and one Playwright scenario.
+**P7 — Create plugin (Claude). DEFERRED UNTIL AFTER 1.0 (Sophia, 2026-10-11); not part of P2–P6.** C9 end to end with pytest (fake home) and one Playwright scenario.
 Done when: Sophia has approved D-056's Create plugin item and `pytest` plus the P7 Playwright scenario pass against a fake Claude home.
 
 ## See also

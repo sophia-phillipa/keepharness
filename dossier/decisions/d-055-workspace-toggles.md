@@ -1,10 +1,10 @@
 # D-055 — Terminal, file editor and wide layout as three independent toggles
 
-Status (2026-10-10, design by software-design-architect; decided by: pending Sophia), one line per option:
+Status (design 2026-10-10 by software-design-architect; decided 2026-10-11 by Sophia, one record with a line per option), one line per option:
 
-- Wide layout: proposed
-- File editor: proposed
-- Terminal: proposed
+- Wide layout: accepted (2026-10-11)
+- File editor: accepted (2026-10-11)
+- Terminal: accepted (2026-10-11)
 
 Each option is accepted, adjusted or rejected on its own line, as D-054 asks ("each option needs its own record before it ships"). A package of the spec starts only when its option's line is accepted. Follows [D-054](d-054-remove-chat-code-switch.md) (its Follow-up). Builds on [D-023](d-023-wp6-preferences-in-backend-store.md), [D-024](d-024-wp6-limits-and-merge.md), [D-033](d-033-right-panel-accordion.md), [D-053](d-053-turn-file-review.md); colours per [D-020](d-020-theme-tokens-for-copied-screens.md). Spec: [workspace-toggles.md](../../docs/workspace-toggles.md). Issue: #78 step 3.
 
