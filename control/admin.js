@@ -3507,14 +3507,10 @@ function renderIntegrationCliGuide() {
     element(
       "summary",
       integrationKind() === "plugin"
-        ? "Manage plugins via CLI"
-        : "Manage MCP connectors via CLI",
+        ? HarnessI18n.t("admin.integrations.cli_summary_plugins")
+        : HarnessI18n.t("admin.integrations.cli_summary_mcp"),
     ),
-    element(
-      "p",
-      "The catalog above is queried by the server. MCP lists configured connectors; plugins includes options not yet installed from known marketplaces. Installation, login, and authorization only happen when you choose an operation.",
-      "hint",
-    ),
+    element("p", HarnessI18n.t("admin.integrations.cli_hint"), "hint"),
   );
   const providers = [
     {
@@ -3592,19 +3588,22 @@ function renderCatalog() {
     String(catalogPending.has(provider)),
   );
   $("catalog-status").textContent = catalogPending.has(provider)
-    ? "Searching connectors and plugins for " +
-      (provider === "claude" ? "Claude Code" : "Codex") +
-      " on this computer… Please wait."
+    ? HarnessI18n.t("admin.integrations.catalog_searching", {
+        provider: provider === "claude" ? "Claude Code" : "Codex",
+      })
     : data?.error
-      ? "Could not query the catalog. " +
-        data.error +
-        (data.items?.length
-          ? " Showing results from the last successful query."
-          : "") +
-        " Try again in Check catalogs."
+      ? HarnessI18n.t(
+          data.items?.length
+            ? "admin.integrations.catalog_error_cached"
+            : "admin.integrations.catalog_error",
+          { error: data.error },
+        )
       : data
-        ? items.length + " result(s). " + (data.warnings || []).join(" ")
-        : "Check the catalogs known by this server's CLI.";
+        ? HarnessI18n.t("admin.integrations.catalog_count", {
+            count: items.length,
+            warnings: (data.warnings || []).join(" "),
+          })
+        : HarnessI18n.t("admin.integrations.catalog_idle");
   $("catalog-items").replaceChildren(
     ...items.slice(0, catalogVisibleCount).map((item) => {
       const card = element("article", undefined, "catalog-item"),
@@ -3622,7 +3621,11 @@ function renderCatalog() {
       detail.append(
         element(
           "small",
-          item.kind === "plugin" ? "Plugin" : "MCP connector",
+          HarnessI18n.t(
+            item.kind === "plugin"
+              ? "admin.integrations.kind_plugin"
+              : "admin.integrations.kind_mcp",
+          ),
           "subtle",
         ),
       );
@@ -3630,17 +3633,27 @@ function renderCatalog() {
         detail,
         element(
           "span",
-          item.status === "installed"
-            ? "Installed"
-            : item.status === "configured"
-              ? "Configured"
-              : "Available to install",
+          HarnessI18n.t(
+            item.status === "installed"
+              ? "admin.integrations.status_installed"
+              : item.status === "configured"
+                ? "admin.integrations.status_configured"
+                : "admin.integrations.status_available",
+          ),
           "pill",
         ),
       );
       if (item.kind === "plugin" && item.status === "available") {
-        const install = element("button", "Install", "button secondary");
-        install.setAttribute("aria-label", "Install " + item.name);
+        const install = element(
+          "button",
+          HarnessI18n.t("customize.plugin.install"),
+          "button secondary",
+        );
+        install.dataset.panelHelp = "admin.buttons.download";
+        install.setAttribute(
+          "aria-label",
+          HarnessI18n.t("customize.card.install", { label: item.name }),
+        );
         install.onclick = () =>
           action(async () => {
             await request("integration", {
@@ -3648,9 +3661,7 @@ function renderCatalog() {
               action: "plugin_install",
               name: item.id.replace(/^plugin:/, ""),
             });
-            say(
-              "Installation started. Track Operations; once finished, refresh integrations and select the plugin.",
-            );
+            say(HarnessI18n.t("admin.integrations.install_started"));
             pollOperations();
           });
         card.append(install);
@@ -3660,19 +3671,14 @@ function renderCatalog() {
   );
   if (data && !data.error && !items.length)
     $("catalog-items").append(
-      element(
-        "p",
-        "No options found in this catalog. You can register another connector or marketplace via the CLI.",
-        "hint",
-      ),
+      element("p", HarnessI18n.t("admin.integrations.catalog_empty"), "hint"),
     );
   $("catalog-more").hidden = items.length <= catalogVisibleCount;
   $("catalog-count").textContent = items.length
-    ? "Showing " +
-      Math.min(catalogVisibleCount, items.length) +
-      " of " +
-      items.length +
-      " results."
+    ? HarnessI18n.t("admin.integrations.catalog_showing", {
+        shown: Math.min(catalogVisibleCount, items.length),
+        total: items.length,
+      })
     : "";
 }
 async function loadCatalog() {
@@ -3695,15 +3701,28 @@ async function loadCatalog() {
 function createCatalog() {
   const host = $("integrations").querySelector(".panel-body"),
     section = element("section", undefined, "integration-catalog");
-  const heading = element("h3", "Server catalog"),
-    refresh = element("button", "Check catalogs", "button secondary");
+  const heading = element(
+      "h3",
+      HarnessI18n.t("admin.integrations.catalog_heading"),
+    ),
+    refresh = element(
+      "button",
+      HarnessI18n.t("admin.integrations.check_catalogs"),
+      "button secondary",
+    );
   refresh.id = "catalog-refresh";
+  refresh.dataset.panelHelp = "admin.buttons.check";
   refresh.onclick = () => loadCatalog();
-  const label = element("label", "Search connectors and plugins"),
+  const label = element(
+      "label",
+      HarnessI18n.t("admin.integrations.catalog_search_label"),
+    ),
     search = element("input");
   search.id = "catalog-search";
   search.type = "search";
-  search.placeholder = "Name or marketplace";
+  search.placeholder = HarnessI18n.t(
+    "admin.integrations.catalog_search_placeholder",
+  );
   search.oninput = renderCatalog;
   label.append(search);
   const status = element("p", undefined, "hint");
@@ -3714,8 +3733,13 @@ function createCatalog() {
   const count = element("p", undefined, "hint");
   count.id = "catalog-count";
   count.setAttribute("role", "status");
-  const more = element("button", "Load more", "button secondary");
+  const more = element(
+    "button",
+    HarnessI18n.t("admin.integrations.load_more"),
+    "button secondary",
+  );
   more.id = "catalog-more";
+  more.dataset.panelHelp = "admin.buttons.continue";
   more.hidden = true;
   more.onclick = () => {
     catalogVisibleCount += 40;
@@ -3729,35 +3753,21 @@ createCatalog();
 
 // Help stays visible and is associated with its control for assistive technology.
 const settingHelp = {
-  "hardware-model":
-    "Each weights file has its own execution profile and permissions.",
-  "profile-binary":
-    "Path to the llama-server program that will load this model on this machine.",
-  "profile-description":
-    "Note to help identify the purpose of this profile; it is not sent to the model.",
-  "integration-provider":
-    "Provider whose profile will receive the integration.",
-  "integration-action":
-    "Choose between registering, authenticating, installing, or removing the integration.",
-  "integration-name":
-    "Identifier used by the service or the plugin marketplace.",
-  "integration-transport":
-    "HTTPS connects to a remote server; stdio starts a process on this machine.",
-  "integration-source":
-    "Address of the MCP server or a JSON list with the command and its arguments.",
-  "install-model":
-    "Weights that will be downloaded. Check the size and license before authorizing.",
-  "install-runtime":
-    "Where the weights will be stored and which runtime can load them.",
-  "model-folder":
-    "Folder on this machine where the panel will search for GGUF model files.",
-  "local-file": "Weights file that will be associated with its own profile.",
-  "import-settings":
-    "Loads a file exported by the panel for review before applying.",
-  "mcp-default-model":
-    "Model used by MCP clients (apps that call the harness tools) when they do not choose another one.",
-  "mcp-default-effort":
-    "How much reasoning effort to request. Higher levels can increase time and usage; the options depend on the model.",
+  "hardware-model": HarnessI18n.t("admin.help.hardware_model"),
+  "profile-binary": HarnessI18n.t("admin.help.profile_binary"),
+  "profile-description": HarnessI18n.t("admin.help.profile_description"),
+  "integration-provider": HarnessI18n.t("admin.help.integration_provider"),
+  "integration-action": HarnessI18n.t("admin.help.integration_action"),
+  "integration-name": HarnessI18n.t("admin.help.integration_name"),
+  "integration-transport": HarnessI18n.t("admin.help.integration_transport"),
+  "integration-source": HarnessI18n.t("admin.help.integration_source"),
+  "install-model": HarnessI18n.t("admin.help.install_model"),
+  "install-runtime": HarnessI18n.t("admin.help.install_runtime"),
+  "model-folder": HarnessI18n.t("admin.help.model_folder"),
+  "local-file": HarnessI18n.t("admin.help.local_file"),
+  "import-settings": HarnessI18n.t("admin.help.import_settings"),
+  "mcp-default-model": HarnessI18n.t("admin.help.mcp_default_model"),
+  "mcp-default-effort": HarnessI18n.t("admin.help.mcp_default_effort"),
 };
 for (const [id, help] of Object.entries(settingHelp)) fieldHelp($(id), help);
 
@@ -3769,11 +3779,11 @@ function renderIntegrationForm() {
     $(id).closest("label").hidden = !connecting;
   $("integration-name").placeholder = action.startsWith("plugin_")
     ? "plugin@marketplace"
-    : "gmail, drive or gitlab";
+    : HarnessI18n.t("admin.integrations.name_placeholder");
   const local = $("integration-transport").value === "stdio";
   $("integration-source").closest("label").firstChild.textContent = local
-    ? "MCP server command as a JSON list"
-    : "Official MCP server URL";
+    ? HarnessI18n.t("admin.integrations.source_command_label")
+    : HarnessI18n.t("admin.integrations.source_url_label");
   $("integration-source").placeholder = local
     ? '["program", "argument"]'
     : "https://your-mcp-server/mcp";
@@ -3784,172 +3794,64 @@ renderIntegrationForm();
 
 // One action vocabulary keeps dynamic and static panel buttons consistent.
 const buttonActions = [
-  [
-    /^Pin catalog/,
-    "lock",
-    "Runs this catalog from the chosen immutable revision.",
-  ],
-  [
-    /^Provision runtime/,
-    "download",
-    "Creates the catalog environment and writable state declared by its manifest.",
-  ],
-  [
-    /^Re-trust hooks/,
-    "shield",
-    "Trusts the catalog hook files as they are now, so they run again.",
-  ],
-  [
-    /^Preview update/,
-    "search",
-    "Fetches the catalog and compares resource revisions without moving its pin.",
-  ],
-  [
-    /^Move pin/,
-    "check",
-    "Applies the exact revision shown in the current update preview.",
-  ],
-  [
-    /^Remove binding/,
-    "trash",
-    "Removes stored credentials and their project bindings.",
-  ],
-  [
-    /^(Save|Complete and save|Apply)/,
-    "device-floppy",
-    "Saves and applies the changes to this configuration.",
-  ],
-  [/^(Edit)/, "pencil", "Opens editing in a window over the provider list."],
-  [
-    /^(Delete)/,
-    "trash",
-    "Removes the entry after confirmation; does not uninstall the service.",
-  ],
-  [/^(Remove)/, "trash", "Removes this item from the configuration."],
-  [
-    /^(Log in)/,
-    "login",
-    "Opens official authentication to connect or renew your account.",
-  ],
-  [
-    /^(Check|Detect|Query|Search)/,
-    "scan",
-    "Checks the current status and refreshes the available options.",
-  ],
-  [
-    /^(Refresh|Retry)/,
-    "refresh",
-    "Repeats the query to refresh the data or recover from a failure.",
-  ],
-  [/^(Add|Create)/, "plus", "Opens the setup or selection of a new item."],
-  [
-    /^(Cancel|Close)/,
-    "x",
-    "Closes this window; pending changes require confirmation before being discarded.",
-  ],
-  [
-    /^(Back|Choose another)/,
-    "chevron-left",
-    "Returns to the previous step of the configuration.",
-  ],
-  [
-    /^(Continue|Load more)/,
-    "chevron-right",
-    "Shows the next step or more results.",
-  ],
-  [
-    /^(Download|Install)/,
-    "download",
-    "Starts installing or downloading the selected item.",
-  ],
-  [
-    /^Export/,
-    "download",
-    "Downloads the saved settings to a file without credentials.",
-  ],
-  [
-    /^Import or export/,
-    "adjustments",
-    "Opens the options to import or export settings.",
-  ],
+  [/^Pin catalog/, "lock", "admin.buttons.pin_catalog"],
+  [/^Provision runtime/, "download", "admin.buttons.provision_runtime"],
+  [/^Re-trust hooks/, "shield", "admin.buttons.re_trust_hooks"],
+  [/^Preview update/, "search", "admin.buttons.preview_update"],
+  [/^Move pin/, "check", "admin.buttons.move_pin"],
+  [/^Remove binding/, "trash", "admin.buttons.remove_binding"],
+  [/^(Save|Complete and save|Apply)/, "device-floppy", "admin.buttons.save"],
+  [/^(Edit)/, "pencil", "admin.buttons.edit"],
+  [/^(Delete)/, "trash", "admin.buttons.delete"],
+  [/^(Remove)/, "trash", "admin.buttons.remove"],
+  [/^(Log in)/, "login", "admin.buttons.log_in"],
+  [/^(Check|Detect|Query|Search)/, "scan", "admin.buttons.check"],
+  [/^(Refresh|Retry)/, "refresh", "admin.buttons.refresh"],
+  [/^(Add|Create)/, "plus", "admin.buttons.add"],
+  [/^(Cancel|Close)/, "x", "admin.buttons.cancel"],
+  [/^(Back|Choose another)/, "chevron-left", "admin.buttons.back"],
+  [/^(Continue|Load more)/, "chevron-right", "admin.buttons.continue"],
+  [/^(Download|Install)/, "download", "admin.buttons.download"],
+  [/^Export/, "download", "admin.buttons.export"],
+  [/^Import or export/, "adjustments", "admin.buttons.import_export"],
   [
     /^(Use current configuration|Copy configuration|Copy the running configuration)/,
     "copy",
-    "Copies the running configuration into this model's profile.",
+    "admin.buttons.copy_configuration",
   ],
   [
     /^Use (file|an already downloaded file)/,
     "folder",
-    "Selects a model file already downloaded on this server.",
+    "admin.buttons.use_file",
   ],
-  [
-    /^Use this folder/,
-    "check",
-    "Confirms the selected folder for this configuration.",
-  ],
-  [
-    /^Configure this file/,
-    "adjustments",
-    "Opens the profile of the selected model file.",
-  ],
-  [
-    /^Start/,
-    "player-play",
-    "Starts the model using the profile saved on this server.",
-  ],
-  [
-    /^Run operation/,
-    "player-play",
-    "Runs the selected operation and shows its result.",
-  ],
-  [
-    /^Operations in progress/,
-    "list",
-    "Opens the progress and results of administrative operations.",
-  ],
+  [/^Use this folder/, "check", "admin.buttons.use_folder"],
+  [/^Configure this file/, "adjustments", "admin.buttons.configure_file"],
+  [/^Start/, "player-play", "admin.buttons.start"],
+  [/^Run operation/, "player-play", "admin.buttons.run_operation"],
+  [/^Operations in progress/, "list", "admin.buttons.operations"],
   [
     /^(Choose (models )?folder|Home folder|Parent folder)/,
     "folder",
-    "Opens folder navigation on this server.",
+    "admin.buttons.folder_nav",
   ],
-  [
-    /^(Model and hardware)/,
-    "adjustments",
-    "Shows the models and execution settings of the provider.",
-  ],
-  [
-    /^Permissions/,
-    "isolation",
-    "Shows the access and permissions of the provider or model.",
-  ],
-  [
-    /^(Plugins|Connectors|Connection)/,
-    "plug",
-    "Shows the integrations and connection options.",
-  ],
-  [
-    /^(Settings|Appearance)/,
-    "settings",
-    "Opens the appearance and configuration preferences.",
-  ],
-  [
-    /^Run setup again/,
-    "settings",
-    "Reopens the first-run setup: theme, providers and defaults.",
-  ],
-  [/^Scan again/, "scan", "Checks the provider logins on this computer again."],
-  [
-    /^(Next|Finish|Skip setup)/,
-    "player-play",
-    "Moves the first-run setup forward, or leaves it.",
-  ],
+  [/^(Model and hardware)/, "adjustments", "admin.buttons.model_hardware"],
+  [/^Permissions/, "isolation", "admin.buttons.permissions"],
+  [/^(Plugins|Connectors|Connection)/, "plug", "admin.buttons.connections"],
+  [/^(Settings|Appearance)/, "settings", "admin.buttons.settings"],
+  [/^Run setup again/, "settings", "admin.buttons.run_setup"],
+  [/^Scan again/, "scan", "admin.buttons.scan_again"],
+  [/^(Next|Finish|Skip setup)/, "player-play", "admin.buttons.first_run_next"],
 ];
 function decoratePanelButtons() {
   for (const button of document.querySelectorAll("button")) {
     const label = (
       button.getAttribute("aria-label") || button.textContent
     ).trim();
-    const action = buttonActions.find(([pattern]) => pattern.test(label));
+    const action = buttonActions.find(([pattern, , helpKey]) =>
+      button.dataset.panelHelp
+        ? button.dataset.panelHelp === helpKey
+        : pattern.test(label),
+    );
     const folder = button.closest(
       "#folder-picker-breadcrumb,#folder-picker-list",
     );
@@ -3957,14 +3859,16 @@ function decoratePanelButtons() {
     const provider = button.classList.contains("discovery-option");
     const name = folder ? "folder" : theme ? "palette" : action?.[1];
     const explanation = folder
-      ? "Opens this folder on the server: " + (button.title || label)
+      ? HarnessI18n.t("admin.buttons.folder_explanation", {
+          target: button.title || label,
+        })
       : theme
-        ? "Applies the " +
-          (button.querySelector(".theme-name")?.textContent || theme) +
-          " theme to the panel."
+        ? HarnessI18n.t("admin.buttons.theme_explanation", {
+            theme: button.querySelector(".theme-name")?.textContent || theme,
+          })
         : provider
-          ? "Opens this provider's configuration to choose account, models, and permissions."
-          : action?.[2];
+          ? HarnessI18n.t("admin.buttons.provider_explanation")
+          : action && HarnessI18n.t(action[2]);
     if (!button.querySelector("svg,.provider-mark") && name)
       button.prepend(icon(name));
     if (explanation && !button.title) button.title = explanation;
