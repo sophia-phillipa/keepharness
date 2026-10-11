@@ -213,7 +213,7 @@ async function fixture(browser, width = 1280, kind = "plan") {
         "scoped_private_files_unavailable",
         "project_root_unavailable",
       ]) {
-        const message = await p.evaluate((code) => userErrors[code], code);
+        const message = await p.evaluate((code) => userError(code), code);
         assert.equal(typeof message, "string");
         assert.match(message, /owner|folder/i);
         assert(!message.includes(code));
