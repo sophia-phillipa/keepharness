@@ -584,14 +584,15 @@ module.exports = {
         op.check(h.gap !== null && h.gap <= 3000, `the screen had no window for ${h.gap} ms after the splash closed (splash gone at ${h.splashGoneAt} ms, window at ${h.mainAt} ms)`);
       });
 
-      await S("s2", "s2.menu", "The menu is branded (KeepHarness, Edit, View) and has no Reload or Developer Tools", async () => {
+      await S("s2", "s2.menu", "The menu is branded (KeepHarness, File, Edit, View) and has no Reload or Developer Tools", async () => {
         const menu = await h.app.evaluate(({ Menu }) => {
           const walk = (items) => items.map((i) => ({ label: i.label, role: i.role, accelerator: i.accelerator ? String(i.accelerator) : null, sub: i.submenu ? walk(i.submenu.items) : null }));
           return walk(Menu.getApplicationMenu().items);
         });
         const top = menu.map((m) => m.label);
         const flat = JSON.stringify(menu);
-        op.check(JSON.stringify(top) === JSON.stringify(["KeepHarness", "Edit", "View"]), "top-level menu: " + top.join(", "));
+        // File carries New chat (b77296d, desktop/main.cjs installMenu; dossier/desktop-tray-menu.md).
+        op.check(JSON.stringify(top) === JSON.stringify(["KeepHarness", "File", "Edit", "View"]), "top-level menu: " + top.join(", "));
         op.check(!/reload|devtools|developer/i.test(flat), "the menu still offers a developer item: " + flat.match(/[^"]*(reload|devtools|developer)[^"]*/i));
         op.check(/About KeepHarness/.test(flat) && /Quit/.test(flat), "About or Quit is missing");
         op.check(/zoomIn/i.test(flat) && /togglefullscreen/i.test(flat), "View lacks zoom or full screen");
@@ -600,6 +601,9 @@ module.exports = {
       await S("s2", "s2.fresh-admin-visual", "Fresh install with no provider opens the Admin panel (960x640 and 1280x800, light and dark)", async () => {
         const page = h.app.windows().find((w) => w.url().startsWith(adminUrl()));
         focus(page);
+        // A fresh install opens the first-run wizard over the Admin (D-052, area 23); close it so the header is reachable.
+        await op.click(page.locator("#first-run-close"));
+        await op.gone(page.locator("#first-run"));
         const measured = await matrix(page, "admin", adminUrl(), "s2-admin-fresh");
         // Held to the polish bar: header actions on one row (same vertical centre) and the sidebar footer whole, at the minimum width.
         await resizeTo(page, adminUrl(), 960, 640);
@@ -662,7 +666,8 @@ module.exports = {
         await op.click(page.locator("#settings-menu").getByRole("menuitem", { name: "Providers", exact: true }));
         await untilTrue(async () => page.frames().some((f) => f.url().startsWith(adminUrl())), "Settings did not show the admin", 20000);
         const frame = page.frames().find((f) => f.url().startsWith(adminUrl()));
-        await frame.getByRole("link", { name: "Providers", exact: true }).waitFor({ timeout: 20000 });
+        // Embedded, the Admin hides its sidebar (control/admin.css, html[data-embedded]): the harness nav owns it, so wait for the page heading.
+        await frame.getByRole("heading", { name: "AI Providers", exact: true }).waitFor({ timeout: 20000 });
         return frame;
       };
 
@@ -676,8 +681,7 @@ module.exports = {
         const all = await listWindows(h);
         op.check(all.length === 1, "windows: " + all.map((w) => w.url).join(", "));
         op.check(all[0].url.startsWith(harnessUrl()) && all[0].visible, "the chat window is missing");
-        const frame = await openAdminWindow(page);
-        await frame.getByRole("link", { name: "Providers", exact: true }).waitFor({ timeout: 20000 });
+        await openAdminWindow(page);
         await shoot(page, "s2-admin-in-settings");
       });
 
@@ -879,7 +883,6 @@ module.exports = {
       await S("s5", "s5.download-app-origin", "Admin 'Export saved configuration' (a blob: URL) is accepted with a save dialog", async () => {
         const page = h.app.windows().find((w) => !w.isClosed() && w.url().startsWith(harnessUrl()));
         const adminPage = await openAdminWindow(page);
-        await op.click(adminPage.getByRole("link", { name: "Providers", exact: true }));
         await op.click(adminPage.locator("#manage-network"));
         // First with a chosen path: the file arrives and is the export.
         await h.app.evaluate(() => (globalThis.__op.downloads = []));
@@ -961,7 +964,8 @@ module.exports = {
         h.label = "H";
         const page = await chatReady();
         adminPage4 = await openAdminWindow(page);
-        await h.app.evaluate(({ app: a }) => void a);
+        // The environment diagnostics are in the Connection / MCP section of the embedded admin.
+        await op.click(page.getByRole("button", { name: "Connection / MCP", exact: true }));
         await op.click(adminPage4.locator("#environment-diagnostics > summary"));
       }, { critical: true });
 
