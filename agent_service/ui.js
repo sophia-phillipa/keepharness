@@ -1896,16 +1896,19 @@ function conversationSummary(c = {}) {
   if (c.live_wait_reason || c.wait_reason)
     return waitReasonLabel(c.live_wait_reason || c.wait_reason);
   const state = conversationState(c);
-  if (state === "needs-you") return "Waiting for your approval";
+  if (state === "needs-you")
+    return t("conversation.summary.waiting_for_approval");
   if (state === "running")
-    return c.live_activity || c.activity || "Run in progress";
-  if (state === "queued") return "Waiting in the queue";
+    return c.live_activity || c.activity || t("run_status.activity.in_progress");
+  if (state === "queued") return t("run_status.activity.queued");
   return (
-    { failed: "Failed", cancelled: "Cancelled", interrupted: "Interrupted" }[
-      c.state
-    ] ||
+    {
+      failed: t("conversation.summary.failed"),
+      cancelled: t("conversation.summary.cancelled"),
+      interrupted: t("conversation.summary.interrupted"),
+    }[c.state] ||
     c.summary ||
-    "Completed"
+    t("conversation.summary.completed")
   );
 }
 // QA-R1-2: "Worked for" counts the time the run was active; time in the queue is shown apart.
@@ -1933,20 +1936,24 @@ function executionModeLabel() {
 function renderConversationHeader(c = null) {
   const state = c ? conversationState(c) : "draft";
   const states = {
-    "needs-you": "Awaiting approval",
-    running: "Running",
-    queued: "Queued",
-    done: "Completed",
-    draft: "Draft",
+    "needs-you": t("conversation.header.awaiting_approval"),
+    running: t("conversation.header.running"),
+    queued: t("conversation.header.queued"),
+    done: t("conversation.header.completed"),
+    draft: t("conversation.header.draft"),
   };
   $("conversation-state-pill").textContent =
-    { failed: "Failed", cancelled: "Cancelled", interrupted: "Interrupted" }[
-      c?.state
-    ] || states[state];
+    {
+      failed: t("conversation.header.failed"),
+      cancelled: t("conversation.header.cancelled"),
+      interrupted: t("conversation.header.interrupted"),
+    }[c?.state] || states[state];
   $("conversation-state-pill").dataset.state = state;
   $("header-execution-mode").textContent = executionModeLabel();
   $("header-access").textContent = accessLabel();
 }
+// index.html ships the draft pill in English; the runtime rewrites it at load so the header matches the language.
+$("conversation-state-pill").textContent = t("conversation.header.draft");
 // WP8 (D-032): one meter per provider in a fixed order. A reading shows a bar, DeepSeek shows its
 // prepaid balance and a provider without a reading shows "n/a" with the reason.
 const QUOTA_RAIL_ORDER = ["codex", "claude", "gemini", "deepseek", "local"];
@@ -2112,8 +2119,12 @@ function jobAlert(job, before) {
     before === undefined &&
     Date.now() / 1000 - (job.created || 0) < RECENT_JOB_SECONDS;
   if (!known && !recent) return "";
-  const prefix = { failed: "Failed: ", completed: "Finished: " }[job.state];
-  return prefix ? prefix + (job.title || "a run") : "";
+  const title = job.title || t("run_status.notice.untitled_run");
+  const notice = {
+    failed: t("run_status.notice.failed", { title }),
+    completed: t("run_status.notice.finished", { title }),
+  }[job.state];
+  return notice || "";
 }
 function notifyAttention(data = {}) {
   const needs = data.needs_you || [];
@@ -2172,7 +2183,12 @@ window.applyActivitySnapshot = function applyActivitySnapshot(data = {}) {
     const nextNeeds = pending.has(item.id);
     const nextWait = job?.wait_reason || "";
     const nextActivity = job
-      ? [job.state === "running" ? "Run in progress" : "Waiting", job.work_item]
+      ? [
+          job.state === "running"
+            ? t("run_status.activity.in_progress")
+            : t("run_status.activity.waiting"),
+          job.work_item,
+        ]
           .filter(Boolean)
           .join(": ")
       : "";
@@ -4636,15 +4652,18 @@ function showTurnRetry(run) {
       (m) => m.id === (req.backend === "qwen" ? "qwen-local" : req.model),
     )?.capabilities?.images === false;
   if (unreadable) {
-    note.textContent =
-      modelName(req.model) +
-      " can't read the image of this turn, so Retry would drop it again.";
+    note.textContent = t("conversation.turn.unreadable_image", {
+      model: modelName(req.model),
+    });
     button.dataset.testid = "turn-choose-model";
-    button.textContent = "Choose another model";
+    button.textContent = t("conversation.turn.choose_model");
     button.onclick = () => $("model-trigger").click();
   } else {
     button.dataset.testid = "turn-retry";
-    button.append(HarnessUI.icon("refresh"), document.createTextNode("Retry"));
+    button.append(
+      HarnessUI.icon("refresh"),
+      document.createTextNode(t("conversation.turn.retry")),
+    );
     button.onclick = async () => {
       if (button.disabled) return;
       const turnConversation = conversation;
@@ -4810,7 +4829,7 @@ function event(e) {
     });
     status("Receiving response…");
   } else if (e.type === "reasoning_delta" || e.type === "reasoning_summary") {
-    if (active) setActivitySummary(active, "Thinking…");
+    if (active) setActivitySummary(active, t("conversation.turn.thinking"));
     status("Reasoning…");
   } else if (e.type === "quota_before" || e.type === "quota_after") {
     if (selected()?.backend === "codex")
@@ -4988,12 +5007,11 @@ async function result(
     else if (["cancelled", "failed", "interrupted"].includes(r.state))
       // F-57: partial usage events of an unfinished run are not the run's totals.
       $("context-meter").textContent =
-        (r.state === "cancelled"
-          ? "Last run cancelled"
-          : "Last run did not finish") + " · token usage not reported";
+        r.state === "cancelled"
+          ? t("run_status.meter.cancelled")
+          : t("run_status.meter.did_not_finish");
     else if (r.state === "completed")
-      $("context-meter").textContent =
-        "Last run completed · token usage not reported";
+      $("context-meter").textContent = t("run_status.meter.completed");
     if (data.answer !== undefined) setAnswer(active, data.answer);
     // On reload, nothing has streamed into this fresh bubble yet: fall back
     // to the server's persisted partial_answer (WP-F contract) so a failed,
@@ -5008,7 +5026,7 @@ async function result(
         : "";
     if (notice) setAnswer(active, active.body.rawAnswer, notice, data.error);
     if (r.state === "cancelled" && !active.body.rawAnswer && !notice)
-      setAnswer(active, "Run cancelled.");
+      setAnswer(active, t("run_status.answer.cancelled"));
     // The notice asks to send again: put the prompt back in an empty composer.
     if (
       (notice || condition) &&
@@ -5091,8 +5109,8 @@ function showHeldTurn(response, held) {
   run.type = discard.type = "button";
   run.className = "btn btn-primary";
   discard.className = "btn";
-  run.textContent = "Run queued message";
-  discard.textContent = "Discard";
+  run.textContent = t("conversation.held.run");
+  discard.textContent = t("conversation.held.discard");
   const choose = async (path, done) => {
     run.disabled = discard.disabled = true;
     try {
@@ -5104,8 +5122,9 @@ function showHeldTurn(response, held) {
       status("Couldn't update the queued message: " + e.message);
     }
   };
-  run.onclick = () => choose("/run-queued", "Queued message released.");
-  discard.onclick = () => choose("/cancel", "Queued message discarded.");
+  run.onclick = () => choose("/run-queued", t("run_status.queued.released"));
+  discard.onclick = () =>
+    choose("/cancel", t("run_status.queued.discarded"));
   actions.append(run, discard);
   response.heldActions = actions;
   response.el.insertBefore(actions, response.body);
