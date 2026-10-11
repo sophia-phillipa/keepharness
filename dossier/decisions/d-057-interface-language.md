@@ -1,6 +1,6 @@
 # D-057 — Interface language: JSON catalogs per locale with a t() helper
 
-Status: proposed (2026-10-11). Decided by: Sophia (pending). Issue: #16 (WP9). Design: [docs/interface-language.md](../../docs/interface-language.md). Relates to [D-036](d-036-wp9-interface-language.md) and [codex-parity-design.md WP9](../codex-parity-design.md#wp9-interface-language-english-and-brazilian-portuguese-l-frontend--desktop--small-python).
+Status: accepted (2026-10-11, all seven recommendations). Decided by: Sophia. Issue: #16 (WP9). Design: [docs/interface-language.md](../../docs/interface-language.md). Relates to [D-036](d-036-wp9-interface-language.md) and [codex-parity-design.md WP9](../codex-parity-design.md#wp9-interface-language-english-and-brazilian-portuguese-l-frontend--desktop--small-python).
 
 ## Context
 

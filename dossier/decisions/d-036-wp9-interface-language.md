@@ -1,6 +1,6 @@
 # D-036 — Interface language through per-locale JSON catalogs and a DOM-attribute runtime
 
-Status: proposed · 2026-10-06 · design by the orchestrator, pending Sophia's approval · spec: [WP9](../codex-parity-design.md#wp9-interface-language-english-and-brazilian-portuguese-l-frontend--desktop--small-python)
+Status: superseded by [D-057](d-057-interface-language.md) (2026-10-11) · was proposed 2026-10-06, design by the orchestrator · spec: [WP9](../codex-parity-design.md#wp9-interface-language-english-and-brazilian-portuguese-l-frontend--desktop--small-python)
 
 ## Context
 

@@ -1,6 +1,6 @@
 # Interface language: English and Brazilian Portuguese
 
-> Status: DRAFT (design pass 2026-10-11). Nothing here ships until [D-057](../dossier/decisions/d-057-interface-language.md) is accepted (proposed today); a package starts only after that, and the seven open decisions in §3 are answered.
+> Status: ACCEPTED 2026-10-11. [D-057](../dossier/decisions/d-057-interface-language.md) is accepted and Sophia took the recommended option in all seven decisions of §5; packages run in the §3.2 order.
 > Job: When I switch the interface to Brazilian Portuguese, every label, message, error, dialog, menu and admin screen follows without a reload, and English stays one switch away, so I can work in my own language without losing anything.
 > Scope: `harness_ui/assets/i18n.js` (new), `harness_ui/assets/locales/` (new), `harness_ui/__init__.py`, `agent_service/ui.js`, `agent_service/run-console.js`, `agent_service/index.html`, `agent_service/tour.js`, `agent_service/terminal-pane.js`, `harness_ui/assets/settings-search.js`, `agent_service/ui_state.py`, `agent_service/ui-prefs.js`, `control/` (admin, customize, first-run, catalogs, index.html), `desktop/main.cjs`, `desktop/preload.cjs`, `tests/`, `.conventions-allow`.
 > Invariant docs: [AGENTS.md](../AGENTS.md) (everything in English; the only Portuguese file is `README.pt-BR.md`, so a Portuguese catalog needs an exception, open decision 2), [naming-model](../dossier/naming-model.md) (names), [D-023](../dossier/decisions/d-023-wp6-preferences-in-backend-store.md) and [ui-state.md](ui-state.md) (preferences in the backend store, no new localStorage keys). [D-036](../dossier/decisions/d-036-wp9-interface-language.md) is still proposed; D-057 supersedes it only on acceptance.
@@ -213,7 +213,7 @@ Covered in §2.11. The visible pass (desktop app on Sophia's screen, English and
 
 ## 5. Open decisions
 
-Recommended option first in each item. Answers are Sophia's; none is assumed here.
+Answered 2026-10-11: Sophia took the recommended (first) option in all seven items.
 
 1. **First-run language.** Recommended: browser language among `complete: true` locales, English otherwise. Alternative: always English, as the WP9 spec's wording reads.
 2. **Portuguese catalog exception in AGENTS.md.** Recommended: yes, limited to `harness_ui/assets/locales/pt-br.json`. Alternative: no exception; Portuguese stays out of the repository.
