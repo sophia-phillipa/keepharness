@@ -23,6 +23,8 @@ Errors: `ui_state_local_only` (403, any client but the local owner), `ui_state_u
 - Caps are served in `limits` so the client shares them; maps the client grows without bound (`project_expanded`, `conversation_activity`) must be pruned to their cap before sending.
 - `always_on_top` (boolean) is the desktop window's stay-on-top choice; the first-run wizard sets it and only the desktop shell acts on it.
 - `wide_layout` (boolean) is the wide chat layout preference; a missing key reads as `false`.
+- `editor_open` (boolean) shows the file editor pane beside the chat; a missing key reads as `false`.
+- `editor_width` (pixels, 0 to 20000) is the editor pane width; a missing key reads as the CSS default.
 - Nothing here is conversation content, a draft, a secret or a path.
 
 A GET may repair the store as a side effect: an unparsable file is moved aside as `.bak` (the client did not ask for it; it is an internal repair). Keys a newer build wrote are kept on write and never served. `<state_dir>` is the harness run state folder (`state/runs`).
