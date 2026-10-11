@@ -1,5 +1,6 @@
 // First statement: the deferred script runs after parsing, so static markup is translated before ui.js writes text.
 HarnessI18n.apply(document);
+window.keepharnessDesktop?.setLanguage?.(HarnessI18n.tag());
 let workspaceResourceRequest = 0;
 const MAX_ATTACHMENTS = 20;
 const MAX_ATTACHMENT_BYTES = 100 * 1024 * 1024;

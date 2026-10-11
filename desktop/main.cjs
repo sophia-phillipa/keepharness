@@ -59,7 +59,7 @@ let win = null,
   pinned = false,
   pinRestored = false,
   stderr = '',
-  buildLabel = 'development build';
+  buildInfo = null; // the packaged build manifest; null in a development build
 
 app.setName(TITLE);
 const knownSecrets = new Set();
@@ -90,7 +90,7 @@ async function pythonReady({fatal = true} = {}) {
   log('Python could not start. Run install.sh, or set KEEPHARNESS_PYTHON');
   if (!fatal) return false;
   releaseSplash();
-  await dialog.showMessageBox({ type: 'error', title: TITLE, message: 'Python could not start.', detail: 'Run install.sh, or set KEEPHARNESS_PYTHON' });
+  await dialog.showMessageBox({ type: 'error', title: TITLE, message: t('desktop.dialog.python_failed'), detail: t('desktop.dialog.python_failed_detail') });
   quit();
   return false;
 }
@@ -126,12 +126,12 @@ async function verifyProduct(target) {
         if (productAllowed(probe.body)) { harnessVerified = true; return true; }
         if (probe.status !== 401) break;
         // 401 means our own sign-in failed, not that the service is foreign: offer a retry.
-        const {response} = await dialog.showMessageBox({type:'error', title:TITLE, message:'Could not sign in to the KeepHarness service.', detail:'The service did not accept this account\'s local session.', buttons:['Retry','Quit'], defaultId:0, cancelId:1});
+        const {response} = await dialog.showMessageBox({type:'error', title:TITLE, message:t('desktop.dialog.sign_in_failed'), detail:t('desktop.dialog.sign_in_failed_detail'), buttons:['desktop.button.retry','desktop.button.quit'].map(key => t(key)), defaultId:0, cancelId:1});
         if (response !== 0 || quitting) { quit(); return false; }
         await signInWindow();
         if (quitting) return false;
       }
-      await dialog.showMessageBox({type:'error', title:TITLE, message:'This is not a KeepHarness service.', detail:'The /v1/version product must be keepharness.'});
+      await dialog.showMessageBox({type:'error', title:TITLE, message:t('desktop.dialog.not_keepharness'), detail:t('desktop.dialog.not_keepharness_detail')});
       quit();
       return false;
     })().finally(() => { productVerification = null; });
@@ -154,6 +154,56 @@ function restoredBounds() {
   const primary = screen.getPrimaryDisplay().workArea;
   return clampBounds(state, [primary, ...screen.getAllDisplays().map(display => display.workArea)]);
 }
+// Menu, tray and dialog text comes from the harness catalogs (desktop.* keys). The page reports its
+// language (setLanguage); until then, and when a catalog cannot be fetched, FALLBACK shows English.
+// Main keeps the catalogs in memory only: the preference is stored in the backend (D-023).
+const FALLBACK = {
+  'desktop.about.dev_build': 'development build',
+  'desktop.about.date_unavailable': 'build date unavailable',
+  'desktop.button.close_and_stop': 'Close and stop the work',
+  'desktop.button.keep_working': 'Keep working',
+  'desktop.button.quit': 'Quit',
+  'desktop.button.reload': 'Reload',
+  'desktop.button.restart_service': 'Restart service',
+  'desktop.button.retry': 'Retry',
+  'desktop.button.wait': 'Wait',
+  'desktop.dialog.close_message': 'Closing KeepHarness stops the service.',
+  'desktop.dialog.close_running': 'Tasks are running or queued; the running and queued tasks stop with it.',
+  'desktop.dialog.close_unknown': 'KeepHarness could not confirm that nothing is running.',
+  'desktop.dialog.foreign_port': 'The program on 127.0.0.1:{port} is not yours, so KeepHarness will not open it.',
+  'desktop.dialog.foreign_port_detail': 'Only a KeepHarness service started by your own account is loaded. Stop the other program, or set KEEPHARNESS_ADMIN_PORT and KEEPHARNESS_PORT to free ports.',
+  'desktop.dialog.not_keepharness': 'This is not a KeepHarness service.',
+  'desktop.dialog.not_keepharness_detail': 'The /v1/version product must be keepharness.',
+  'desktop.dialog.not_responding': 'KeepHarness is not responding.',
+  'desktop.dialog.page_stopped': 'The KeepHarness page stopped.',
+  'desktop.dialog.provenance_detail': 'Reinstall a verified desktop package.',
+  'desktop.dialog.provenance_invalid': 'KeepHarness package provenance is invalid.',
+  'desktop.dialog.python_failed': 'Python could not start.',
+  'desktop.dialog.python_failed_detail': 'Run install.sh, or set KEEPHARNESS_PYTHON',
+  'desktop.dialog.service_did_not_start': 'The KeepHarness service did not start.',
+  'desktop.dialog.service_did_not_start_detail': 'Set KEEPHARNESS_PYTHON to a Python environment with KeepHarness installed.',
+  'desktop.dialog.service_stopped': 'The KeepHarness service stopped.',
+  'desktop.dialog.sign_in_failed': 'Could not sign in to the KeepHarness service.',
+  'desktop.dialog.sign_in_failed_detail': 'The service did not accept this account\'s local session.',
+  'desktop.error.port_not_owned': 'The service port is not owned by your account.',
+  'desktop.error.service_not_restarted': 'The KeepHarness service did not restart.',
+  'desktop.error.service_stopped_startup': 'The KeepHarness service stopped during startup.',
+  'desktop.menu.about': 'About KeepHarness',
+  'desktop.menu.always_on_top': 'Always on top',
+  'desktop.menu.edit': 'Edit',
+  'desktop.menu.file': 'File',
+  'desktop.menu.new_chat': 'New chat',
+  'desktop.menu.quit': 'Quit',
+  'desktop.menu.view': 'View',
+  'desktop.tray.open': 'Open KeepHarness',
+};
+let catalogs = {active: null, english: null};
+function t(key, params = {}) {
+  const text = [catalogs.active, catalogs.english, FALLBACK]
+    .map(source => (source && Object.hasOwn(source, key) ? source[key] : null))
+    .find(value => typeof value === 'string') ?? key;
+  return text.replace(/\{(\w+)\}/g, (match, name) => (name in params ? String(params[name]) : match));
+}
 // Window and tray menus share these items. New chat clicks the harness page's own button, so it
 // is enabled only while the harness (not the admin) is loaded. The pin has one writer: the page's
 // HarnessPrefs; main only mirrors it on the window (D-050).
@@ -165,8 +215,8 @@ function newChat() {
   surface(win);
   win.webContents.executeJavaScript("document.getElementById('new')?.click()").catch(error => log(error.message));
 }
-const newChatItem = () => ({label:'New chat', enabled:onHarness(), click:newChat});
-const pinItem = () => ({label:'Always on top', type:'checkbox', checked:pinned, click:item => setPinned(item.checked)});
+const newChatItem = () => ({label:t('desktop.menu.new_chat'), enabled:onHarness(), click:newChat});
+const pinItem = () => ({label:t('desktop.menu.always_on_top'), type:'checkbox', checked:pinned, click:item => setPinned(item.checked)});
 function refreshMenus() {
   installMenu();
   tray?.setContextMenu(Menu.buildFromTemplate(trayTemplate()));
@@ -192,11 +242,11 @@ async function restorePinned() {
 }
 function trayTemplate() {
   return [
-    {label:'Open KeepHarness', click:() => { if (win && !win.isDestroyed()) surface(win); }},
+    {label:t('desktop.tray.open'), click:() => { if (win && !win.isDestroyed()) surface(win); }},
     newChatItem(),
     pinItem(),
     // The before-quit confirmation is a dialog on the window: bring the window up first.
-    {label:'Quit', click:() => { if (win && !win.isDestroyed()) surface(win); app.quit(); }},
+    {label:t('desktop.menu.quit'), click:() => { if (win && !win.isDestroyed()) surface(win); app.quit(); }},
   ];
 }
 function installTray() {
@@ -211,12 +261,17 @@ function installTray() {
   }
   return tray;
 }
+// The About detail: the packaged version and build date, or a development build.
+function buildLabel() {
+  if (!buildInfo) return t('desktop.about.dev_build');
+  return `${buildInfo.version} (${buildInfo.commit.slice(0,7)}) · ${buildInfo.built_at || t('desktop.about.date_unavailable')}`;
+}
 function installMenu() {
   Menu.setApplicationMenu(Menu.buildFromTemplate([
-    {label:TITLE, submenu:[{id:'about', label:'About KeepHarness', click:() => dialog.showMessageBox({type:'info', title:'About KeepHarness', message:TITLE, detail:buildLabel})}, {label:'Quit', accelerator:'CmdOrCtrl+Q', click:() => app.quit()}]},
-    {label:'File', submenu:[newChatItem()]},
-    {label:'Edit', submenu:['undo','redo','cut','copy','paste','selectAll'].map(role => ({role}))},
-    {label:'View', submenu:[{role:'resetZoom'}, {role:'zoomIn'}, {role:'zoomOut'}, {role:'togglefullscreen'}, pinItem(), ...(!app.isPackaged ? [{role:'toggleDevTools'}] : [])]},
+    {label:TITLE, submenu:[{id:'about', label:t('desktop.menu.about'), click:() => dialog.showMessageBox({type:'info', title:t('desktop.menu.about'), message:TITLE, detail:buildLabel()})}, {label:t('desktop.menu.quit'), accelerator:'CmdOrCtrl+Q', click:() => app.quit()}]},
+    {label:t('desktop.menu.file'), submenu:[newChatItem()]},
+    {label:t('desktop.menu.edit'), submenu:['undo','redo','cut','copy','paste','selectAll'].map(role => ({role}))},
+    {label:t('desktop.menu.view'), submenu:[{role:'resetZoom'}, {role:'zoomIn'}, {role:'zoomOut'}, {role:'togglefullscreen'}, pinItem(), ...(!app.isPackaged ? [{role:'toggleDevTools'}] : [])]},
   ]));
 }
 // The admin is a Settings section of the harness window, never a window of its own: for the admin
@@ -336,6 +391,53 @@ function registerHandoff() {
   ipcMain.handle('keepharness:handoff-apps', handoffApps);
   ipcMain.handle('keepharness:handoff-open', handoffOpen);
 }
+function registerLanguage() {
+  ipcMain.handle('keepharness:set-language', setLanguage);
+}
+// The tag must be a locale the catalog index lists as complete (or English). Only the two JSON files
+// are read from the harness origin; a failed read leaves that catalog out and FALLBACK covers it.
+let languageRequest = 0;
+const CATALOG_MAX_BYTES = 1024 * 1024;
+async function setLanguage(event, tag) {
+  if (!fromHarness(event)) return false;
+  try {
+    const index = await fetchJson(harnessUrl + 'assets/locales/index.json');
+    const locales = Array.isArray(index?.locales) ? index.locales : [];
+    const locale = locales.find(item => item?.tag === tag && (item.complete === true || tag === 'en') && /^[\w-]+\.json$/.test(item.file));
+    if (!locale) return false;
+    const request = ++languageRequest;
+    const english = await fetchJson(harnessUrl + 'assets/locales/en.json');
+    const active = locale.tag === 'en' ? null : await fetchJson(harnessUrl + 'assets/locales/' + locale.file);
+    if (request !== languageRequest) return false; // a newer switch has started
+    if (!english || (locale.tag !== 'en' && !active)) return false; // keep the previous catalogs
+    catalogs = {active, english};
+    refreshMenus();
+    return true;
+  } catch (error) {
+    log(error.message);
+    return false;
+  }
+}
+// A catalog is small; the loopback harness answers at once. Anything else (status, size, JSON) gives null.
+function fetchJson(url) {
+  return new Promise(resolve => {
+    const request = http.get(url, {timeout:1500}, response => {
+      const chunks = [];
+      let size = 0;
+      response.on('data', chunk => {
+        size += Buffer.byteLength(chunk);
+        if (size > CATALOG_MAX_BYTES) { resolve(null); request.destroy(); return; }
+        chunks.push(chunk);
+      });
+      response.on('end', () => {
+        try { resolve(response.statusCode === 200 ? JSON.parse(Buffer.concat(chunks.map(chunk => Buffer.from(chunk))).toString('utf8')) : null); } catch { resolve(null); }
+      });
+      response.on('error', () => resolve(null));
+    });
+    request.on('timeout', () => request.destroy());
+    request.on('error', () => resolve(null));
+  });
+}
 // All BrowserWindows, including the splash, share security and lifecycle policies.
 function createWindow(kind) {
   const isSplash = kind === 'splash';
@@ -398,19 +500,19 @@ function createWindow(kind) {
     prompting = true;
     log(message + ' ' + detail);
     try {
-      const {response} = await dialog.showMessageBox(window, {type:'warning', title:TITLE, message, detail:safeText(detail), buttons, defaultId:0, cancelId:buttons[0] === 'Wait' ? 0 : buttons.length - 1});
+      const {response} = await dialog.showMessageBox(window, {type:'warning', title:TITLE, message: t(message), detail:safeText(detail), buttons: buttons.map(key => t(key)), defaultId:0, cancelId:buttons[0] === 'desktop.button.wait' ? 0 : buttons.length - 1});
       if (quitting || window.isDestroyed()) return;
       if (response === reloadResponse) { pendingCrash = null; window.reload(); }
-      else if (buttons[response] === 'Quit') quit();
+      else if (buttons[response] === 'desktop.button.quit') quit();
     } finally {
       prompting = false;
       const reason = pendingCrash;
       pendingCrash = null;
-      if (reason !== null) void recover('The KeepHarness page stopped.', ['Reload','Quit'], 0, reason, true);
+      if (reason !== null) void recover('desktop.dialog.page_stopped', ['desktop.button.reload','desktop.button.quit'], 0, reason, true);
     }
   };
-  window.webContents.on('render-process-gone', (_event, details) => void recover('The KeepHarness page stopped.', ['Reload','Quit'], 0, details.reason, true));
-  window.on('unresponsive', () => void recover('KeepHarness is not responding.', ['Wait','Reload'], 1));
+  window.webContents.on('render-process-gone', (_event, details) => void recover('desktop.dialog.page_stopped', ['desktop.button.reload','desktop.button.quit'], 0, details.reason, true));
+  window.on('unresponsive', () => void recover('desktop.dialog.not_responding', ['desktop.button.wait','desktop.button.reload'], 1));
   if (kind === 'main') {
     monitorWork(window);
     window.on('close', event => {
@@ -506,20 +608,20 @@ async function startAdmin() {
   return true;
 }
 function requireBackendAlive() {
-  if (backend && !processRunning(backend)) throw new Error('The KeepHarness service stopped during startup.');
+  if (backend && !processRunning(backend)) throw new Error(t('desktop.error.service_stopped_startup'));
 }
 async function recoverBackend() {
   if (recoveryPending || quitting) return;
   recoveryPending = true;
   try {
-    const {response} = await dialog.showMessageBox({type:'error', title:TITLE, message:'The KeepHarness service stopped.', detail:stderr.slice(-2000), buttons:['Restart service','Quit'], defaultId:0, cancelId:1});
+    const {response} = await dialog.showMessageBox({type:'error', title:TITLE, message:t('desktop.dialog.service_stopped'), detail:stderr.slice(-2000), buttons:['desktop.button.restart_service','desktop.button.quit'].map(key => t(key)), defaultId:0, cancelId:1});
     if (quitting) return;
     if (response !== 0) { quit(); return; }
     adminCookie = null;
     if (!(await startAdmin())) return;
-    if (!(await waitFor(adminUrl, 40))) throw new Error('The KeepHarness service did not restart.');
+    if (!(await waitFor(adminUrl, 40))) throw new Error(t('desktop.error.service_not_restarted'));
     const target = await chooseTarget();
-    if (foreignPort(target === harnessUrl ? [adminPort, harnessPort] : [adminPort]) !== null) throw new Error('The service port is not owned by your account.');
+    if (foreignPort(target === harnessUrl ? [adminPort, harnessPort] : [adminPort]) !== null) throw new Error(t('desktop.error.port_not_owned'));
     requireBackendAlive();
     if (!(await verifyProduct(target)) || quitting) return;
     if (quitting) return;
@@ -635,7 +737,7 @@ async function closeWindow() {
       ownsBackend: processRunning(backend),
       busy: backendBusy,
       confirm: async (working) => {
-        const prompt = closePrompt(working);
+        const prompt = closePrompt(working, {message: t('desktop.dialog.close_message'), running: t('desktop.dialog.close_running'), unknown: t('desktop.dialog.close_unknown'), keep: t('desktop.button.keep_working'), stop: t('desktop.button.close_and_stop')});
         const { response } = await dialog.showMessageBox(win, { type: 'warning', title: TITLE, ...prompt, defaultId: 0, cancelId: 0, noLink: true });
         return response === 1;
       },
@@ -724,17 +826,18 @@ async function start() {
           (manifest.built_at !== undefined && (typeof manifest.built_at !== 'string' ||
           !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/.test(manifest.built_at) ||
           !Number.isFinite(Date.parse(manifest.built_at))))) throw new Error('Invalid build manifest');
-      buildLabel = `${manifest.version} (${manifest.commit.slice(0,7)}) · ${manifest.built_at || 'build date unavailable'}`;
+      buildInfo = manifest;
       log('Build: ' + JSON.stringify({version:manifest.version, commit:manifest.commit}));
     } catch (error) {
       log('Packaged provenance refused: ' + error.message);
-      await dialog.showMessageBox({type:'error', title:TITLE, message:'KeepHarness package provenance is invalid.', detail:'Reinstall a verified desktop package.'});
+      await dialog.showMessageBox({type:'error', title:TITLE, message:t('desktop.dialog.provenance_invalid'), detail:t('desktop.dialog.provenance_detail')});
       app.quit();
       return;
     }
   }
   installMenu();
   registerHandoff();
+  registerLanguage();
   limitPermissions();
   limitDownloads();
   showSplash();
@@ -745,8 +848,8 @@ async function start() {
       await dialog.showMessageBox({
         type: 'error',
         title: TITLE,
-        message: 'The KeepHarness service did not start.',
-        detail: stderr.slice(-2000) || 'Set KEEPHARNESS_PYTHON to a Python environment with KeepHarness installed.',
+        message: t('desktop.dialog.service_did_not_start'),
+        detail: stderr.slice(-2000) || t('desktop.dialog.service_did_not_start_detail'),
       });
       app.quit();
       return;
@@ -758,9 +861,8 @@ async function start() {
     await dialog.showMessageBox({
       type: 'error',
       title: TITLE,
-      message: `The program on 127.0.0.1:${foreign} is not yours, so KeepHarness will not open it.`,
-      detail:
-        'Only a KeepHarness service started by your own account is loaded. Stop the other program, or set KEEPHARNESS_ADMIN_PORT and KEEPHARNESS_PORT to free ports.',
+      message: t('desktop.dialog.foreign_port', {port: foreign}),
+      detail: t('desktop.dialog.foreign_port_detail'),
     });
     app.quit();
     return;
