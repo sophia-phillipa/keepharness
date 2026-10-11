@@ -1361,7 +1361,7 @@ async function json(path, options) {
     data = await r.json();
   } catch {
     throw Error(
-      "The server returned invalid data. Try refreshing the connection.",
+      t("common.request.invalid_data"),
     );
   }
   if (session) {
@@ -1396,7 +1396,7 @@ async function hydrateTemporaryPreviews(value, session) {
                     new DOMException("Temporary chat closed", "AbortError"),
                   );
             reader.onerror = () =>
-              reject(Error("Couldn't display the temporary image."));
+              reject(Error(t("composer.temporary.image_failed")));
             reader.readAsDataURL(blob);
           });
         })(),
@@ -1460,7 +1460,7 @@ async function refreshProjectPermissions(timeout = 30000) {
       { signal: AbortSignal.timeout(timeout) },
     );
     if (sequence !== policySequence) return;
-    if (!Array.isArray(data.models)) throw Error("Invalid permissions catalog");
+    if (!Array.isArray(data.models)) throw Error(t("composer.permissions.invalid_catalog"));
     const previous = $("model").value,
       previousName = modelName(previous),
       effort = $("effort").value;
@@ -1608,7 +1608,7 @@ function quotaWindows(q, backend = selected()?.backend) {
       seven_day: "Claude",
       seven_day_opus: "✳ Opus",
       seven_day_sonnet: "✳ Sonnet",
-      overage: "Overage",
+      overage: t("quota.bucket.overage"),
     };
     const bucketLabel =
       entries.length > 1
@@ -1631,16 +1631,16 @@ function quotaWindows(q, backend = selected()?.backend) {
       const duration = window.windowDurationMins,
         label =
           typeof duration === "number" && duration >= 10080
-            ? "Weekly"
+            ? t("quota.window.weekly")
             : duration === 300
-              ? "5 h"
+              ? t("quota.window.hours", { count: 5 })
               : typeof duration === "number" &&
                   Number.isFinite(duration) &&
                   duration > 0
                 ? duration < 60
-                  ? Math.round(duration) + " min"
-                  : Math.round(duration / 60) + " h"
-                : "Quota",
+                  ? t("quota.window.minutes", { count: Math.round(duration) })
+                  : t("quota.window.hours", { count: Math.round(duration / 60) })
+                : t("quota.window.quota"),
         remaining = Math.max(
           0,
           Math.min(100, Math.round((100 - used) * 10) / 10),
@@ -1659,11 +1659,11 @@ function quotaWindows(q, backend = selected()?.backend) {
   return windows;
 }
 function quotaText(q) {
-  if (!q?.available) return "Quota unavailable";
+  if (!q?.available) return t("quota.unavailable");
   const windows = quotaWindows(q);
   return windows.length
-    ? windows.map((w) => `${w.label}: ${w.percent}% remaining`).join(" · ")
-    : "Percentage unavailable";
+    ? windows.map((w) => t("quota.window.remaining", { label: w.label, percent: w.percent })).join(" · ")
+    : t("quota.percentage_unavailable");
 }
 const quotaPrimedAt = new Map(); // backend -> last /v1/usage read, in memory only
 const railQuotaSummaries = new Map(); // backend -> why its rail meter reads n/a, for the panel
@@ -1671,29 +1671,24 @@ let quotaIdentityBackend = "",
   quotaView = "",
   quotaFocus = null; // the provider whose meter was activated; null follows the selected model
 const quotaHeadings = {
-  codex: "ChatGPT account quota",
-  claude: "Claude Code subscription quota",
-  gemini: "Gemini subscription quota",
-  deepseek: "DeepSeek balance",
-  local: "Local models",
+  codex: "quota.heading.codex",
+  claude: "quota.heading.claude",
+  gemini: "quota.heading.gemini",
+  deepseek: "quota.heading.deepseek",
+  local: "quota.heading.local",
 };
 const quotaNotes = {
-  codex:
-    "Shared with the account's other usage. Rounded percentages don't measure this run's exact cost.",
-  claude:
-    "Shared with the account's other Claude usage. Percentages are what Claude Code last reported.",
-  deepseek:
-    "Prepaid balance from your DeepSeek account, read every few minutes. It is not an estimate of this run's cost.",
+  codex: "quota.note.codex",
+  claude: "quota.note.claude",
+  deepseek: "quota.note.deepseek",
 };
 const quotaViewBackend = () => quotaFocus || selected()?.backend || "";
 function quotaDetailText(view) {
-  return (
+  return t(
     {
-      local:
-        "This model runs locally. Context usage appears separately in the context indicator.",
-      gemini:
-        "Gemini CLI reports its own subscription usage; check it in your Google account.",
-    }[view] || "Select a model to check the provider quota."
+      local: "quota.detail.local",
+      gemini: "quota.detail.gemini",
+    }[view] || "quota.detail.select",
   );
 }
 function renderQuotaIdentity() {
@@ -1705,37 +1700,39 @@ function renderQuotaIdentity() {
   quotaIdentityBackend = backend;
   quotaView = view;
   $("quota-model-icon").textContent = model ? modelIcon(model.id) : "◈";
-  $("quota-model-name").textContent = model ? modelName(model.id) : "Model";
+  $("quota-model-name").textContent = model ? modelName(model.id) : t("static.composer.model_trigger.aria_label");
   $("quota-model-identity").title = model
     ? modelName(model.id) + " · " + (providerNames[backend] || backend)
-    : "Selected model";
+    : t("quota.identity.selected");
   $("quota-toggle").hidden = false;
   // L55: the panel names the provider it explains, and its note matches that provider.
-  $("quota-heading-title").textContent =
-    quotaHeadings[view] || "Provider quota";
-  $("quota-note").textContent = quotaNotes[view] || "";
+  $("quota-heading-title").textContent = t(
+    quotaHeadings[view] || "quota.heading.provider",
+  );
+  $("quota-note").textContent = quotaNotes[view] ? t(quotaNotes[view]) : "";
   $("quota-note").hidden = !quotaNotes[view];
   const states = {
-    local: "No provider quota",
-    claude: "Checking Claude quota…",
-    deepseek: "DeepSeek credits",
-    gemini: "Checking Gemini quota…",
+    local: "quota.short.no_provider",
+    claude: "quota.short.checking_claude",
+    deepseek: "quota.short.deepseek",
+    gemini: "quota.short.checking_gemini",
   };
   if (backend === "codex" || backend === "claude") {
     if (modelChanged)
-      $("quota-short").textContent =
-        backend === "claude" ? "Checking Claude quota…" : "Checking quota…";
+      $("quota-short").textContent = t(
+        backend === "claude" ? "quota.short.checking_claude" : "quota.short.checking",
+      );
   } else {
-    $("quota-short").textContent = states[backend] || "Quota unavailable";
+    $("quota-short").textContent = t(states[backend] || "quota.unavailable");
   }
   if (["codex", "claude", "deepseek"].includes(view)) {
     if (changed) {
       $("quota-current").textContent =
         view === "deepseek"
-          ? "This model uses your own DeepSeek account credits. Checking the balance…"
+          ? t("quota.current.deepseek_checking")
           : view === "claude"
-            ? "Checking Claude quota…"
-            : "Checking quota…";
+            ? t("quota.short.checking_claude")
+            : t("quota.short.checking");
       $("quota-comparison").replaceChildren();
     }
   } else {
@@ -1755,7 +1752,7 @@ function renderQuotaIdentity() {
       (providerNames[backend] || backend) +
       " · " +
       $("quota-short").textContent
-    : "Selected model · quota unavailable";
+    : t("quota.toggle.unavailable");
   $("quota-toggle").setAttribute("aria-label", description);
   $("quota-toggle").title = description;
   requestAnimationFrame(updateHeaderToastOffset);
@@ -1767,18 +1764,18 @@ function paintQuota(q, backend = quotaViewBackend()) {
     windows = available ? quotaWindows(q, backend) : [];
   const source =
     backend === "claude"
-      ? "Latest information from Claude"
-      : "Shared Codex account quota";
+      ? t("quota.source.claude")
+      : t("quota.source.codex");
   // The header summary describes the selected model; another provider's meter only fills the panel.
   const forSelected = selected()?.backend === backend;
   if (forSelected)
     $("quota-short").textContent = available
       ? windows.length
-        ? windows.map((w) => `${w.label}: ${w.percent}% remaining`).join(" · ")
-        : "Percentage unavailable"
+        ? windows.map((w) => t("quota.window.remaining", { label: w.label, percent: w.percent })).join(" · ")
+        : t("quota.percentage_unavailable")
       : backend === "claude"
-        ? "Claude quota not reported"
-        : "Quota unavailable";
+        ? t("quota.claude.not_reported")
+        : t("quota.unavailable");
   let checked = "";
   if (backend === "claude" && q?.checked_at) {
     const timestamp =
@@ -1786,7 +1783,7 @@ function paintQuota(q, backend = quotaViewBackend()) {
         ? q.checked_at * 1000
         : Date.parse(q.checked_at);
     if (Number.isFinite(timestamp))
-      checked = " · Updated on " + new Date(timestamp).toLocaleString();
+      checked = " · " + t("quota.updated_on", { time: new Date(timestamp).toLocaleString() });
   }
   if (forSelected) {
     $("quota-toggle").setAttribute(
@@ -1806,33 +1803,33 @@ function paintQuota(q, backend = quotaViewBackend()) {
   if (!available) {
     $("quota-current").textContent =
       backend === "claude"
-        ? "No recent Claude quota observation is available."
-        : "Couldn't check the quota right now. No percentage was estimated.";
+        ? t("quota.claude.no_observation")
+        : t("quota.check_failed");
     return;
   }
   if (!windows.length) {
     $("quota-current").textContent =
-      "The provider did not report quota percentages for this account.";
+      t("quota.not_reported");
     return;
   }
   if (backend === "claude") {
     const note = document.createElement("p");
-    note.textContent = "Latest information from Claude" + checked;
+    note.textContent = t("quota.source.claude") + checked;
     $("quota-current").append(note);
   }
   for (const window of windows) {
     const wrap = document.createElement("div");
     wrap.className = "quota-window";
     const label = document.createElement("div");
-    label.textContent = `${window.label}: ${window.percent}% remaining`;
+    label.textContent = t("quota.window.remaining", { label: window.label, percent: window.percent });
     const bar = document.createElement("progress");
     bar.max = 100;
     bar.value = window.remaining;
     const reset = document.createElement("small");
     reset.textContent =
       Number.isFinite(window.resetsAt) && window.resetsAt > 0
-        ? "Renews on " + new Date(window.resetsAt * 1000).toLocaleString()
-        : "Renewal time unavailable";
+        ? t("quota.renews_on", { time: new Date(window.resetsAt * 1000).toLocaleString() })
+        : t("quota.renewal_unavailable");
     wrap.append(label, bar, reset);
     $("quota-current").append(wrap);
   }
@@ -1844,22 +1841,22 @@ function paintBalance(value) {
     for (const b of value.balances || []) {
       const row = document.createElement("div");
       row.className = "quota-window";
-      row.textContent = `${b.currency} ${b.total} available`;
+      row.textContent = t("quota.balance.available", { amount: `${b.currency} ${b.total}` });
       const detail = document.createElement("small");
-      detail.textContent = `Granted ${b.granted} · topped up ${b.topped_up}`;
+      detail.textContent = t("quota.balance.detail", { granted: b.granted, topped_up: b.topped_up });
       row.append(detail);
       notes.push(row);
     }
     if (value.account_active === false) {
       const warn = document.createElement("p");
       warn.textContent =
-        "DeepSeek reports this balance as unavailable for requests. Top it up in your DeepSeek account.";
+        t("quota.balance.inactive");
       notes.push(warn);
     }
   } else {
     const miss = document.createElement("p");
     miss.textContent =
-      "This model uses your own DeepSeek account credits. The balance could not be read right now, and no amount was estimated.";
+      t("quota.balance.unread");
     notes.push(miss);
   }
   $("quota-current").replaceChildren(...notes);
@@ -1901,7 +1898,7 @@ function quotaSnapshot(kind, q) {
     p.id = id;
     $("quota-comparison").append(p);
   }
-  p.textContent = (kind === "before" ? "Before: " : "After: ") + quotaText(q);
+  p.textContent = t(kind === "before" ? "quota.snapshot.before" : "quota.snapshot.after", { quota: quotaText(q) });
 }
 function conversationState(c = {}) {
   const value = String(c.state || "").toLowerCase();
@@ -1921,10 +1918,10 @@ function conversationAge(c = {}) {
     stamp = Date.parse(raw) / 1000;
   if (!stamp) return "";
   const seconds = Math.max(0, Date.now() / 1000 - stamp);
-  if (seconds < 60) return "now";
-  if (seconds < 3600) return Math.floor(seconds / 60) + "m";
-  if (seconds < 86400) return Math.floor(seconds / 3600) + "h";
-  return Math.floor(seconds / 86400) + "d";
+  if (seconds < 60) return t("sidebar.age.now");
+  if (seconds < 3600) return t("sidebar.age.minutes", { count: Math.floor(seconds / 60) });
+  if (seconds < 86400) return t("sidebar.age.hours", { count: Math.floor(seconds / 3600) });
+  return t("sidebar.age.days", { count: Math.floor(seconds / 86400) });
 }
 function conversationUpdated(c = {}) {
   const raw = c.updated ?? c.updated_at ?? c.created_at ?? c.created ?? 0;
@@ -1972,7 +1969,7 @@ function runTiming(result = {}) {
     queued = Number(result.queue_seconds),
     waited =
       Number.isFinite(queued) && queued >= 1 && queued < total ? queued : 0,
-    seconds = (value) => value.toFixed(1) + " s";
+    seconds = (value) => t("run_console.duration.seconds", { seconds: value.toFixed(1) });
   return {
     worked:
       Number.isFinite(total) && total - waited > 0
@@ -2013,12 +2010,12 @@ $("conversation-state-pill").textContent = t("conversation.header.draft");
 // prepaid balance and a provider without a reading shows "n/a" with the reason.
 const QUOTA_RAIL_ORDER = ["codex", "claude", "gemini", "deepseek", "local"];
 const quotaReasonTexts = {
-  quota_not_read: "not read yet",
-  quota_stale: "last reading is older than 5 minutes",
-  usage_unavailable: "could not be read",
-  quota_not_reported: "provider reports no quota",
-  local_no_quota: "local models have no quota",
-  balance_not_read: "balance not read yet",
+  quota_not_read: "quota.reason.not_read",
+  quota_stale: "quota.reason.stale",
+  usage_unavailable: "quota.reason.usage_unavailable",
+  quota_not_reported: "quota.reason.not_reported",
+  local_no_quota: "quota.reason.local",
+  balance_not_read: "quota.reason.balance_not_read",
 };
 const QUOTA_PRIME_REASONS = new Set([
   "quota_not_read",
@@ -2102,18 +2099,18 @@ function providerQuotaMeter(reading) {
   let description;
   if (state === "balance") {
     value.textContent = formatBalance(reading, true);
-    description = `${providerNames[backend] || backend} balance ${formatBalance(reading, false)}.`;
+    description = t("quota.meter.balance", { provider: providerNames[backend] || backend, amount: formatBalance(reading, false) });
   } else if (state === "ok") {
     bar.style.setProperty("--quota", reading.remaining + "%");
     value.textContent = Math.round(reading.remaining) + "%";
-    description = `${providerNames[backend] || backend} quota, ${Math.round(reading.remaining)}% remaining.`;
+    description = t("quota.meter.remaining", { provider: providerNames[backend] || backend, percent: Math.round(reading.remaining) });
   } else {
     bar.style.setProperty("--quota", "0%");
-    value.textContent = "n/a";
-    description = `${providerNames[backend] || backend} quota not available: ${quotaReasonTexts[reading.reason] || "not available"}.`;
+    value.textContent = t("quota.meter.na");
+    description = t("quota.meter.unavailable", { provider: providerNames[backend] || backend, reason: t(quotaReasonTexts[reading.reason] || "quota.reason.unavailable") });
     railQuotaSummaries.set(backend, description);
   }
-  meter.setAttribute("aria-label", description + " Open details.");
+  meter.setAttribute("aria-label", description + " " + t("quota.meter.open_details"));
   meter.title = meter.getAttribute("aria-label");
   meter.append(...(state === "balance" ? [logo, value] : [logo, bar, value]));
   return meter;
@@ -2190,7 +2187,7 @@ function notifyAttention(data = {}) {
     const id = item.gate_id || item.approval_id;
     if (seenRequests.has(id)) continue;
     seenRequests.add(id);
-    alerts.push("Needs you: " + (item.title || "a run"));
+    alerts.push(t("run_status.notice.needs_you", { title: item.title || t("run_status.notice.untitled_run") }));
   }
   for (const job of data.jobs || []) {
     const alert = jobAlert(job, seenJobStates.get(job.job_id));
@@ -2293,11 +2290,11 @@ const history = async (timeout = 30000, background = false) => {
         "/v1/history",
         timeout < 30000 ? { signal: AbortSignal.timeout(timeout) } : undefined,
       );
-      if (!Array.isArray(old.jobs)) throw Error("Invalid history");
+      if (!Array.isArray(old.jobs)) throw Error(t("sidebar.history.invalid"));
       data = { conversations: old.jobs.map((r) => ({ ...r, legacy: true })) };
       legacyHistory = true;
     }
-    if (!Array.isArray(data.conversations)) throw Error("Invalid history");
+    if (!Array.isArray(data.conversations)) throw Error(t("sidebar.history.invalid"));
     if (request !== historyRequest) return false;
     conversations = data.conversations;
     conversations.forEach(observeConversation);
@@ -2536,12 +2533,10 @@ function openRenameConversation(c, trigger) {
 const HANDOFF_APP_NAMES = { chatgpt: "ChatGPT", claude: "Claude" };
 // Codes of the desktop bridge (desktop/main.cjs). Not backend codes, so they stay out of the error.<code> catalog keys.
 const handoffErrors = {
-  handoff_forbidden: () =>
-    "KeepHarness can only open other apps from its own window.",
-  handoff_invalid: () => "KeepHarness couldn't build a link from this handoff.",
-  handoff_app_missing: (app) =>
-    app + " isn't installed or isn't set up to open links.",
-  handoff_open_failed: (app) => "Couldn't open " + app + ".",
+  handoff_forbidden: () => t("conversation.handoff.error_forbidden"),
+  handoff_invalid: () => t("conversation.handoff.error_invalid"),
+  handoff_app_missing: (app) => t("conversation.handoff.error_app_missing", { app }),
+  handoff_open_failed: (app) => t("conversation.handoff.error_open_failed", { app }),
 };
 function continuationFilename(title, target) {
   const clean = String(title || "")
@@ -2591,7 +2586,7 @@ function openContinuation(c, trigger) {
     controller?.abort();
     const mine = (controller = new AbortController());
     reset();
-    summary.textContent = "Preparing the handoff…";
+    summary.textContent = t("conversation.handoff.preparing");
     try {
       const data = await json(
         "/v1/conversations/" +
@@ -2606,17 +2601,13 @@ function openContinuation(c, trigger) {
       current = field.value = data.text;
       const turns = data.turns_included;
       summary.textContent =
-        turns +
-        (turns === 1 ? " turn" : " turns") +
-        " included." +
-        (data.truncated
-          ? " Older turns were left out to fit the size limit."
-          : "");
+        t("conversation.handoff.included", { count: turns }) +
+        (data.truncated ? " " + t("conversation.handoff.truncated") : "");
       copy.disabled = save.disabled = false;
     } catch (e) {
       if (mine !== controller) return;
       summary.textContent = "";
-      error.textContent = "Couldn't prepare the handoff: " + e.message;
+      error.textContent = t("conversation.handoff.prepare_failed", { detail: e.message });
     }
   };
   // Asked only after the user copied or saved, and only for an app the desktop bridge lists.
@@ -2630,11 +2621,8 @@ function openContinuation(c, trigger) {
     } catch {}
     if (text !== current || app !== target || !apps.includes(app)) return;
     const name = HANDOFF_APP_NAMES[app];
-    $("continuation-open-question").textContent =
-      "Open " +
-      name +
-      " to continue there? Nothing is sent until you send it yourself.";
-    $("continuation-open-yes").textContent = "Open " + name;
+    $("continuation-open-question").textContent = t("conversation.handoff.open_question", { app: name });
+    $("continuation-open-yes").textContent = t("conversation.handoff.open_app", { app: name });
     $("continuation-open-yes").disabled = false;
     offer.hidden = false;
   };
@@ -2645,7 +2633,7 @@ function openContinuation(c, trigger) {
       yes = $("continuation-open-yes");
     if (yes.disabled || !text) return;
     yes.disabled = true;
-    const onClipboard = " The handoff is on your clipboard.";
+    const onClipboard = " " + t("conversation.handoff.clipboard");
     let message;
     try {
       await writeClipboard(text);
@@ -2657,12 +2645,8 @@ function openContinuation(c, trigger) {
         const result = await window.keepharnessDesktop.openHandoff(app, text);
         message = result?.opened
           ? result.mode === "full"
-            ? "Opened " +
-              name +
-              " with the handoff in a new chat. Review it and send it there."
-            : "Opened " +
-              name +
-              ". The handoff is too long for a link, so paste it from your clipboard (Ctrl+V)."
+            ? t("conversation.handoff.opened_full", { app: name })
+            : t("conversation.handoff.opened_paste", { app: name })
           : (handoffErrors[result?.error] || handoffErrors.handoff_open_failed)(
               name,
             ) + onClipboard;
