@@ -1,4 +1,9 @@
 {
   "common.app.name": "KeepHarness",
-  "common.run.count": { "one": "{count} run", "other": "{count} runs" }
+  "common.run.count": { "one": "{count} run", "other": "{count} runs" },
+  "settings_search.row.unavailable": "Unavailable for the current model.",
+  "settings_search.status.admin_unavailable": "Local admin preferences are unavailable. Retry to check again.",
+  "settings_search.status.checking_admin": "Checking local admin…",
+  "settings_search.status.found": "{count} preferences found.",
+  "settings_search.status.none": "No matching preferences."
 }

@@ -1,0 +1,9 @@
+{
+  "common.app.name": "KeepHarness",
+  "common.run.count": { "one": "{count} execução", "other": "{count} execuções" },
+  "settings_search.row.unavailable": "Indisponível para o modelo atual.",
+  "settings_search.status.admin_unavailable": "As preferências do admin local estão indisponíveis. Tente novamente para verificar.",
+  "settings_search.status.checking_admin": "Verificando o admin local…",
+  "settings_search.status.found": "Preferências encontradas: {count}.",
+  "settings_search.status.none": "Nenhuma preferência corresponde à busca."
+}

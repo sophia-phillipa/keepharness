@@ -1,2 +1,4 @@
 # Native CLI skill discovery requires this exact basename in the synthetic catalog.
 tests/fixtures/synthetic_squad/catalog/skills/demo-native/SKILL.md
+# Portuguese interface catalog (D-057): the only pt-BR catalog outside the READMEs.
+harness_ui/assets/locales/pt-br.json

@@ -170,7 +170,7 @@
       button.dataset.preference = item.id;
       const label = document.createElement("strong"), detail = document.createElement("span");
       label.textContent = item.label;
-      detail.textContent = [sectionLabel(item.section), item.description, item.disabled ? "Unavailable for the current model." : ""].filter(Boolean).join(" · ");
+      detail.textContent = [sectionLabel(item.section), item.description, item.disabled ? HarnessI18n.t("settings_search.row.unavailable") : ""].filter(Boolean).join(" · ");
       button.append(label, detail);
       button.disabled = !!item.disabled;
       button.onclick = () => void choose(item);
@@ -178,9 +178,9 @@
       results.append(row);
       if (focusedId === item.id && !button.disabled) button.focus({ preventScroll: true });
     }
-    status.textContent = items.length ? `${items.length} preferences found.` : "No matching preferences.";
-    if (adminState === "loading") status.textContent += " Checking local admin…";
-    if (adminState === "unavailable") status.textContent += " Local admin preferences are unavailable. Retry to check again.";
+    status.textContent = items.length ? HarnessI18n.t("settings_search.status.found", { count: items.length }) : HarnessI18n.t("settings_search.status.none");
+    if (adminState === "loading") status.textContent += " " + HarnessI18n.t("settings_search.status.checking_admin");
+    if (adminState === "unavailable") status.textContent += " " + HarnessI18n.t("settings_search.status.admin_unavailable");
   }
   function queryAdmin(reload = false) {
     clearTimeout(timer);

@@ -19,6 +19,7 @@ PUBLIC = frozenset(
         "i18n.js",
         "locales/index.json",
         "locales/en.json",
+        "locales/pt-br.json",
         "icons.svg",
         "file-icons.svg",
         "file-icons-data.js",

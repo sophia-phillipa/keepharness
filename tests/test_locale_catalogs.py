@@ -193,3 +193,29 @@ def test_missing_catalog_file_stays_english(pt_root):
     result = run_runtime(pt_root, stored="pt-BR")
     assert result["tag"] == "en"
     assert result["app"] == "KeepHarness"
+
+
+NON_SOURCE = [locale for locale in load(LOCALES / "index.json")["locales"] if locale["tag"] != "en"]
+# Matches `t("a.b")` and `HarnessI18n.t("a.b")`: the `\b` also matches after the dot.
+USED_KEY_RE = re.compile(r"""\bt\(\s*["']([a-z0-9_]+(?:\.[a-z0-9_]+)+)["']""")
+
+
+@pytest.mark.parametrize("locale", NON_SOURCE, ids=lambda locale: locale["tag"])
+def test_non_source_locale_adds_no_keys_and_keeps_placeholders(locale):
+    """Holds while a locale is incomplete: it may lack keys, but never adds one or changes placeholders."""
+    english = load(LOCALES / "en.json")
+    catalog = load(LOCALES / locale["file"])
+    assert set(catalog) <= set(english)
+    for key, value in catalog.items():
+        assert placeholders(value) == placeholders(english[key]), key
+
+
+def test_every_t_key_used_by_the_ui_exists_in_english():
+    english = load(LOCALES / "en.json")
+    used = {
+        key
+        for path in ASSETS.glob("*.js")
+        for key in USED_KEY_RE.findall(path.read_text(encoding="utf-8"))
+    }
+    assert "settings_search.status.found" in used  # the scan sees the pilot keys
+    assert sorted(used - set(english)) == []

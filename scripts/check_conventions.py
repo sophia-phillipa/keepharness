@@ -201,8 +201,10 @@ def _scan_file_for_pt_words(rel_path: str) -> int:
 
 def check_words(files: list[str]) -> int:
     hits = 0
+    # Paths in .conventions-allow are exempt too: JSON cannot carry the per-line marker.
+    allowed = load_allow_globs()
     for rel_path in files:
-        if rel_path in SELF_EXCLUDED_FILES:
+        if rel_path in SELF_EXCLUDED_FILES or matches_any(rel_path, allowed):
             continue
         p = Path(rel_path)
         if p.suffix not in TEXT_EXTENSIONS:
