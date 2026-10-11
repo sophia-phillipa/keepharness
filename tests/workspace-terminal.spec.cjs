@@ -33,6 +33,8 @@
 // the real /v1/ui-state. No fakes.
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE || "playwright");
 const assert = require("node:assert/strict");
+const path = require("node:path");
+const { execFileSync } = require("node:child_process");
 
 const harness = (process.env.HARNESS_URL || "").replace(/\/$/, "");
 if (!harness)
@@ -40,6 +42,24 @@ if (!harness)
 
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const PROJECT = "sem-projeto";
+const SESSION_COOKIE = "harness_session";
+
+// The terminal routes need an enrolled browser. The owner's enrollment is issued by the same two calls
+// tests/test_terminal_routes.py makes, against the test server's config, and the cookie value is returned.
+function enrolledSession() {
+  const code = [
+    "import sys",
+    "from agent_service.app import read_startup_config",
+    "from agent_service import approval_sessions as a",
+    "cfg = read_startup_config(sys.argv[1])",
+    'print(a.consume_enrollment(cfg, a.issue_enrollment(cfg, "local")))',
+  ].join("\n");
+  const config = path.join(process.env.KEEPHARNESS_TEST_STATE, "chat.json");
+  return execFileSync(process.env.PYTHON, ["-c", code, config], {
+    cwd: path.join(__dirname, ".."),
+    encoding: "utf8",
+  }).trim();
+}
 
 // /v1/ui-state answers the owner's session with { values }; a missing key reads as its default.
 async function savedValue(page, key) {
@@ -128,6 +148,7 @@ async function openSettingsWorkspace(page) {
   let page = null;
   try {
     const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+    await context.addCookies([{ name: SESSION_COOKIE, value: enrolledSession(), url: harness }]);
     page = await context.newPage();
     page.on("pageerror", (error) => pageErrors.push(error.message));
     recordTerminal(page, log);
@@ -144,7 +165,8 @@ async function openSettingsWorkspace(page) {
     assert.equal(await railToggle.getAttribute("title"), "Terminal");
     assert.equal(await railToggle.getAttribute("aria-pressed"), "false", "starts unpressed");
     assert.equal(await pane.isVisible(), false, "chat-first: the terminal starts closed");
-    assert.equal(await savedValue(page, "terminal_open"), false, "default is saved as false");
+    // A missing key reads as closed; loading the page does not write it.
+    assert.equal(await savedValue(page, "terminal_open"), undefined, "nothing saved before a choice");
 
     await openSettingsWorkspace(page);
     const settingsSwitch = page.getByTestId("terminal-settings-toggle");
@@ -170,9 +192,11 @@ async function openSettingsWorkspace(page) {
     await waitSaved(page, "terminal_open", true);
     await page.keyboard.press("Escape");
 
-    // 2. Opening starts a real session (201); the cwd label shows and a typed command runs.
-    await until(() => log.starts.length === 1, "opening the pane starts one session");
+    // 2. Opening starts a real session (201); the reopen of step 1 reattaches (200). The cwd label shows
+    // and a typed command runs.
+    await until(() => log.starts.length === 2, "each open calls the start route");
     assert.equal(log.starts[0].status, 201, "the first open creates the session");
+    assert.equal(log.starts[1].status, 200, "the reopen in step 1 reattaches (200)");
     const first = log.starts[0].body;
     assert.ok(first.session_id, "the session id comes back");
     await page.waitForFunction(
@@ -186,7 +210,8 @@ async function openSettingsWorkspace(page) {
 
     // 3. A hidden prompt masks the input, and the typed secret never reaches the output.
     const input = page.getByTestId("terminal-input");
-    await runLine(page, "read -s x");
+    // dash (the harness shell on this host) has no `read -s`, so the hidden read turns echo off itself.
+    await runLine(page, "stty -echo; read x; stty echo");
     await page.waitForFunction(
       () => document.querySelector('[data-testid="terminal-input"]')?.type === "password",
       null,
@@ -224,10 +249,10 @@ async function openSettingsWorkspace(page) {
     await pane.waitFor({ state: "hidden" });
     await railToggle.click();
     await pane.waitFor({ state: "visible" });
-    await until(() => log.starts.length === 2, "reopening calls the start route again");
-    assert.equal(log.starts[1].status, 200, "reopening reattaches (200)");
-    assert.equal(log.starts[1].body.created, false, "reattach does not create");
-    assert.equal(log.starts[1].body.session_id, first.session_id, "same session");
+    await until(() => log.starts.length === 3, "reopening calls the start route again");
+    assert.equal(log.starts[2].status, 200, "reopening reattaches (200)");
+    assert.equal(log.starts[2].body.created, false, "reattach does not create");
+    assert.equal(log.starts[2].body.session_id, first.session_id, "same session");
     await waitForOutput(page, "kh-term-ok", 2);
 
     // 6. End session sends DELETE (204); the next open starts a fresh session (201).
@@ -239,9 +264,9 @@ async function openSettingsWorkspace(page) {
     await pane.waitFor({ state: "hidden" });
     await railToggle.click();
     await pane.waitFor({ state: "visible" });
-    await until(() => log.starts.length === 3, "reopening after End session starts a session");
-    assert.equal(log.starts[2].status, 201, "a fresh session is created");
-    assert.notEqual(log.starts[2].body.session_id, first.session_id, "the new session differs");
+    await until(() => log.starts.length === 4, "reopening after End session starts a session");
+    assert.equal(log.starts[3].status, 201, "a fresh session is created");
+    assert.notEqual(log.starts[3].body.session_id, first.session_id, "the new session differs");
 
     // 7. With the run console open too, the terminal sits above it.
     await page.evaluate(() => document.activeElement?.blur());
@@ -265,7 +290,8 @@ async function openSettingsWorkspace(page) {
     await pane.waitFor({ state: "hidden" });
     await page.getByTestId("editor-toggle").click();
     await page.getByTestId("editor-pane").waitFor({ state: "visible" });
-    await railToggle.click();
+    // The open editor overlay covers the header toggles below 1000 px, so the shortcut opens the terminal.
+    await page.keyboard.press("Control+Backquote");
     await pane.waitFor({ state: "visible" });
     await page.getByTestId("editor-pane").waitFor({ state: "hidden" });
     await page.setViewportSize({ width: 1440, height: 900 });

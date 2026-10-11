@@ -215,6 +215,7 @@ class TerminalSession:
         self._events: deque[TerminalEvent] = deque()
         self._event_bytes = 0
         self._seq = 0
+        self._echo = True  # the flag of the last output event; a new pty starts with echo on
         self._last_activity = clock()
         self._attached = 0
         self._ended = False
@@ -358,6 +359,7 @@ class TerminalSession:
     def _record(self, text: str, *, echo: bool) -> None:
         """Feed the screen and append an output event; the caller holds ``_lock``."""
         self._screen.feed(text)
+        self._echo = echo
         self._seq += 1
         self._append(
             TerminalEvent(self._seq, "output", {"seq": self._seq, "text": text, "echo": echo})
@@ -386,8 +388,17 @@ class TerminalSession:
             if poller.poll(POLL_MILLISECONDS):
                 if not self._read(decoder):
                     return
-            elif self._reap(block=False):
-                return
+            else:
+                if self._reap(block=False):
+                    return
+                self._publish_echo()
+
+    def _publish_echo(self) -> None:
+        """Emit an empty output event when a quiet shell turns echo off or on (hidden input)."""
+        echo = self._echo_on()
+        with self._lock:
+            if echo != self._echo:
+                self._record("", echo=echo)
 
     def _read(self, decoder: codecs.IncrementalDecoder) -> bool:
         try:

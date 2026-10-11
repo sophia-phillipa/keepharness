@@ -144,6 +144,7 @@ def create_app(config, runtime_path=None):
             "/ui.js",
             "/ui-prefs.js",
             "/run-console.js",
+            "/terminal-pane.js",
             "/tour.js",
             "/ui.css",
             "/tour.css",

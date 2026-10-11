@@ -1023,6 +1023,7 @@ async function refreshComposerGit() {
 }
 function syncActiveProjectBadge() {
   syncComposerProject();
+  window.terminalPane?.projectChanged();
   const option = $("project").selectedOptions[0],
     badge = $("active-project-badge");
   if (!badge) return;
@@ -11738,6 +11739,8 @@ $("settings-appearance").querySelector(".shortcut-help").textContent =
   "+Shift+L: wide layout\n" +
   shortcutModifier +
   "+Shift+E: file editor\n" +
+  shortcutModifier +
+  "+`: terminal\n" +
   "Escape: close the current dialog or panel";
 const keyboardShortcuts = [
   ["Search KeepHarness", [shortcutModifier, "K"]],
@@ -11750,6 +11753,7 @@ const keyboardShortcuts = [
   ["New temporary chat", [shortcutModifier, "Shift", "N"]],
   ["Wide layout", [shortcutModifier, "Shift", "L"]],
   ["File editor", [shortcutModifier, "Shift", "E"]],
+  ["Terminal", [shortcutModifier, "`"]],
 ];
 let shortcutReturnFocus = null;
 function renderKeyboardShortcuts() {
@@ -12150,6 +12154,7 @@ function setEditorOpen(on) {
 function openEditor() {
   // Below 1000 px both panels are overlays; only one may cover the page.
   if (editorNarrow.matches && !$("activity-panel").hidden) setPanelOpen(false, false);
+  window.terminalPane?.closeForPanel();
   setEditorOpen(true);
   if (editorNarrow.matches) $("editor-close").focus();
 }

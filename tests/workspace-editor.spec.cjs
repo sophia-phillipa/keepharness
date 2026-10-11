@@ -158,7 +158,15 @@ async function showFiles(page) {
 
 async function openFromFiles(page, name) {
   await showFiles(page);
+  // Wait for this load's content response: the path label may already show the same name.
+  const loaded = page.waitForResponse(
+    (response) =>
+      response.request().method() === "GET" &&
+      response.url().includes("/v1/project-files/content") &&
+      new URL(response.url()).searchParams.get("path") === name,
+  );
   await page.locator('[role="treeitem"][data-path="' + name + '"]').dblclick();
+  await loaded;
   await page.waitForFunction(
     (expected) =>
       document.querySelector('[data-testid="editor-path"]')?.textContent.includes(expected),

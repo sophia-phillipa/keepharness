@@ -45,8 +45,8 @@ Key decisions:
 
 | Option | Rail/header control | Shortcut | Settings row | Surface |
 | --- | --- | --- | --- | --- |
-| Terminal | Rail button `#terminal-toggle` (icon `terminal`, title "Terminal"), after the files/activity button | `` Ctrl/⌘ + ` `` (Codex parity) | Settings › Appearance › "Workspace": switch "Terminal" | `#terminal-pane`, docked at the bottom of `main`, above the run console (`order` 10, run console stays 11) |
-| File editor | Rail button `#editor-toggle` (icon `file-code`, title "File editor") | `Ctrl/⌘ + Shift + E` (Codex "Toggle navigation panel" key; free in KeepHarness) | same group: switch "File editor" | `#editor-pane`, a column between the chat and the side panel, on the side panel's side (`panel_order`) |
+| Terminal | Header button `#terminal-toggle` in the conversation header, beside the file editor button (icon `terminal`, title "Terminal") | `` Ctrl/⌘ + ` `` (Codex parity) | Settings › Appearance › "Workspace": switch "Terminal" | `#terminal-pane`, docked at the bottom of `main`, above the run console (`order` 10, run console stays 11) |
+| File editor | Header button `#editor-toggle` in the conversation header, beside the wide-layout button (icon `file-code`, title "File editor") | `Ctrl/⌘ + Shift + E` (Codex "Toggle navigation panel" key; free in KeepHarness) | same group: switch "File editor" | `#editor-pane`, a column between the chat and the side panel, on the side panel's side (`panel_order`) |
 | Wide layout | Header button `#wide-toggle` beside the conversation title actions (icon `arrows-horizontal`, title "Wide layout") | `Ctrl/⌘ + Shift + L` | same group: switch "Wide layout" | CSS only: `body.wide-layout` |
 
 All three controls are toggle buttons with `aria-pressed`; the Settings switches and the rail/header buttons drive one function per option, so they never disagree. The Settings › Appearance › "Workspace" group is born with the wide-layout package (P2), holding only the "Wide layout" switch, and it replaces the stale line "The theme, last model, and chosen effort are saved in this browser." with "Saved for you on this computer." The editor and terminal packages (P5, P7) each add their own switch, their own shortcut row in `keyboardShortcuts` and their own `.shortcut-help` text; nothing for an option that has not been accepted is rendered, hidden or not.
@@ -92,7 +92,7 @@ None of the three options depends on the provider. Coding tools stay the same in
 | Editor + wide layout | Wide removes the chat cap; the editor keeps its width; the chat takes the rest. |
 | Terminal + run console | Both can be open; terminal above, run console below. On windows ≤ 700 px wide or ≤ 500 px high (where the run console becomes an overlay), opening one closes the other, like `closeForPanel`. |
 | Any + window < 1000 px | Editor becomes an overlay dialog like the side panel (`role="dialog"`, `aria-modal`, focus trapped); opening it closes the side panel overlay and vice versa. Wide layout is a no-op (the column already fills). |
-| Phone top bar (≤ 620 px) | Rail buttons for terminal and editor are dropped like Runs and Plugins; the Settings switches and shortcuts still work. |
+| Phone top bar (≤ 620 px) | Header buttons for terminal and editor are dropped like Runs and Plugins; the Settings switches and shortcuts still work. |
 | Temporary chat (D-047) | Same behavior; nothing of the terminal or editor is stored with the chat. |
 
 ### Contracts

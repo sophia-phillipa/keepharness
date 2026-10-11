@@ -139,8 +139,8 @@ const contrastOf = (page, selector) =>
     await group.waitFor({ state: "visible" });
     assert.equal(
       await group.locator("input").count(),
-      2,
-      "the Workspace group holds the wide-layout and file-editor switches",
+      3,
+      "the Workspace group holds the wide-layout, file-editor and terminal switches",
     );
     const appearance = page.locator("#settings-appearance");
     const help = await appearance.locator(".shortcut-help").textContent();

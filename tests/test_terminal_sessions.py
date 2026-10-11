@@ -246,6 +246,17 @@ def test_echo_flag_is_back_on_after_the_secret_is_read(make_manager, tmp_path):
     assert output_events(session)[-1].payload["echo"] is True
 
 
+def test_hidden_input_flips_the_echo_flag_without_any_output(make_manager, tmp_path):
+    manager = make_manager()
+    session = open_session(manager, "p1", tmp_path)
+    session.write("stty -echo; read x\n")  # dash has no `read -s`
+    started = time.monotonic()
+    wait_for(lambda: any(e.payload["echo"] is False for e in output_events(session)), timeout=2)
+    assert time.monotonic() - started < 2
+    hidden = [e for e in output_events(session) if e.payload["echo"] is False]
+    assert hidden[-1].payload["text"] == ""
+
+
 @pytest.mark.parametrize(
     ("key", "hex_bytes"),
     [("\t", "09"), ("\x1b[A", "1b5b41")],
