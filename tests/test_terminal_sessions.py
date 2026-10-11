@@ -1,0 +1,432 @@
+# P6a terminal core. Tests run against agent_service/terminal.py (not written yet: red).
+#
+# Minimal public API pinned by these tests (the implementer follows it):
+#
+#   class TerminalError(HarnessError)            # agent_service/errors.py base; .code, .status
+#       codes used here: "terminal_limit" (409), "terminal_not_found" (404), "terminal_exited" (409)
+#
+#   class TerminalManager
+#       __init__(self, *, clock, shell=None, environ=None, max_sessions=4,
+#                idle_timeout=1800.0, ring_lines=5000)
+#           clock:   callable returning seconds (float). Every idle and cap decision reads only it.
+#           shell:   default $SHELL, fallback "/bin/sh"; the tests pass "/bin/sh".
+#           environ: host mapping filtered by child_environment(); default os.environ.
+#       start(project_id: str, cwd: str) -> tuple[TerminalSession, bool]
+#           (session, created). created False = reattach to the project's live session.
+#           A reattach never counts against max_sessions.
+#       get(session_id: str) -> TerminalSession      # TerminalError("terminal_not_found", 404)
+#       reap_idle() -> list[str]                     # ends idle sessions, returns their ids
+#       close_all() -> None                          # ends every session (teardown)
+#
+#   class TerminalSession
+#       id: str
+#       write(data: str) -> None                 # UTF-8 bytes to the pty, unchanged.
+#                                                # TerminalError("terminal_exited", 409) after exit
+#       lines() -> list[str]                     # last ring_lines completed lines, ANSI stripped
+#       events_after(seq: int) -> list[TerminalEvent]
+#       has_foreground_child() -> bool           # tcgetpgrp(master) != the shell's process group
+#       attach_stream() -> None / detach_stream() -> None
+#       is_alive() -> bool
+#
+#   TerminalEvent (frozen dataclass): seq: int, name: str ("output" | "exit"),
+#       payload: dict  # output: {"seq", "text", "echo": bool}; exit: {"code": int}
+#
+# Rules pinned here:
+#   - Ring buffer: lines() keeps at most ring_lines completed lines, oldest dropped first.
+#   - Bare "\r" (not part of "\r\n") rewrites the current line. The pty's ONLCR turns each "\n"
+#     into "\r\n", so a program's "x\r\n" arrives as "x\r\r\n": that must keep "x".
+#   - Echo: the ECHO flag from tcgetattr on the master is read when each output event is made.
+#   - Idle: last activity = start, last write() or last detach_stream(). A session with an attached
+#     stream is never idle. reap_idle() ends sessions idle for >= idle_timeout seconds.
+#   - Cap: a start that would create a session while max_sessions are live ends the live session
+#     with no foreground child and the least recent last activity. If every live session has a
+#     foreground child, it raises terminal_limit and starts nothing.
+#   - Environment: child_environment(environ) plus TERM=dumb; no KEEPHARNESS_* names reach the shell.
+
+import os
+import threading
+import time
+
+import pytest
+from agent_service.terminal import TerminalError, TerminalManager
+
+from agent_service.errors import HarnessError
+
+# /bin/sh is dash on this host and has no `read -s`. The echo tests use `stty -echo` and `stty echo`,
+# which are the calls `read -s` makes internally, so the ECHO flag is switched the same way.
+SHELL = "/bin/sh"
+# Real-time guard so a broken implementation fails instead of hanging. It is never a sync point:
+# tests wait on observable output or state, and the fake clock drives every idle decision.
+GUARD_SECONDS = 10.0
+_POLL = threading.Event()
+SECRET_PROMPT = (
+    "stty -echo; printf 'Password: '; IFS= read -r pw; stty echo; printf 'len=%s\\n' \"${#pw}\"\n"
+)
+
+
+class FakeClock:
+    def __init__(self):
+        self.now = 0.0
+
+    def __call__(self):
+        return self.now
+
+    def advance(self, seconds):
+        self.now += seconds
+
+
+def wait_for(predicate, timeout=GUARD_SECONDS):
+    deadline = time.monotonic() + timeout
+    while not predicate():
+        assert time.monotonic() < deadline, "condition not met before the guard timeout"
+        _POLL.wait(0.01)
+
+
+def output_events(session):
+    return [event for event in session.events_after(0) if event.name == "output"]
+
+
+def open_session(manager, project_id, cwd):
+    session, _ = manager.start(project_id, str(cwd))
+    return session
+
+
+def busy_session(manager, project_id, cwd):
+    session = open_session(manager, project_id, cwd)
+    session.write("sleep 30\n")
+    wait_for(session.has_foreground_child)
+    return session
+
+
+def start_secret_prompt(session):
+    session.write(SECRET_PROMPT)
+    wait_for(lambda: any("Password:" in event.payload["text"] for event in output_events(session)))
+
+
+@pytest.fixture
+def clock():
+    return FakeClock()
+
+
+@pytest.fixture
+def make_manager(clock, tmp_path):
+    managers = []
+
+    def _make(**overrides):
+        options = {
+            "clock": clock,
+            "shell": SHELL,
+            "environ": {"PATH": "/usr/bin:/bin", "HOME": str(tmp_path)},
+        }
+        options.update(overrides)
+        manager = TerminalManager(**options)
+        managers.append(manager)
+        return manager
+
+    yield _make
+    for manager in managers:
+        manager.close_all()
+
+
+def test_terminal_error_is_a_harness_error():
+    assert issubclass(TerminalError, HarnessError)
+
+
+def test_start_creates_one_session_per_project(make_manager, tmp_path):
+    manager = make_manager()
+    first, first_created = manager.start("p1", str(tmp_path))
+    second, second_created = manager.start("p2", str(tmp_path))
+    assert (first_created, second_created) == (True, True)
+    assert second.id != first.id
+
+
+def test_start_reattaches_to_the_live_session_of_the_same_project(make_manager, tmp_path):
+    manager = make_manager()
+    first, _ = manager.start("p1", str(tmp_path))
+    again, created = manager.start("p1", str(tmp_path))
+    assert created is False
+    assert again.id == first.id
+
+
+def test_reattach_keeps_the_shell_state_of_the_earlier_start(make_manager, tmp_path):
+    manager = make_manager()
+    session = open_session(manager, "p1", tmp_path)
+    session.write("MARK=$((6*7)); echo SET-$MARK\n")
+    wait_for(lambda: "SET-42" in session.lines())
+    again = open_session(manager, "p1", tmp_path)
+    again.write("echo GOT-$MARK\n")
+    wait_for(lambda: "GOT-42" in again.lines())
+
+
+def test_shell_starts_in_the_given_project_folder(make_manager, tmp_path):
+    manager = make_manager()
+    session = open_session(manager, "p1", tmp_path)
+    session.write("pwd\n")
+    wait_for(lambda: os.path.realpath(tmp_path) in session.lines())
+
+
+def test_ring_buffer_keeps_only_the_last_ring_lines_completed_lines(make_manager, tmp_path):
+    manager = make_manager(ring_lines=3)
+    session = open_session(manager, "p1", tmp_path)
+    session.write("for n in 1 2 3 4 5; do echo $n; done\n")
+    wait_for(lambda: "5" in session.lines())
+    assert session.lines() == ["3", "4", "5"]
+
+
+def test_ring_buffer_default_keeps_the_last_5000_lines(make_manager, tmp_path):
+    manager = make_manager()
+    session = open_session(manager, "p1", tmp_path)
+    session.write("i=1; while [ $i -le 5010 ]; do echo $i; i=$((i+1)); done\n")
+    wait_for(lambda: "5010" in session.lines())
+    lines = session.lines()
+    assert len(lines) == 5000
+    assert lines[0] == "11"
+    assert lines[-1] == "5010"
+
+
+@pytest.mark.parametrize(
+    ("printf_format", "expected"),
+    [
+        (r"\033[31mred\033[0m", "red"),
+        (r"\033[2Kcleared", "cleared"),
+        (r"\033]0;window title\007done", "done"),
+    ],
+    ids=["colour", "erase-line", "osc-title"],
+)
+def test_ansi_escape_sequences_are_stripped(make_manager, tmp_path, printf_format, expected):
+    manager = make_manager()
+    session = open_session(manager, "p1", tmp_path)
+    session.write(f"printf '{printf_format}\\n'\n")
+    wait_for(lambda: expected in session.lines())
+
+
+def test_bare_carriage_return_rewrites_the_current_line(make_manager, tmp_path):
+    manager = make_manager()
+    session = open_session(manager, "p1", tmp_path)
+    session.write("printf 'p 10%%\\rp 20%%\\n'\n")
+    wait_for(lambda: "p 20%" in session.lines())
+    assert "p 10%" not in session.lines()
+
+
+def test_crlf_line_end_does_not_rewrite_the_line(make_manager, tmp_path):
+    manager = make_manager()
+    session = open_session(manager, "p1", tmp_path)
+    session.write("printf 'x\\r\\ny\\n'\n")
+    wait_for(lambda: "y" in session.lines())
+    assert session.lines()[-2:] == ["x", "y"]
+
+
+def test_echo_flag_is_off_while_a_secret_is_read(make_manager, tmp_path):
+    manager = make_manager()
+    session = open_session(manager, "p1", tmp_path)
+    start_secret_prompt(session)
+    prompts = [event for event in output_events(session) if "Password:" in event.payload["text"]]
+    assert prompts[-1].payload["echo"] is False
+
+
+def test_secret_typed_while_echo_is_off_never_reaches_the_output(make_manager, tmp_path):
+    manager = make_manager()
+    session = open_session(manager, "p1", tmp_path)
+    start_secret_prompt(session)
+    session.write("s3cr3t-pass\n")
+    wait_for(lambda: "len=11" in session.lines())
+    assert [e for e in output_events(session) if "s3cr3t-pass" in e.payload["text"]] == []
+    assert [line for line in session.lines() if "s3cr3t-pass" in line] == []
+
+
+def test_echo_flag_is_back_on_after_the_secret_is_read(make_manager, tmp_path):
+    manager = make_manager()
+    session = open_session(manager, "p1", tmp_path)
+    start_secret_prompt(session)
+    session.write("s3cr3t-pass\n")
+    wait_for(lambda: "len=11" in session.lines())
+    assert output_events(session)[-1].payload["echo"] is True
+
+
+@pytest.mark.parametrize(
+    ("key", "hex_bytes"),
+    [("\t", "09"), ("\x1b[A", "1b5b41")],
+    ids=["tab", "up"],
+)
+def test_key_bytes_reach_the_pty_unchanged(make_manager, tmp_path, key, hex_bytes):
+    manager = make_manager()
+    session = open_session(manager, "p1", tmp_path)
+    session.write(
+        "IFS= read -r key; printf 'HEX=%s\\n' \"$(printf '%s' \"$key\" | od -An -tx1 | tr -d ' ')\"\n"
+    )
+    session.write(key + "\n")
+    wait_for(lambda: f"HEX={hex_bytes}" in session.lines())
+
+
+def test_ctrl_c_stops_the_foreground_child_and_the_shell_keeps_running(make_manager, tmp_path):
+    manager = make_manager()
+    session = busy_session(manager, "p1", tmp_path)
+    session.write("\x03")
+    wait_for(lambda: not session.has_foreground_child())
+    session.write("echo AFTER-$((2*3))\n")
+    wait_for(lambda: "AFTER-6" in session.lines())
+    assert session.is_alive()
+
+
+def test_ctrl_d_on_an_empty_line_ends_the_read_with_end_of_file(make_manager, tmp_path):
+    manager = make_manager()
+    session = open_session(manager, "p1", tmp_path)
+    session.write("IFS= read -r line; printf 'RC=%s\\n' \"$?\"\n")
+    session.write("\x04")
+    wait_for(lambda: "RC=1" in session.lines())
+
+
+def test_cap_ends_the_oldest_idle_session_when_the_fifth_starts(make_manager, tmp_path):
+    manager = make_manager()
+    idle = open_session(manager, "p1", tmp_path)
+    for project in ("p2", "p3", "p4"):
+        busy_session(manager, project, tmp_path)
+    manager.start("p5", str(tmp_path))
+    assert not idle.is_alive()
+
+
+def test_cap_never_ends_a_busy_session_even_when_it_is_the_oldest(make_manager, tmp_path):
+    manager = make_manager()
+    oldest_busy = busy_session(manager, "p1", tmp_path)
+    open_session(manager, "p2", tmp_path)
+    for project in ("p3", "p4"):
+        busy_session(manager, project, tmp_path)
+    manager.start("p5", str(tmp_path))
+    assert oldest_busy.is_alive()
+
+
+def test_cap_ranks_idle_sessions_by_last_activity_not_by_start_time(make_manager, tmp_path, clock):
+    manager = make_manager()
+    first = open_session(manager, "p1", tmp_path)  # started at t=0
+    clock.advance(10)
+    second = open_session(manager, "p2", tmp_path)  # started at t=10
+    clock.advance(10)
+    for project in ("p3", "p4"):  # started at t=20, busy
+        busy_session(manager, project, tmp_path)
+    clock.advance(20)
+    first.write("echo used\n")  # p1 is active again at t=40
+    clock.advance(10)
+    manager.start("p5", str(tmp_path))
+    assert not second.is_alive()
+    assert first.is_alive()
+
+
+def test_fifth_start_with_four_busy_sessions_answers_terminal_limit(make_manager, tmp_path):
+    manager = make_manager()
+    for project in ("p1", "p2", "p3", "p4"):
+        busy_session(manager, project, tmp_path)
+    with pytest.raises(TerminalError) as caught:
+        manager.start("p5", str(tmp_path))
+    assert caught.value.code == "terminal_limit"
+    assert caught.value.status == 409
+
+
+def test_refused_start_ends_no_busy_session(make_manager, tmp_path):
+    manager = make_manager()
+    busy = [busy_session(manager, project, tmp_path) for project in ("p1", "p2", "p3", "p4")]
+    with pytest.raises(TerminalError):
+        manager.start("p5", str(tmp_path))
+    assert all(session.is_alive() for session in busy)
+
+
+def test_reattach_at_the_cap_is_not_refused(make_manager, tmp_path):
+    manager = make_manager()
+    first = busy_session(manager, "p1", tmp_path)
+    for project in ("p2", "p3", "p4"):
+        busy_session(manager, project, tmp_path)
+    again, created = manager.start("p1", str(tmp_path))
+    assert created is False
+    assert again.id == first.id
+
+
+def test_session_goes_idle_after_exactly_30_minutes_without_input_or_stream(
+    make_manager, tmp_path, clock
+):
+    manager = make_manager()
+    session = open_session(manager, "p1", tmp_path)
+    clock.advance(1799)
+    assert manager.reap_idle() == []
+    clock.advance(1)
+    assert manager.reap_idle() == [session.id]
+    assert not session.is_alive()
+
+
+def test_input_restarts_the_30_minute_idle_clock(make_manager, tmp_path, clock):
+    manager = make_manager()
+    session = open_session(manager, "p1", tmp_path)
+    clock.advance(1500)
+    session.write("\n")
+    clock.advance(1500)
+    assert manager.reap_idle() == []
+    clock.advance(300)
+    assert manager.reap_idle() == [session.id]
+
+
+def test_attached_stream_keeps_a_session_from_going_idle(make_manager, tmp_path, clock):
+    manager = make_manager()
+    session = open_session(manager, "p1", tmp_path)
+    session.attach_stream()
+    clock.advance(7200)
+    assert manager.reap_idle() == []
+
+
+def test_idle_clock_starts_when_the_last_stream_detaches(make_manager, tmp_path, clock):
+    manager = make_manager()
+    session = open_session(manager, "p1", tmp_path)
+    session.attach_stream()
+    clock.advance(3600)
+    session.detach_stream()
+    clock.advance(1799)
+    assert manager.reap_idle() == []
+    clock.advance(1)
+    assert manager.reap_idle() == [session.id]
+
+
+def test_shell_exit_emits_an_exit_event_with_the_code(make_manager, tmp_path):
+    manager = make_manager()
+    session = open_session(manager, "p1", tmp_path)
+    session.write("exit 3\n")
+    wait_for(lambda: not session.is_alive())
+    exits = [event.payload for event in session.events_after(0) if event.name == "exit"]
+    assert exits == [{"code": 3}]
+
+
+def test_input_after_exit_answers_terminal_exited(make_manager, tmp_path):
+    manager = make_manager()
+    session = open_session(manager, "p1", tmp_path)
+    session.write("exit 0\n")
+    wait_for(lambda: not session.is_alive())
+    with pytest.raises(TerminalError) as caught:
+        session.write("echo late\n")
+    assert caught.value.code == "terminal_exited"
+    assert caught.value.status == 409
+
+
+def test_unknown_session_id_answers_terminal_not_found(make_manager):
+    manager = make_manager()
+    with pytest.raises(TerminalError) as caught:
+        manager.get("no-such-session")
+    assert caught.value.code == "terminal_not_found"
+    assert caught.value.status == 404
+
+
+def test_child_environment_sets_term_dumb(make_manager, tmp_path):
+    manager = make_manager()
+    session = open_session(manager, "p1", tmp_path)
+    session.write("env\n")
+    wait_for(lambda: "TERM=dumb" in session.lines())
+
+
+def test_child_environment_has_no_keepharness_names(make_manager, tmp_path):
+    manager = make_manager(
+        environ={
+            "PATH": "/usr/bin:/bin",
+            "HOME": str(tmp_path),
+            "KEEPHARNESS_TOKEN": "tok-value-xyz",
+        }
+    )
+    session = open_session(manager, "p1", tmp_path)
+    session.write("env\n")
+    wait_for(lambda: "TERM=dumb" in session.lines())
+    assert [line for line in session.lines() if line.startswith("KEEPHARNESS_")] == []
+    assert [line for line in session.lines() if "tok-value-xyz" in line] == []
