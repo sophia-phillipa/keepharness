@@ -9261,14 +9261,13 @@ prefs.onNotice((code) => {
       : text;
 });
 function selectionNotice(gone) {
-  const text =
-    gone +
-    " is no longer available; switched to " +
-    modelName($("model").value) +
-    ".";
+  const text = t("composer.model.no_longer_available", {
+    gone,
+    model: modelName($("model").value),
+  });
   // After the caller's own status updates (newConversation clears the bar);
   // during startup, initialize shows it instead of "Ready to chat."
-  if (interfaceReady) setTimeout(() => status(text));
+  if (interfaceReady) setTimeout(() => status(text, "neutral"));
   else pendingSelectionNotice = text;
 }
 function restoreSelection() {
@@ -9375,7 +9374,9 @@ function showAdminSection(section = "providers") {
   const label = document.querySelector(
     '[data-admin-section="' + section + '"]',
   );
-  frame.title = "Administration: " + (label?.textContent || section);
+  frame.title = t("settings.admin.frame_title", {
+    section: label?.textContent || section,
+  });
   if (!created && frame.dataset.settingsSearchReady) {
     // Search has authenticated this admin document. Retain its unsaved form values.
     frame.contentWindow.postMessage(
@@ -9423,21 +9424,21 @@ async function refreshCatalog() {
   void loadHarnessAgents();
   const request = ++catalogRequest,
     project = $("project").value;
-  $("catalog-status").textContent = "Checking catalog for " + project + "…";
+  $("catalog-status").textContent = t("catalogs.status.checking", { project });
   $("catalog-models").replaceChildren(
     ...models.map((m) =>
       catalogCard({
         name: modelIcon(m.id) + " " + modelLabel(m),
-        description:
-          ({
-            local: "Local model; runs through the Codex CLI. ",
-            gemini: "Model via Gemini CLI. ",
-            claude: "Model via Claude Code. ",
-            deepseek: "DeepSeek model; runs through the Codex CLI. ",
-          }[m.backend] || "Model via Codex. ") +
-          "Efforts: " +
-          m.efforts.map((e) => effortLabel(e)).join(", "),
-        status: "Configured model",
+        description: t(
+          {
+            local: "catalogs.model.local",
+            gemini: "catalogs.model.gemini",
+            claude: "catalogs.model.claude",
+            deepseek: "catalogs.model.deepseek",
+          }[m.backend] || "catalogs.model.codex",
+          { efforts: m.efforts.map((e) => effortLabel(e)).join(", ") },
+        ),
+        status: t("catalogs.status.configured_model"),
         source: "/v1/models",
       }),
     ),
@@ -9448,9 +9449,8 @@ async function refreshCatalog() {
       $("catalog-models").append(
         catalogCard({
           name: providerNames[provider],
-          description:
-            "Configure the adapter in the service to enable this provider.",
-          status: "Not configured",
+          description: t("catalogs.provider.configure_hint"),
+          status: t("catalogs.status.not_configured"),
           source: "/v1/models",
         }),
       );
@@ -9465,20 +9465,16 @@ async function refreshCatalog() {
     for (const kind of ["agents", "skills"]) {
       $("catalog-" + kind).replaceChildren(...data[kind].map(catalogCard));
       if (!data[kind].length)
-        $("catalog-" + kind).textContent =
-          "No items found in the selected project.";
+        $("catalog-" + kind).textContent = t("catalogs.empty.no_items");
     }
     $("catalog-status").textContent =
-      "Project: " +
-      project +
-      ". " +
-      data.scope +
+      t("catalogs.status.project", { project, scope: data.scope }) +
       (data.warnings.length ? " " + data.warnings.join(" ") : "");
   } catch (e) {
     if (request !== catalogRequest) return;
     $("catalog-status").textContent =
-      "Catalog unavailable in this service. " + e.message;
-    $("catalog-skills").textContent = "Couldn't check the available skills.";
+      t("catalogs.status.unavailable", { message: e.message });
+    $("catalog-skills").textContent = t("catalogs.error.skills_unavailable");
   }
 }
 // The Settings button opens a submenu of the visible Settings sections (same buttons as the
@@ -9712,7 +9708,7 @@ async function applyView(view, replay = false) {
       view.project &&
       [...$("project").options].some((option) => option.value === view.project)
     ) {
-      newConversation("New Conversation", view.project, {
+      newConversation(t("sidebar.conversation.new_title"), view.project, {
         restoreHomeDraft: true,
       });
       renderProjects();
@@ -9948,7 +9944,7 @@ function fillRoute(prefix, backend, model, effort) {
       (e) =>
         new Option(
           e === "configured"
-            ? "Provider's default"
+            ? t("composer.effort.provider_default")
             : e[0].toUpperCase() + e.slice(1),
           e,
         ),
@@ -9981,7 +9977,9 @@ function projectChoices(select, value) {
     ...[...$("project").options].map(
       (o) =>
         new Option(
-          o.value === "sem-projeto" ? "No project" : o.textContent,
+          o.value === "sem-projeto"
+            ? t("sidebar.project.none")
+            : o.textContent,
           o.value,
         ),
     ),
@@ -9993,7 +9991,7 @@ function projectChoices(select, value) {
 async function confirmTwice(button, label, action) {
   if (!button.dataset.confirm) {
     button.dataset.confirm = "1";
-    button.textContent = "Confirm delete";
+    button.textContent = t("common.confirm_delete");
     return;
   }
   delete button.dataset.confirm;
@@ -10034,18 +10032,21 @@ async function loadPages(selectedId = currentPage?.id) {
         open.dataset.pageId = page.id;
         if (page.id === selectedId) open.setAttribute("aria-current", "true");
         title.textContent = page.title;
-        meta.textContent = "Edited " + usageAge(stampSeconds(page.updated_at));
+        meta.textContent = t("projects.pages.edited", {
+          age: usageAge(stampSeconds(page.updated_at)),
+        });
         open.append(title, meta);
         open.onclick = () => void openPage(page.id);
         row.append(open);
         return row;
       }),
     );
-    $("pages-empty").textContent = "No pages in this project yet.";
+    $("pages-empty").textContent = t("projects.pages.empty");
     $("pages-empty").hidden = pages.length > 0;
   } catch (error) {
     $("pages-list").replaceChildren();
-    $("pages-empty").textContent = "Couldn't load pages. " + error.message;
+    $("pages-empty").textContent =
+      t("projects.pages.load_failed") + " " + error.message;
     $("pages-empty").hidden = false;
   }
 }
@@ -10061,19 +10062,24 @@ function showPageEditor(page) {
   $("page-title").value = page?.title || "";
   $("page-body").value = page?.body || "";
   $("page-delete").hidden = !page?.id;
-  $("page-delete").textContent = "Delete";
+  $("page-delete").textContent = t("admin.providers.delete");
   delete $("page-delete").dataset.confirm;
   setPagePreview(false);
   $("page-status").textContent = page?.id
-    ? "Saved " + usageAge(stampSeconds(page.updated_at))
-    : "New page";
+    ? t("projects.pages.saved_at", {
+        age: usageAge(stampSeconds(page.updated_at)),
+      })
+    : t("projects.pages.new");
 }
 function setPagePreview(on) {
   $("page-preview-toggle").setAttribute("aria-pressed", String(on));
   $("page-preview").hidden = !on;
   $("page-body").hidden = on;
   if (on)
-    renderAnswer($("page-preview"), $("page-body").value || "*Empty page*");
+    renderAnswer(
+      $("page-preview"),
+      $("page-body").value || t("projects.pages.empty_preview"),
+    );
 }
 async function openPage(id) {
   if (!(await leavePage())) return;
@@ -10101,7 +10107,7 @@ async function writePage() {
     edits = pageEdits,
     body = {
       project_id: pageProject,
-      title: $("page-title").value.trim() || "Untitled",
+      title: $("page-title").value.trim() || t("projects.pages.untitled"),
       body: $("page-body").value,
     };
   $("page-save").disabled = true;
@@ -10120,7 +10126,7 @@ async function writePage() {
       if (edits === pageEdits) {
         pageDirty = false;
         $("page-title").value = currentPage.title;
-        $("page-status").textContent = "Saved";
+        $("page-status").textContent = t("projects.pages.saved");
       }
     }
     await loadPages();
@@ -10145,7 +10151,7 @@ function pageFile(title, body) {
     title
       .replace(/[^\w.-]+/g, "-")
       .replace(/^-+|-+$/g, "")
-      .slice(0, 80) || "page";
+      .slice(0, 80) || t("projects.pages.file_name");
   return new File([body], name + ".md", { type: "text/markdown" });
 }
 // A page is attached as its current text, into the composer's own project (QA-R2-2): the
@@ -10153,7 +10159,7 @@ function pageFile(title, body) {
 async function usePage(startChat) {
   if (!(await leavePage())) return;
   const project = $("space-project").value,
-    title = $("page-title").value.trim() || "Untitled",
+    title = $("page-title").value.trim() || t("projects.pages.untitled"),
     file = pageFile(title, $("page-body").value);
   $("space-dialog").close();
   if (
@@ -10172,7 +10178,7 @@ $("page-editor").onsubmit = (event) => {
 $("page-editor").addEventListener("input", () => {
   pageDirty = true;
   pageEdits++;
-  $("page-status").textContent = "Unsaved changes";
+  $("page-status").textContent = t("admin.common.unsaved");
 });
 $("page-editor").addEventListener("keydown", (event) => {
   if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "s") {
@@ -10194,7 +10200,7 @@ $("page-empty-new").onclick = () => $("page-new").click();
 $("page-attach").onclick = () => void usePage(false);
 $("page-chat").onclick = () => void usePage(true);
 $("page-delete").onclick = () =>
-  void confirmTwice($("page-delete"), "Delete", async () => {
+  void confirmTwice($("page-delete"), t("admin.providers.delete"), async () => {
     try {
       await json("/v1/pages/" + encodeURIComponent(currentPage.id), {
         method: "DELETE",
@@ -10229,32 +10235,33 @@ $("space-dialog").addEventListener("cancel", (event) => {
 // route as a new conversation each time; only Ask and Read only access.
 let currentSchedule = null;
 const weekdays = [
-  "Monday",
-  "Tuesday",
-  "Wednesday",
-  "Thursday",
-  "Friday",
-  "Saturday",
-  "Sunday",
+  "schedules.weekday.monday",
+  "schedules.weekday.tuesday",
+  "schedules.weekday.wednesday",
+  "schedules.weekday.thursday",
+  "schedules.weekday.friday",
+  "schedules.weekday.saturday",
+  "schedules.weekday.sunday",
 ];
 function cadenceLabel(cadence = {}) {
-  if (cadence.kind === "interval") return "Every " + cadence.hours + " h";
+  if (cadence.kind === "interval")
+    return t("schedules.cadence.interval", { hours: cadence.hours });
   if (cadence.kind === "weekly")
-    return weekdays[cadence.weekday] + "s at " + cadence.time;
-  return "Daily at " + cadence.time;
+    return t("schedules.cadence.weekly", {
+      day: t(weekdays[cadence.weekday]),
+      time: cadence.time,
+    });
+  return t("schedules.cadence.daily", { time: cadence.time });
 }
 function untilLabel(seconds) {
   const wait = Number(seconds) - Date.now() / 1000;
   if (!Number.isFinite(wait)) return "";
-  if (wait <= 60) return "due now";
-  return (
-    "next in " +
-    (wait < 3600
-      ? Math.round(wait / 60) + " min"
-      : wait < 86400
-        ? Math.round(wait / 3600) + " h"
-        : Math.round(wait / 86400) + " d")
-  );
+  if (wait <= 60) return t("schedules.until.due_now");
+  if (wait < 3600)
+    return t("schedules.until.minutes", { count: Math.round(wait / 60) });
+  if (wait < 86400)
+    return t("schedules.until.hours", { count: Math.round(wait / 3600) });
+  return t("schedules.until.days", { count: Math.round(wait / 86400) });
 }
 async function openScheduled() {
   if (!$("scheduled-dialog").open) $("scheduled-dialog").showModal();
@@ -10277,10 +10284,12 @@ async function loadSchedules(selectedId = currentSchedule?.id) {
         if (task.id === selectedId) open.setAttribute("aria-current", "true");
         title.textContent = task.title;
         meta.textContent = [
-          task.enabled ? "Active" : "Paused",
+          task.enabled
+            ? t("schedules.status.active")
+            : t("schedules.status.paused"),
           cadenceLabel(task.cadence),
           task.enabled ? untilLabel(task.next_run) : task.paused_reason || "",
-          task.last_run?.needs_you && "Last run needs you",
+          task.last_run?.needs_you && t("schedules.last_run.needs_you"),
         ]
           .filter(Boolean)
           .join(" · ");
@@ -10290,13 +10299,13 @@ async function loadSchedules(selectedId = currentSchedule?.id) {
         return row;
       }),
     );
-    $("schedules-empty").textContent = "No scheduled tasks yet.";
+    $("schedules-empty").textContent = t("schedules.empty");
     $("schedules-empty").hidden = schedules.length > 0;
     return schedules;
   } catch (error) {
     $("schedules-list").replaceChildren();
     $("schedules-empty").textContent =
-      "Couldn't load scheduled tasks. " + error.message;
+      t("schedules.load_failed") + " " + error.message;
     $("schedules-empty").hidden = false;
     return [];
   }
@@ -10343,9 +10352,11 @@ function showScheduleEditor(task) {
   for (const el of $("schedule-editor").querySelectorAll("[aria-invalid]"))
     el.removeAttribute("aria-invalid");
   $("schedule-delete").hidden = $("schedule-run").hidden = !task?.id;
-  $("schedule-delete").textContent = "Delete";
+  $("schedule-delete").textContent = t("admin.providers.delete");
   delete $("schedule-delete").dataset.confirm;
-  $("schedule-save").textContent = task?.id ? "Save task" : "Create task";
+  $("schedule-save").textContent = task?.id
+    ? t("schedules.save_task")
+    : t("schedules.create_task");
   showLastRun(task);
 }
 // D41: the agent and the pages are read at run time; the editor only picks them.
@@ -10357,7 +10368,7 @@ async function fillScheduleContext(task) {
     agent = task?.agent || "";
   // Until the list of this task's pages has loaded, a Save keeps the stored choice.
   $("schedule-pages-list").dataset.loaded = "false";
-  picker.replaceChildren(new Option("No agent", ""));
+  picker.replaceChildren(new Option(t("schedules.agent.none"), ""));
   if (agent) picker.append(new Option("@@" + agent, agent));
   picker.value = agent;
   try {
@@ -10367,7 +10378,7 @@ async function fillScheduleContext(task) {
       (item) => item.name,
     );
     picker.replaceChildren(
-      new Option("No agent", ""),
+      new Option(t("schedules.agent.none"), ""),
       ...[...new Set([...names, ...(agent ? [agent] : [])])].map(
         (name) => new Option("@@" + name, name),
       ),
@@ -10390,8 +10401,8 @@ async function renderSchedulePages(project, chosen) {
   box.dataset.loaded = String(Array.isArray(listed));
   if (!Array.isArray(listed) || !listed.length) {
     box.textContent = Array.isArray(listed)
-      ? "No pages in this project yet."
-      : "Couldn't load pages.";
+      ? t("projects.pages.empty")
+      : t("projects.pages.load_failed");
     return;
   }
   box.replaceChildren(
