@@ -50,7 +50,7 @@ async function request(path, data) {
     ) && data !== undefined;
   if (starts) {
     $("operation-dialog").showModal();
-    $("operation-message").textContent = "Starting operation…";
+    $("operation-message").textContent = HarnessI18n.t("admin.operation.starting");
     $("operation-retry").hidden = true;
     activeOperation = null;
     $("operations").replaceChildren();
@@ -61,7 +61,7 @@ async function request(path, data) {
     if (starts) {
       activeOperation = { path, data, id: result.id };
       $("operation-message").textContent =
-        "Operation started. Track progress below.";
+        HarnessI18n.t("admin.operation.started");
       pollOperations();
     }
     return result;
@@ -92,8 +92,8 @@ async function requestRaw(path, data) {
   } catch (e) {
     throw Error(
       e.name === "TimeoutError"
-        ? "The server took too long to respond. The operation may still be running on the server; check its status before trying again."
-        : "Could not connect to the server. Check that it is running and try again.",
+        ? HarnessI18n.t("admin.request.timeout")
+        : HarnessI18n.t("admin.request.connect_failed"),
     );
   }
   let value;
@@ -101,40 +101,40 @@ async function requestRaw(path, data) {
     value = await r.json();
   } catch {
     throw Error(
-      "The server returned an unexpected response (" +
-        r.status +
-        "). Try again after checking the server.",
+      HarnessI18n.t("admin.request.unexpected_response", {
+        status: r.status,
+      }),
     );
   }
   if (!r.ok) {
     const sentence =
       {
         model_not_available:
-          "The selected model is not available. Check the provider models and choose again.",
-        authentication_required: "Authenticate your account and check again.",
+          HarnessI18n.t("admin.error.model_not_available"),
+        authentication_required: HarnessI18n.t("admin.error.authentication_required"),
         permission_denied:
-          "This action is not permitted. Review the provider permissions.",
+          HarnessI18n.t("admin.error.permission_denied"),
         operation_failed:
-          "The server could not complete this action. Check the server log for details.",
+          HarnessI18n.t("admin.error.operation_failed"),
         invalid_request:
-          "The request is missing required data. Check the fields and try again.",
+          HarnessI18n.t("admin.error.invalid_request"),
         invalid_json:
-          "The request could not be read. Reload the page and try again.",
+          HarnessI18n.t("admin.error.invalid_json"),
         provider_state_conflict:
-          "The provider changed since this page loaded. Review the refreshed state and try again.",
+          HarnessI18n.t("admin.error.provider_state_conflict"),
         provider_state_write_unsupported:
-          "KeepHarness cannot change this item in the provider.",
+          HarnessI18n.t("admin.error.provider_state_write_unsupported"),
         provider_state_version_untested:
-          "This provider version has not been tested for this change.",
+          HarnessI18n.t("admin.error.provider_state_version_untested"),
         provider_state_validation_failed:
-          "The provider rejected the change as invalid.",
-        provider_state_unreadable: "The provider state could not be read.",
-        provider_command_failed: "The provider command failed.",
-        provider_unknown: "There is no state adapter for this provider yet.",
-        project_unknown: "This project is not registered.",
+          HarnessI18n.t("admin.error.provider_state_validation_failed"),
+        provider_state_unreadable: HarnessI18n.t("admin.error.provider_state_unreadable"),
+        provider_command_failed: HarnessI18n.t("admin.error.provider_command_failed"),
+        provider_unknown: HarnessI18n.t("admin.error.provider_unknown"),
+        project_unknown: HarnessI18n.t("admin.error.project_unknown"),
       }[value.error] ||
       value.error ||
-      "Could not complete this action. Check the data and try again.";
+      HarnessI18n.t("admin.error.generic");
     // Provider-state errors carry the adapter's own sentence (already capped by the server).
     const detail = value.message || value.provider_message;
     const error = Error(detail ? sentence + " " + detail : sentence);
@@ -146,7 +146,7 @@ async function requestRaw(path, data) {
 }
 function dirty() {
   unsaved = true;
-  $("dirty").textContent = "Unsaved changes";
+  $("dirty").textContent = HarnessI18n.t("admin.common.unsaved");
 }
 window.addEventListener("beforeunload", (event) => {
   if (unsaved || profileDirty) {
@@ -256,7 +256,7 @@ function modelIdentity(provider, model, label = model) {
                 : provider,
       ),
     );
-  span.append(document.createTextNode(label || "Model not provided"));
+  span.append(document.createTextNode(label || HarnessI18n.t("admin.model.not_provided")));
   return span;
 }
 
@@ -264,14 +264,14 @@ function modelIdentity(provider, model, label = model) {
 // only Claude Code asks for a code to be pasted back.
 const LOGIN_STEPS = {
   codex:
-    "Finish the sign-in in the browser. If the operation window shows a link and a code instead, open the link and enter the code there; then click Check account.",
+    HarnessI18n.t("admin.login.step_codex"),
   claude:
-    "Sign in in the browser, paste the code it shows into the operation window (Send code), then wait for the account status to update.",
+    HarnessI18n.t("admin.login.step_claude"),
 };
 // The one-time code Codex prints for device sign-in, shown on its own so it can be read and copied.
 const DEVICE_CODE = /\b[A-Z0-9]{4}-[A-Z0-9]{4,6}\b/;
 const DEVICE_CODE_NOTE =
-  "Device code sign-in must be turned on in your ChatGPT security settings (for a workspace: in its permissions) before this code works.";
+  HarnessI18n.t("admin.login.device_code_note");
 // The providers' sign-in pages: a sign-in URL on any other host gets no Copy or Open button.
 const AUTH_HOSTS = new Set([
   "auth.openai.com",
@@ -297,31 +297,33 @@ function loginUrlRow(raw) {
   field.readOnly = true;
   field.value = raw;
   field.dataset.testid = "login-url";
-  field.setAttribute("aria-label", "Sign-in URL");
-  const copy = element("button", "Copy", "button secondary");
+  field.setAttribute("aria-label", HarnessI18n.t("admin.login.url_label"));
+  const copy = element("button", HarnessI18n.t("admin.common.copy"), "button secondary");
   copy.onclick = async () => {
     try {
       await navigator.clipboard.writeText(raw);
-      say("Link copied.");
+      say(HarnessI18n.t("admin.login.link_copied"));
     } catch {
-      say("Copy is not available here. Select the link in the field instead.");
+      say(HarnessI18n.t("admin.login.copy_unavailable"));
     }
   };
-  const open = element("button", "Open", "button secondary");
+  const open = element("button", HarnessI18n.t("admin.common.open"), "button secondary");
   open.onclick = () => window.open(url.href, "_blank", "noopener");
   row.append(field, copy, open);
   return row;
 }
 function operationTitle(job) {
   return job.kind === "provider-login" && job.provider
-    ? providerName({ id: job.provider, name: job.provider }) + " sign-in"
-    : "Operation " + job.id.slice(0, 6);
+    ? HarnessI18n.t("admin.login.title", {
+          provider: providerName({ id: job.provider, name: job.provider }),
+        })
+    : HarnessI18n.t("admin.operation.title", { id: job.id.slice(0, 6) });
 }
 function providerLoginButton(info) {
-  const button = element("button", "Log in / Renew access", "button secondary");
+  const button = element("button", HarnessI18n.t("admin.login.button"), "button secondary");
   button.setAttribute(
     "aria-label",
-    "Log in or renew access — " + providerName(info),
+    HarnessI18n.t("admin.login.button_aria", { provider: providerName(info) }),
   );
   button.disabled = !info.found;
   button.onclick = () =>
@@ -332,8 +334,8 @@ function providerLoginButton(info) {
   return button;
 }
 function providerCheckButton(info) {
-  const button = element("button", "Check account", "button secondary");
-  button.setAttribute("aria-label", "Check account — " + providerName(info));
+  const button = element("button", HarnessI18n.t("admin.account.check"), "button secondary");
+  button.setAttribute("aria-label", HarnessI18n.t("admin.account.check_aria", { provider: providerName(info) }));
   button.disabled = !info.found;
   button.onclick = () =>
     action(async () => {
@@ -343,42 +345,43 @@ function providerCheckButton(info) {
       renderProviders();
       say(
         data.authenticated
-          ? "Account verified."
-          : "Your access needs to be renewed. Click Log in / Renew access.",
+          ? HarnessI18n.t("admin.account.verified")
+          : HarnessI18n.t("admin.account.renew_needed"),
       );
     });
   return button;
 }
 
 const effortLabels = {
-  configured: "Provider setting",
-  low: "Low",
-  medium: "Medium",
-  high: "High",
-  xhigh: "Very high",
-  max: "Maximum",
-  ultra: "Ultra",
-  none: "No reasoning",
+  configured: HarnessI18n.t("admin.effort.configured"),
+  low: HarnessI18n.t("admin.effort.low"),
+  medium: HarnessI18n.t("admin.effort.medium"),
+  high: HarnessI18n.t("admin.effort.high"),
+  xhigh: HarnessI18n.t("admin.effort.xhigh"),
+  max: HarnessI18n.t("admin.effort.max"),
+  ultra: HarnessI18n.t("admin.effort.ultra"),
+  none: HarnessI18n.t("admin.effort.none"),
 };
 function modelDescription(provider, model) {
   const descriptions = {
-    "gpt-6-astra": "Model for complex tasks that require deeper analysis.",
-    "gpt-5.6-sol": "General-purpose model for coding and everyday work.",
-    "gpt-5.6-terra": "Balanced model for everyday coding tasks.",
-    "gpt-5.6-luna": "Model focused on speed and efficiency for coding tasks.",
-    "gpt-5.5": "Previous-generation model for coding and general tasks.",
+    "gpt-6-astra": HarnessI18n.t("admin.model.desc_gpt_6_astra"),
+    "gpt-5.6-sol": HarnessI18n.t("admin.model.desc_gpt_5_6_sol"),
+    "gpt-5.6-terra": HarnessI18n.t("admin.model.desc_gpt_5_6_terra"),
+    "gpt-5.6-luna": HarnessI18n.t("admin.model.desc_gpt_5_6_luna"),
+    "gpt-5.5": HarnessI18n.t("admin.model.desc_gpt_5_5"),
   };
   const efforts = state.models[provider]?.[model] || [];
   return (
     (descriptions[model] ||
-      "Model offered by your account. The provider does not provide a description in this panel.") +
+      HarnessI18n.t("admin.model.description_default")) +
     (efforts.filter((e) => e !== "configured").length
-      ? " Available efforts: " +
-        efforts
-          .filter((e) => e !== "configured")
-          .map((e) => effortLabels[e] || e)
-          .join(", ") +
-        "."
+      ? " " +
+        HarnessI18n.t("admin.model.efforts", {
+          efforts: efforts
+            .filter((e) => e !== "configured")
+            .map((e) => effortLabels[e] || e)
+            .join(", "),
+        })
       : "")
   );
 }
@@ -389,9 +392,9 @@ async function refreshInventory() {
 }
 function remoteServersPanel(info) {
   const panel = element("section", undefined, "remote-servers");
-  panel.setAttribute("aria-label", "Model server on your network");
-  const urlLabel = element("label", "Server address"),
-    keyLabel = element("label", "API key (optional)"),
+  panel.setAttribute("aria-label", HarnessI18n.t("admin.remote.title"));
+  const urlLabel = element("label", HarnessI18n.t("admin.remote.address_label")),
+    keyLabel = element("label", HarnessI18n.t("admin.remote.key_label")),
     url = element("input"),
     key = element("input");
   url.type = "url";
@@ -401,10 +404,10 @@ function remoteServersPanel(info) {
   key.autocomplete = "off";
   urlLabel.append(url);
   keyLabel.append(key);
-  const add = element("button", "Add server", "button secondary");
+  const add = element("button", HarnessI18n.t("admin.remote.add"), "button secondary");
   add.onclick = () =>
     action(async () => {
-      if (!url.value.trim()) throw Error("Enter the server address first.");
+      if (!url.value.trim()) throw Error(HarnessI18n.t("admin.remote.address_required"));
       const result = await request("remote-model-add", {
         url: url.value.trim(),
         key: key.value.trim(),
@@ -412,10 +415,7 @@ function remoteServersPanel(info) {
       key.value = "";
       await refreshInventory();
       say(
-        "Server added · " +
-          result.models.length +
-          (result.models.length === 1 ? " model" : " models") +
-          " found. Choose the ones to make available.",
+        HarnessI18n.t("admin.remote.added", { count: result.models.length }),
       );
     });
   const saved = element("div", undefined, "remote-server-list");
@@ -423,41 +423,44 @@ function remoteServersPanel(info) {
     const row = element("p", undefined, "remote-server-row"),
       name = element(
         "span",
-        server.url + (server.has_key ? " · key saved" : ""),
+        server.has_key
+          ? HarnessI18n.t("admin.remote.url_key_saved", { url: server.url })
+          : server.url,
       ),
       status = element(
         "span",
         server.reachable
-          ? server.models.length +
-              (server.models.length === 1 ? " model" : " models")
-          : "Unreachable",
+          ? HarnessI18n.t("admin.remote.model_count", {
+              count: server.models.length,
+            })
+          : HarnessI18n.t("admin.remote.unreachable"),
         "connector-status connector-status-" +
           (server.reachable ? "connected" : "failed"),
       ),
-      remove = element("button", "Remove", "button secondary");
+      remove = element("button", HarnessI18n.t("admin.common.remove"), "button secondary");
     if (server.error) name.append(element("small", server.error));
     status.setAttribute("role", "status");
-    remove.setAttribute("aria-label", "Remove " + server.url);
+    remove.setAttribute("aria-label", HarnessI18n.t("admin.remote.remove_aria", { url: server.url }));
     remove.onclick = () =>
       action(async () => {
         if (
           !confirm(
-            "Remove " + server.url + "? Its saved API key is deleted too.",
+            HarnessI18n.t("admin.remote.remove_confirm", { url: server.url }),
           )
         )
           return;
         await request("remote-model-remove", { url: server.url });
         await refreshInventory();
-        say("Network server removed.");
+        say(HarnessI18n.t("admin.remote.removed"));
       });
     row.append(name, status, remove);
     saved.append(row);
   }
   panel.append(
-    element("h4", "Model server on your network"),
+    element("h4", HarnessI18n.t("admin.remote.title")),
     element(
       "p",
-      "Use a model served by another machine (llama.cpp, Ollama, LM Studio...). The machine must be reachable over Tailscale or your local network, and its OpenAI-compatible server must listen on a network address. The API key is kept in a private file on this computer.",
+      HarnessI18n.t("admin.remote.hint"),
       "hint",
     ),
     urlLabel,
@@ -482,10 +485,10 @@ function providerCard(info) {
     element(
       "small",
       id === "local"
-        ? "Local inference · Codex agent"
+        ? HarnessI18n.t("admin.provider.local_tagline")
         : id === "deepseek"
-          ? "Your key · DeepSeek credits · Codex agent"
-          : "Local CLI · cloud inference",
+          ? HarnessI18n.t("admin.provider.deepseek_tagline")
+          : HarnessI18n.t("admin.provider.cli_tagline"),
     ),
   );
   top.append(
@@ -493,10 +496,10 @@ function providerCard(info) {
     element(
       "span",
       info.api
-        ? "API · own key"
+        ? HarnessI18n.t("admin.provider.api_key")
         : info.found
-          ? "Found on this machine"
-          : "Not found",
+          ? HarnessI18n.t("admin.provider.found")
+          : HarnessI18n.t("admin.provider.not_found"),
       "pill" + (info.found ? " good" : ""),
     ),
   );
@@ -508,18 +511,18 @@ function providerCard(info) {
       "span",
       state.authentication[id]
         ? id === "local"
-          ? "● Server available"
-          : "● Authenticated"
+          ? HarnessI18n.t("admin.provider.server_available")
+          : HarnessI18n.t("admin.provider.authenticated")
         : info.credential_present
-          ? "Credential found · verify"
+          ? HarnessI18n.t("admin.provider.credential_found")
           : id === "local"
-            ? "Server not verified yet"
-            : "Login not verified",
+            ? HarnessI18n.t("admin.provider.server_not_verified")
+            : HarnessI18n.t("admin.provider.login_not_verified"),
     ),
   );
   const check = element(
     "button",
-    id === "local" ? "Check models" : "Check account",
+    id === "local" ? HarnessI18n.t("admin.provider.check_models") : HarnessI18n.t("admin.account.check"),
     "button secondary",
   );
   check.disabled = !info.found;
@@ -534,11 +537,11 @@ function providerCard(info) {
       say(
         data.authenticated
           ? id === "local"
-            ? "Server verified. Choose the models you want to make available."
-            : "Account verified. Choose the models you want to make available."
+            ? HarnessI18n.t("admin.provider.server_verified")
+            : HarnessI18n.t("admin.provider.account_verified")
           : id === "local"
-            ? "The local server did not respond. Start the model below and click Check models."
-            : "First, click Log in and complete login in the browser. Then return to the panel and click Check account.",
+            ? HarnessI18n.t("admin.provider.local_not_responding")
+            : HarnessI18n.t("admin.provider.login_first"),
       );
     });
   if (
@@ -554,20 +557,19 @@ function providerCard(info) {
   if (id === "local" || id === "deepseek") {
     const inference =
       id === "local"
-        ? "The model on your local server is what responds."
-        : "The DeepSeek API model is what responds, using your DeepSeek credits.";
+        ? HarnessI18n.t("admin.provider.local_inference")
+        : HarnessI18n.t("admin.provider.deepseek_inference");
     body.append(
       element(
         "p",
-        inference +
-          " The Codex CLI is the engine that runs tools and maintains the session; this does not use an OpenAI model. Model and engine are separate choices. In this integration, the available engine is Codex. Other engines, such as Claude Code, depend on a compatible integration and are not yet available for this option.",
+        HarnessI18n.t("admin.provider.inference_note", { inference }),
         "hint",
       ),
     );
   }
   if (id === "local" && (info.runtimes || []).length) {
     const servers = element("div", undefined, "detected-servers");
-    servers.append(element("strong", "Servers found"));
+    servers.append(element("strong", HarnessI18n.t("admin.provider.servers_found")));
     for (const runtime of info.runtimes) {
       const row = element(
         "p",
@@ -583,23 +585,23 @@ function providerCard(info) {
   }
   if (id === "local") body.append(remoteServersPanel(info));
   if (id === "deepseek") {
-    const tokenLabel = element("label", "Your DeepSeek API key (BYOK)"),
+    const tokenLabel = element("label", HarnessI18n.t("admin.provider.deepseek_key_label")),
       token = element("input");
     token.type = "password";
     token.autocomplete = "off";
     token.placeholder = state.credentials?.deepseek
-      ? "Saved key · fill in only to replace it"
-      : "Paste your key from the DeepSeek platform";
+      ? HarnessI18n.t("admin.provider.deepseek_key_saved_placeholder")
+      : HarnessI18n.t("admin.provider.deepseek_key_placeholder");
     tokenLabel.append(token);
     const saveToken = element(
       "button",
-      "Save key and verify",
+      HarnessI18n.t("admin.provider.deepseek_save"),
       "button primary",
     );
     saveToken.onclick = () =>
       action(async () => {
         if (!token.value.trim() && !state.credentials?.deepseek)
-          throw Error("Paste your DeepSeek API key before verifying.");
+          throw Error(HarnessI18n.t("admin.provider.deepseek_key_required"));
         if (token.value.trim()) {
           await request("provider-token", {
             provider: id,
@@ -613,15 +615,16 @@ function providerCard(info) {
         state.authentication[id] = result.authenticated === true;
         if (!result.authenticated)
           throw Error(
-            "The key was saved, but authentication was not confirmed. Check the key and try verifying again.",
+            HarnessI18n.t("admin.provider.deepseek_not_confirmed"),
           );
         state.credentials = { ...state.credentials, deepseek: true };
         renderProviders();
         say(
-          "DeepSeek verified. " +
-            (result.balance?.balance_infos || [])
+          HarnessI18n.t("admin.provider.deepseek_verified", {
+            balance: (result.balance?.balance_infos || [])
               .map((b) => b.currency + " " + b.total_balance)
               .join(" · "),
+          }),
         );
       });
     body.append(
@@ -629,18 +632,18 @@ function providerCard(info) {
       saveToken,
       element(
         "p",
-        "Saving the key applies the credential immediately on this machine; canceling the setup does not remove it. Conversations, files, and tools sent to the model consume DeepSeek credits.",
+        HarnessI18n.t("admin.provider.deepseek_saving_hint"),
         "hint",
       ),
     );
   }
 
-  const label = element("p", "Available models", "field-label");
+  const label = element("p", HarnessI18n.t("admin.provider.models_label"), "field-label");
   body.append(
     label,
     element(
       "p",
-      "The provider connects your account; the model is the AI that responds. Check the models available in conversations. Reasoning effort adjusts how much the model analyzes before responding and can increase time and usage.",
+      HarnessI18n.t("admin.provider.models_hint"),
       "hint",
     ),
   );
@@ -664,10 +667,10 @@ function providerCard(info) {
         },
         id === "local"
           ? localModelLabel(m, info) !== m
-            ? "Server identifier: " + m
-            : "Full name and quantization not provided by the server."
+            ? HarnessI18n.t("admin.model.server_identifier", { id: m })
+            : HarnessI18n.t("admin.model.name_not_provided")
           : state.authentication[id] === true && !models.includes(m)
-            ? "Unavailable in the current catalog. Uncheck it and choose another model."
+            ? HarnessI18n.t("admin.model.unavailable")
             : modelDescription(id, m),
       ),
     );
@@ -676,10 +679,10 @@ function providerCard(info) {
       element(
         "p",
         id === "local"
-          ? "No models available. Search for a local file or install a model below."
+          ? HarnessI18n.t("admin.provider.no_models_local")
           : !info.found
-            ? "Install this provider's CLI on this machine and click Check environment."
-            : "Click Check account to list the models.",
+            ? HarnessI18n.t("admin.provider.install_cli")
+            : HarnessI18n.t("admin.provider.check_to_list"),
         "hint",
       ),
     );
@@ -690,7 +693,7 @@ function providerCard(info) {
     body.append(
       element(
         "p",
-        "Google has ended access to this CLI for individual accounts and AI Pro/Ultra subscriptions. Migration to Antigravity is required; that engine is not yet integrated into this panel.",
+        HarnessI18n.t("admin.provider.gemini_ended"),
         "hint",
       ),
     );
@@ -698,28 +701,28 @@ function providerCard(info) {
     body.append(
       element(
         "p",
-        "Models are listed by their full versioned id. Actual access depends on your account.",
+        HarnessI18n.t("admin.provider.claude_ids"),
         "hint",
       ),
     );
   if (id !== "local")
     body.append(
       toggle(
-        "Preferred provider",
+        HarnessI18n.t("admin.provider.preferred"),
         settings.default_backend === id,
         (yes) => {
           settings.default_backend = yes ? id : "";
           renderProviders();
         },
-        "Used for automatic selection (backend auto). An explicit model choice takes priority.",
+        HarnessI18n.t("admin.provider.preferred_hint"),
       ),
     );
   const advanced = element("details", undefined, "advanced");
   advanced.append(
-    element("summary", "Provider access"),
+    element("summary", HarnessI18n.t("admin.provider.access")),
     element(
       "p",
-      "Codex, Claude, and DeepSeek run directly on this computer, without a sandbox, with access to folders, files, terminal, and network. Permission controls are exclusive to local models.",
+      HarnessI18n.t("admin.provider.access_hint"),
       "hint",
     ),
   );
@@ -729,10 +732,10 @@ function providerCard(info) {
   const bottom = element("div", undefined, "provider-enabled");
   bottom.append(
     toggle(
-      "Make this service available",
+      HarnessI18n.t("admin.provider.make_available"),
       spec.enabled,
       (yes) => (spec.enabled = yes),
-      "Makes the selected models available in conversations. Turning it off keeps the setup and the connected account.",
+      HarnessI18n.t("admin.provider.make_available_hint"),
     ),
   );
   if (!state.settings.services[id]?.added) card.append(bottom);
@@ -755,10 +758,10 @@ function renderProviders() {
         );
         button.dataset.provider = info.id;
         const status = info.api
-          ? "API / BYOK"
+          ? HarnessI18n.t("admin.provider.api_byok")
           : info.found
-            ? "Found on this machine"
-            : "Not installed";
+            ? HarnessI18n.t("admin.provider.found")
+            : HarnessI18n.t("admin.provider.not_installed");
         button.append(providerIcon(info.id));
         const copy = element("span");
         copy.append(
@@ -783,7 +786,7 @@ function renderProviders() {
     $("provider-options").append(
       element(
         "p",
-        "All available providers have already been added. You can edit them in the list.",
+        HarnessI18n.t("admin.provider.all_added"),
         "hint",
       ),
     );
@@ -800,7 +803,7 @@ function renderProviders() {
       $("permission-editor").append(
         element(
           "p",
-          "Operation permissions belong to the model selected above. Projects are set up in the KeepHarness interface and are available to all models.",
+          HarnessI18n.t("admin.provider.permissions_hint"),
           "hint",
         ),
       );
@@ -827,23 +830,23 @@ function integrationDescription(item) {
   return (
     item.description ||
     metadata?.description ||
-    "Description not provided by the provider."
+    HarnessI18n.t("admin.integration.description_missing")
   );
 }
 const connectorIdentity = {
-  node_repl: ["JavaScript Terminal", "⌨️"],
-  "qwen-local-agent": ["Local Qwen Agent", "🧠"],
-  "codex-app-tools": ["Codex Tools", "codex"],
-  sites: ["Sites", "🌐"],
-  browser: ["Browser", "🧭"],
+  node_repl: [HarnessI18n.t("admin.connector.javascript_terminal"), "⌨️"],
+  "qwen-local-agent": [HarnessI18n.t("admin.connector.local_qwen_agent"), "🧠"],
+  "codex-app-tools": [HarnessI18n.t("admin.connector.codex_tools"), "codex"],
+  sites: [HarnessI18n.t("admin.connector.sites"), "🌐"],
+  browser: [HarnessI18n.t("admin.connector.browser"), "🧭"],
   chrome: ["Chrome", "🌐"],
-  "unified-computer-use": ["Computer Control", "🖥️"],
-  visualize: ["Visualizations", "📈"],
-  documents: ["Documents", "📝"],
+  "unified-computer-use": [HarnessI18n.t("admin.connector.computer_control"), "🖥️"],
+  visualize: [HarnessI18n.t("admin.connector.visualizations"), "📈"],
+  documents: [HarnessI18n.t("admin.connector.documents"), "📝"],
   pdf: ["PDF", "📄"],
-  spreadsheets: ["Spreadsheets", "📊"],
-  presentations: ["Presentations", "📽️"],
-  "template-creator": ["Template Creator", "📐"],
+  spreadsheets: [HarnessI18n.t("admin.connector.spreadsheets"), "📊"],
+  presentations: [HarnessI18n.t("admin.connector.presentations"), "📽️"],
+  "template-creator": [HarnessI18n.t("admin.connector.template_creator"), "📐"],
   drive: ["Google Drive", "📁"],
   github: ["GitHub", "📦"],
   linear: ["Linear", "☑️"],
@@ -859,7 +862,7 @@ function connectorLabel(item) {
   return (
     connectorIdentity[key]?.[0] ||
     key.replace(/[-_]+/g, " ").replace(/\b\w/g, (char) => char.toUpperCase()) ||
-    "Integration"
+    HarnessI18n.t("admin.connector.fallback")
   );
 }
 function connectorIcon(item) {
@@ -877,7 +880,8 @@ function connectorIcon(item) {
 const NOTICE_SCOPE = "sem-projeto";
 const providerNotices = new Map(); // provider id -> the Notice list of its last provider-state read
 const toasted = new Set(); // notice ids already announced in this page session (memory only)
-const onOff = (enabled) => (enabled ? "on" : "off");
+const onOff = (enabled) =>
+  enabled ? HarnessI18n.t("admin.common.on") : HarnessI18n.t("admin.common.off");
 const acked = new Set(); // dismissed notice ids; they embed detected_at, so one never legitimately returns
 function setProviderNotices(provider, list) {
   providerNotices.set(
@@ -899,17 +903,28 @@ function noticeParts(provider, notice) {
   // Older pending skill notices stored the folder name instead of its source file.
   const source =
     kind === "skill" && notice.source === id ? "SKILL.md" : notice.source;
-  const detail = " (" + source + ", " + time + ")";
+  const detail = " " + HarnessI18n.t("admin.notice.detail", { source, time });
   if (notice.change === "reverted")
     return [
-      `Reverted by ${cli}: ${kind} `,
+      HarnessI18n.t("admin.notice.reverted_lead", { cli, kind }),
       id,
-      ` is ${onOff(notice.after)} again${detail}. Your choice was ${onOff(notice.before)}.`,
+      HarnessI18n.t("admin.notice.reverted_tail", {
+        state: onOff(notice.after),
+        detail,
+        previous: onOff(notice.before),
+      }),
     ];
   const what =
-    { added: "was added", removed: "was removed" }[notice.change] ||
-    "was turned " + onOff(notice.after);
-  return [`${cli} › ${kind} `, id, ` ${what}${detail}.`];
+    {
+      added: HarnessI18n.t("admin.notice.added"),
+      removed: HarnessI18n.t("admin.notice.removed"),
+    }[notice.change] ||
+    HarnessI18n.t("admin.notice.turned", { state: onOff(notice.after) });
+  return [
+    HarnessI18n.t("admin.notice.changed_lead", { cli, kind }),
+    id,
+    HarnessI18n.t("admin.notice.changed_tail", { what, detail }),
+  ];
 }
 const noticeSentence = (provider, notice) =>
   noticeParts(provider, notice).join("");
@@ -930,16 +945,16 @@ function showProviderNotices() {
     head.append(
       element(
         "strong",
-        all.length === 1
-          ? "Changed outside KeepHarness"
-          : all.length + " changes outside KeepHarness",
+        HarnessI18n.t("admin.notices.outside_title", { count: all.length }),
       ),
     );
     for (const [provider, list] of providerNotices) {
       if (list.length < 2) continue;
       const dismissAll = element(
         "button",
-        "Dismiss all " + HarnessUI.providerName(provider),
+        HarnessI18n.t("admin.notices.dismiss_all", {
+          provider: HarnessUI.providerName(provider),
+        }),
         "button secondary",
       );
       dismissAll.dataset.testid = "provider-notice-dismiss-all";
@@ -949,8 +964,8 @@ function showProviderNotices() {
     const items = element("ul", undefined, "provider-notices-list");
     for (const { provider, notice } of all) {
       const [lead, id, tail] = noticeParts(provider, notice);
-      const dismiss = element("button", "Dismiss", "button secondary");
-      dismiss.setAttribute("aria-label", "Dismiss: " + lead + id + tail);
+      const dismiss = element("button", HarnessI18n.t("admin.common.dismiss"), "button secondary");
+      dismiss.setAttribute("aria-label", HarnessI18n.t("admin.notices.dismiss_aria", { text: lead + id + tail }));
       dismiss.onclick = () => ackProviderNotices(provider, [notice]);
       const line = element("span");
       line.append(lead, element("code", id), tail);
@@ -968,7 +983,7 @@ function showProviderNotices() {
     // Several changes fold into one line so up to 100 of them never push the page down.
     const folded = element("details");
     folded.open = box.querySelector("details")?.open || false;
-    folded.append(element("summary", "Show each change"), items);
+    folded.append(element("summary", HarnessI18n.t("admin.notices.show_each")), items);
     box.replaceChildren(head, folded);
   }
   // Only the Plugins and Providers screens toast; an id announced elsewhere would be lost, so it waits.
@@ -981,10 +996,10 @@ function showProviderNotices() {
     const text = noticeSentence(provider, notice);
     HarnessUI.toast(
       fresh.length > 1
-        ? fresh.length + " changes were made outside KeepHarness."
+        ? HarnessI18n.t("admin.notices.toast_many", { count: fresh.length })
         : notice.change === "reverted"
           ? text
-          : "Changed outside KeepHarness: " + text,
+          : HarnessI18n.t("admin.notices.toast_one", { text }),
     );
   }
   document.dispatchEvent(new Event("provider-notices"));
