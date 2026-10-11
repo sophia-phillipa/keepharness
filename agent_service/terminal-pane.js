@@ -61,7 +61,8 @@
       state.carriage = true;
     }
     text.split(/(\r\n|\n|\r)/).forEach((part, index) => {
-      if (index % 2 === 0) state.partial = (state.partial + part).slice(-MAX_PARTIAL);
+      if (index % 2 === 0)
+        state.partial = (state.partial + part).slice(-MAX_PARTIAL);
       else if (part === "\r") state.partial = "";
       else endLine();
     });
@@ -70,15 +71,19 @@
   function endLine() {
     state.lines.push(state.partial);
     state.partial = "";
-    if (state.lines.length > MAX_LINES) state.lines.splice(0, state.lines.length - MAX_LINES);
+    if (state.lines.length > MAX_LINES)
+      state.lines.splice(0, state.lines.length - MAX_LINES);
   }
 
   function render() {
     if (state.frame) return;
     state.frame = requestAnimationFrame(() => {
       state.frame = 0;
-      const stick = output.scrollHeight - output.scrollTop - output.clientHeight < 8;
-      const lines = state.partial ? [...state.lines, state.partial] : state.lines;
+      const stick =
+        output.scrollHeight - output.scrollTop - output.clientHeight < 8;
+      const lines = state.partial
+        ? [...state.lines, state.partial]
+        : state.lines;
       output.textContent = lines.join("\n");
       if (stick) output.scrollTop = output.scrollHeight;
     });
@@ -90,7 +95,7 @@
     if (masked !== state.masked) {
       state.masked = masked;
       input.type = masked ? "password" : "text";
-      input.placeholder = masked ? "Hidden input" : "";
+      input.placeholder = masked ? HarnessI18n.t("terminal.hidden_input") : "";
     }
     // An empty text event only carries the echo flag (see TerminalSession._publish_echo).
     if (event.text) appendText(event.text);
@@ -119,23 +124,37 @@
   }
 
   function connect(generation, session) {
-    const source = new EventSource("/v1/terminal/sessions/" + encodeURIComponent(session) + "/stream");
+    const source = new EventSource(
+      "/v1/terminal/sessions/" + encodeURIComponent(session) + "/stream",
+    );
     state.source = source;
     source.addEventListener("output", (event) => {
       if (generation === state.generation) receive(JSON.parse(event.data));
     });
     source.addEventListener("exit", (event) => {
       if (generation !== state.generation) return;
-      endSession("The shell exited with code " + JSON.parse(event.data).code + ". Reopen the terminal to start a new one.");
+      endSession(
+        HarnessI18n.t("terminal.shell_exited", {
+          code: JSON.parse(event.data).code,
+        }),
+      );
     });
     source.addEventListener("revoked", (event) => {
       if (generation !== state.generation) return;
-      endSession("Terminal access ended (" + JSON.parse(event.data).code + ").");
+      endSession(
+        HarnessI18n.t("terminal.access_ended", {
+          code: JSON.parse(event.data).code,
+        }),
+      );
     });
     // EventSource retries by itself; only a CLOSED source has given up.
     source.onerror = () => {
-      if (generation !== state.generation || source.readyState !== EventSource.CLOSED) return;
-      endSession("The terminal stream closed. Reopen the terminal to reconnect.");
+      if (
+        generation !== state.generation ||
+        source.readyState !== EventSource.CLOSED
+      )
+        return;
+      endSession(HarnessI18n.t("terminal.stream_closed"));
     };
   }
 
@@ -169,18 +188,21 @@
   function send(data) {
     const session = state.session;
     if (!session) {
-      say("Open the terminal to start a session.");
+      say(HarnessI18n.t("terminal.open_to_start"));
       return;
     }
     state.sending = state.sending
       .then(() => {
         // Input queued before a detach or project switch must not reach the old shell.
         if (state.session !== session) return;
-        return api("/v1/terminal/sessions/" + encodeURIComponent(session) + "/input", {
-          method: "POST",
-          headers: JSON_HEADERS,
-          body: JSON.stringify({ data }),
-        });
+        return api(
+          "/v1/terminal/sessions/" + encodeURIComponent(session) + "/input",
+          {
+            method: "POST",
+            headers: JSON_HEADERS,
+            body: JSON.stringify({ data }),
+          },
+        );
       })
       .catch((error) => say(error.message));
   }
@@ -195,7 +217,8 @@
     if (save) prefs.set("terminal_open", on);
     if (on) {
       window.runConsole?.closeForPanel();
-      if (narrow.matches && !byId("editor-pane").hidden) byId("editor-toggle").click();
+      if (narrow.matches && !byId("editor-pane").hidden)
+        byId("editor-toggle").click();
       attach();
       // The startup restore (save false) keeps focus where the page put it.
       if (save) input.focus();
@@ -207,8 +230,13 @@
 
   function sizePane(height, save) {
     const limit = Math.max(MIN_HEIGHT, innerHeight - 160);
-    pane.style.height = Math.round(Math.min(Math.max(height, MIN_HEIGHT), limit)) + "px";
-    if (save) prefs.set("terminal_height", Math.round(pane.getBoundingClientRect().height));
+    pane.style.height =
+      Math.round(Math.min(Math.max(height, MIN_HEIGHT), limit)) + "px";
+    if (save)
+      prefs.set(
+        "terminal_height",
+        Math.round(pane.getBoundingClientRect().height),
+      );
   }
 
   toggle.onclick = () => setOpen(!state.open);
@@ -219,8 +247,10 @@
     detach();
     clearOutput();
     try {
-      await api("/v1/terminal/sessions/" + encodeURIComponent(session), { method: "DELETE" });
-      say("Session ended. Close and reopen the terminal to start a new one.");
+      await api("/v1/terminal/sessions/" + encodeURIComponent(session), {
+        method: "DELETE",
+      });
+      say(HarnessI18n.t("terminal.session_ended"));
     } catch (error) {
       say(error.message);
     }
@@ -238,7 +268,11 @@
       const line = input.value + "\n";
       input.value = "";
       send(line);
-    } else if (control && event.key.toLowerCase() === "c" && input.selectionStart === input.selectionEnd) {
+    } else if (
+      control &&
+      event.key.toLowerCase() === "c" &&
+      input.selectionStart === input.selectionEnd
+    ) {
       event.preventDefault();
       send(KEYS.ctrlC);
     } else if (control && event.key.toLowerCase() === "d") {
