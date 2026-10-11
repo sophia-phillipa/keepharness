@@ -2742,20 +2742,12 @@ function storageLine(data) {
     n >= 1024 ** 3
       ? (n / 1024 ** 3).toFixed(1) + " GB"
       : Math.ceil(n / 1024 ** 2) + " MB";
-  return (
-    "Storage: " +
-    data.runs.used.toLocaleString("en") +
-    " of " +
-    data.runs.limit.toLocaleString("en") +
-    " runs · " +
-    bytes(data.bytes.used) +
-    " of " +
-    bytes(data.bytes.limit) +
-    " of files in this project" +
-    (data.warning
-      ? ". Almost full: archived chats still count, so delete the ones you no longer need permanently."
-      : ".")
-  );
+  return t(data.warning ? "settings.storage.usage_almost_full" : "settings.storage.usage", {
+    runs_used: data.runs.used.toLocaleString("en"),
+    runs_limit: data.runs.limit.toLocaleString("en"),
+    bytes_used: bytes(data.bytes.used),
+    bytes_limit: bytes(data.bytes.limit),
+  });
 }
 async function loadArchived() {
   const list = $("archived-list"),
@@ -2880,32 +2872,33 @@ function syncExecutionMode() {
     !draftMode.retiredLock && modes.includes(executionMode) && !localIsolation;
   warning.textContent =
     started && executionMode == null
-      ? "The historical execution mode is unavailable. Start a new native conversation to continue."
+      ? t("composer.execution_mode.historical_unavailable")
       : started && draftMode.retiredLock
-        ? "Isolated Codex and Claude conversations are no longer supported. Start a new native conversation to continue."
+        ? t("composer.execution_mode.isolated_retired")
         : draftMode.retiredLock
-          ? "This saved isolated mode is no longer supported. Start a new conversation to use native mode."
+          ? t("composer.execution_mode.saved_isolated_retired")
           : !modeContract
-            ? "Execution capabilities are unavailable. Refresh the model list before sending."
+            ? t("composer.execution_mode.capabilities_unavailable")
             : modes.length === 1 && modes.includes(executionMode)
               ? isolated
-                ? "This model requires isolation."
-                : "This model only offers native mode."
-              : "This model does not offer " +
-                (isolated ? "isolated" : "native") +
-                " mode. Choose a different model" +
-                (started
-                  ? " or start a new conversation."
-                  : " or start a new conversation.");
+                ? t("composer.execution_mode.requires_isolation")
+                : t("composer.execution_mode.native_only")
+              : t("composer.execution_mode.not_offered", {
+                  mode: t(
+                    isolated
+                      ? "composer.execution_mode.mode_isolated"
+                      : "composer.execution_mode.mode_native",
+                  ),
+                });
   const indicator = $("execution-mode-indicator");
   indicator.hidden = !started || !localIsolation;
   indicator.dataset.isolated = String(isolated);
   const label =
     executionMode == null
-      ? "Execution mode unavailable"
+      ? t("composer.execution_mode.unavailable")
       : isolated
-        ? "Isolated conversation · isolation on"
-        : "Native conversation · isolation off";
+        ? t("composer.execution_mode.indicator_isolated")
+        : t("composer.execution_mode.indicator_native");
   indicator.title = label;
   indicator.setAttribute("aria-label", label);
   $("dropzone").classList.toggle(
@@ -3396,7 +3389,7 @@ function renderProjects() {
           heading.insertBefore(
             statusDot(
               urgent,
-              STATUS_DOTS[urgent] + " in this project",
+              t("sidebar.project.status_in_project", { status: STATUS_DOTS[urgent] }),
               "project-indicator",
             ),
             actions,
@@ -3541,14 +3534,20 @@ answerMarkdown.renderer.rules.fence = (tokens, index, options, env, self) => {
   return (
     '<div class="code-block"><div class="code-head"><span class="code-lang">' +
     answerMarkdown.utils.escapeHtml(language) +
-    '</span><button type="button" class="copy-code" data-testid="copy-code" aria-label="Copy code">Copy</button></div>' +
+    '</span><button type="button" class="copy-code" data-testid="copy-code" aria-label="' +
+    t("conversation.code.copy_label") +
+    '">' +
+    t("admin.common.copy") +
+    "</button></div>" +
     answerFence(tokens, index, options, env, self) +
     "</div>"
   );
 };
 // A wide table scrolls inside its own region; its words are never split (OP-R2-9).
 answerMarkdown.renderer.rules.table_open = () =>
-  '<div class="table-scroll" role="region" aria-label="Table" tabindex="0"><table>';
+  '<div class="table-scroll" role="region" aria-label="' +
+  t("conversation.table.label") +
+  '" tabindex="0"><table>';
 answerMarkdown.renderer.rules.table_close = () => "</table></div>";
 function renderAnswer(body, value) {
   const source =
@@ -3597,7 +3596,7 @@ function setAnswer(answer, value, notice = "", code = "") {
   const note = document.createElement("p");
   note.className = "run-notice";
   note.textContent = notice;
-  if (code) note.title = "Error code: " + code;
+  if (code) note.title = t("conversation.error_code", { code });
   answer.body.append(note);
 }
 // A skipped catalog hook is not an error: the turn goes on, so the notice stays in the turn
@@ -3605,8 +3604,7 @@ function setAnswer(answer, value, notice = "", code = "") {
 function showSkippedHookNotice(data) {
   if (!active) return;
   const text =
-    userError(data.reason) ||
-    "A catalog hook was skipped and the turn went on without it.";
+    userError(data.reason) || t("conversation.hook_skipped");
   const shown = active.el.querySelectorAll(
     '[data-testid="catalog-hook-notice"]',
   );
@@ -3652,12 +3650,12 @@ async function copyText(text, label) {
   try {
     await writeClipboard(text);
   } catch {
-    status("Couldn't copy to the clipboard");
+    status(t("common.copy_failed"), "error");
     return false;
   }
   label.dataset.label ??= label.textContent; // a second click must not capture "Copied"
-  label.textContent = "Copied";
-  status("Copied");
+  label.textContent = t("common.copied");
+  status(t("common.copied"), "progress");
   clearTimeout(label.copiedTimer);
   label.copiedTimer = setTimeout(
     () => (label.textContent = label.dataset.label),
@@ -3676,11 +3674,8 @@ $("messages").addEventListener("click", (event) => {
 function excerptChip(file) {
   const chip = document.createElement("small");
   chip.className = "attachment-excerpt";
-  chip.textContent = "excerpt sent";
-  chip.title =
-    "Only the first part of " +
-    file.name +
-    " was sent inline. The model can read the rest only if it has file tools.";
+  chip.textContent = t("composer.attachment.excerpt_sent");
+  chip.title = t("composer.attachment.excerpt_title", { name: file.name });
   return chip;
 }
 function messageAttachments(message, attachments = []) {
@@ -3701,7 +3696,10 @@ function messageAttachments(message, attachments = []) {
     const button = document.createElement("button");
     button.type = "button";
     button.className = "attachment message-image";
-    button.setAttribute("aria-label", "Enlarge image " + file.name);
+    button.setAttribute(
+      "aria-label",
+      t("conversation.attachment.enlarge_label", { name: file.name }),
+    );
     const img = document.createElement("img");
     img.src = file.preview_url;
     img.alt = file.name;
@@ -3719,7 +3717,7 @@ function messageAttachments(message, attachments = []) {
       close.type = "button";
       close.className = "dialog-close";
       close.textContent = "×";
-      close.setAttribute("aria-label", "Close image");
+      close.setAttribute("aria-label", t("conversation.attachment.close_label"));
       close.autofocus = true;
       close.onclick = () => dialog.close();
       const full = document.createElement("img");
@@ -3756,7 +3754,7 @@ function messageResourceChips(message, selections = []) {
   if (!valid.length) return;
   const chips = document.createElement("div");
   chips.className = "message-resource-chips";
-  chips.setAttribute("aria-label", "Selected resources");
+  chips.setAttribute("aria-label", t("conversation.resources.selected_label"));
   for (const selection of valid) {
     const chip = document.createElement("span");
     chip.className = "message-resource-chip";
@@ -3773,7 +3771,10 @@ function turnRetriedMarker() {
   marker.className = "turn-retried";
   marker.dataset.testid = "turn-retried";
   marker.setAttribute("role", "note");
-  marker.append(HarnessUI.icon("refresh"), document.createTextNode("Retried"));
+  marker.append(
+    HarnessUI.icon("refresh"),
+    document.createTextNode(t("conversation.turn.retried")),
+  );
   $("messages").append(marker);
 }
 function routeDivider(route) {
@@ -3790,12 +3791,13 @@ function routeDivider(route) {
     providerModelIcon(route.backend, route.model),
     document.createTextNode(
       crossed
-        ? "Switched to " +
-            modelName(route.model) +
-            " · " +
-            (providerNames[route.backend] || route.backend) +
-            " — the conversation so far goes with it"
-        : "Model changed to " + modelName(route.model),
+        ? t("conversation.route.switched", {
+            model: modelName(route.model),
+            provider: providerNames[route.backend] || route.backend,
+          })
+        : t("conversation.route.model_changed", {
+            model: modelName(route.model),
+          }),
     ),
   );
   $("messages").append(divider);
@@ -3818,17 +3820,17 @@ function eventToolName(data = {}) {
     return command.split(/[\\/]/).pop().slice(0, 64);
   return (
     {
-      Read: "file",
-      Glob: "files",
-      Grep: "text",
-      webSearch: "web",
-      Bash: "tool",
-      commandExecution: "tool",
+      Read: t("activity.tool.file"),
+      Glob: t("activity.tool.files"),
+      Grep: t("activity.tool.text"),
+      webSearch: t("activity.tool.web"),
+      Bash: t("activity.tool.generic"),
+      commandExecution: t("activity.tool.generic"),
       // Protocol item types and kinds (Codex native, Gemini ACP) are not tool names.
       ...Object.fromEntries(
         "fileChange dynamicToolCall mcpToolCall other think execute read edit delete move search fetch"
           .split(" ")
-          .map((type) => [type, "tool"]),
+          .map((type) => [type, t("activity.tool.generic")]),
       ),
     }[data.tool] || safeToolId(data.tool)
   );
@@ -3841,47 +3843,53 @@ function safeToolId(tool) {
 // C-03: like the Codex and Claude CLIs, a shell step shows its command and a file step its path.
 // WP7: one table of step categories; the icon and verb of a run step come from here.
 const TOOL_MARKERS = {
-  read: { icon: "file-text", verb: "Reading", tools: "read read_file" },
+  read: { icon: "file-text", verb: "activity.verb.reading", tools: "read read_file" },
   edit: {
     icon: "pencil",
-    verb: "Editing",
+    verb: "activity.verb.editing",
     tools: "edit write multiedit notebookedit filechange delete move",
   },
   run: {
     icon: "terminal-2",
-    verb: "Running",
+    verb: "activity.verb.running",
     tools: "bash commandexecution exec_command execute",
   },
   search: {
     icon: "search",
-    verb: "Searching",
+    verb: "activity.verb.searching",
     tools: "glob grep search search_files",
   },
-  list: { icon: "folder", verb: "Listing", tools: "list_directory list_dir" },
+  list: { icon: "folder", verb: "activity.verb.listing", tools: "list_directory list_dir" },
   web: {
     icon: "world",
-    verb: "Browsing",
+    verb: "activity.verb.browsing",
     tools: "websearch webfetch web_search web_fetch fetch",
   },
-  skill: { icon: "cube", verb: "Using skill", tools: "skill" },
-  agent: { icon: "robot", verb: "Delegating to", tools: "task agent" },
+  skill: { icon: "cube", verb: "activity.verb.skill", tools: "skill" },
+  agent: { icon: "robot", verb: "activity.verb.delegating", tools: "task agent" },
   plan: {
     icon: "list-check",
-    verb: "Updating",
+    verb: "activity.verb.updating",
     tools: "todowrite update_plan",
   },
-  mcp: { icon: "plug", verb: "Running", tools: "" },
+  mcp: { icon: "plug", verb: "activity.verb.running", tools: "" },
 };
-const PAST_TENSE = {
-  Running: "Ran",
-  Reading: "Read",
-  Editing: "Edited",
-  Listing: "Listed",
-  Searching: "Searched",
-  Browsing: "Browsed",
-  Updating: "Updated",
-  Delegating: "Delegated",
-};
+// Present verb key and its past tense key; a completed step rewrites the verb to its past form.
+const PAST_TENSE_KEYS = [
+  ["activity.verb.running", "activity.past.running"],
+  ["activity.verb.reading", "activity.past.reading"],
+  ["activity.verb.editing", "activity.past.editing"],
+  ["activity.verb.listing", "activity.past.listing"],
+  ["activity.verb.searching", "activity.past.searching"],
+  ["activity.verb.browsing", "activity.past.browsing"],
+  ["activity.verb.updating", "activity.past.updating"],
+  ["activity.verb.delegating", "activity.past.delegating"],
+];
+// Built from the catalog loaded for this page (the language is fixed per page load),
+// so the regex matches the verbs that targetTitle() produces in that language.
+const PAST_TENSE = Object.fromEntries(
+  PAST_TENSE_KEYS.map(([present, past]) => [t(present), t(past)]),
+);
 const STEP_VERB = new RegExp("^(" + Object.keys(PAST_TENSE).join("|") + ")");
 const MARKER_NAME = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$/;
 // Skill and agent names are display-only: a name that does not match is never shown.
@@ -3911,7 +3919,7 @@ function targetTitle(data) {
         : typeof data.target === "string"
           ? Array.from(data.target.trim()).slice(0, 160).join("")
           : "";
-  return subject && entry?.tools ? entry.verb + " " + subject : "";
+  return subject && entry?.tools ? t(entry.verb) + " " + subject : "";
 }
 function activityTitle(e) {
   const data = e.data || {},
