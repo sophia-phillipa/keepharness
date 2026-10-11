@@ -1,6 +1,6 @@
 # D-056 — Provider pass-through Add actions on the Plugins page
 
-Status: proposed (awaiting Sophia). Date: 2026-10-10. Decided by: _pending_. Issue: #27 (parent #14, WP3). Refines [D-034](d-034-wp3-customize-product-answers.md) §2. Builds on [D-038](d-038-keepharness-facade-over-provider-state.md) (the CLIs' real state is the source of truth; D-034 §1 allow list superseded), [D-039](d-039-single-owner-facade-policies.md) (single owner), [D-045](d-045-plugin-directory-install-actions.md) (directory and install actions; its "W7 boundary" section hands the Create/Add/Upload actions to #27) and [D-030](d-030-wp5-host-hand-off-in-containers.md) (constant-argument pass-through). Spec, contracts and work packages: [Provider Add actions](../provider-add-actions.md).
+Status: accepted (2026-10-11), Create plugin (P7) deferred until after 1.0. Date: 2026-10-10. Decided by: Sophia. Issue: #27 (parent #14, WP3). Refines [D-034](d-034-wp3-customize-product-answers.md) §2. Builds on [D-038](d-038-keepharness-facade-over-provider-state.md) (the CLIs' real state is the source of truth; D-034 §1 allow list superseded), [D-039](d-039-single-owner-facade-policies.md) (single owner), [D-045](d-045-plugin-directory-install-actions.md) (directory and install actions; its "W7 boundary" section hands the Create/Add/Upload actions to #27) and [D-030](d-030-wp5-host-hand-off-in-containers.md) (constant-argument pass-through). Spec, contracts and work packages: [Provider Add actions](../provider-add-actions.md).
 
 ## Context
 
@@ -79,3 +79,11 @@ Recorded while D-056 stays proposed; they do not change the decision.
 
 - **Add MCP server reuses the provider wizard (deviation from C8).** The shipped menu entry opens the provider wizard at its integrations step (`openWizard` + `showStep(3)`) instead of a separate dialog. The alternative above was rejected only because the form is hidden outside the wizard; opening the wizard brings it into view and avoids a second `connector_add` form that would drift. JEV chose this (option A, confidence 0.96). The P5 review found it safe: it is UI navigation only and posts through the existing `/api/integration` name checks.
 - **P5 security review (Opus): approved**, with 0 blockers and 0 majors. Fixed before merge: `operations-cwd` must be a real, empty 0700 directory and is refused otherwise (no symlink), and `_public_source` was renamed to `public_source`. Deferred: deduplicating `openAddMenu`/`openMenu` in `customize.js` (#84), and using the empty working directory for every `/api/integration` action (#85).
+
+## Sophia's answers (2026-10-11)
+
+- D-056 accepted, including the Add MCP server wizard reuse recorded above.
+- P6 visible pass: the test source is a disposable public repository of Sophia's, removed with `plugin marketplace remove` and deleted right after the pass.
+- P7 Create plugin: deferred until after 1.0 (it writes into the real `~/.claude/skills`). Tracked in its own issue.
+- Operations folder: emptied before each `marketplace add` run, so files a CLI leaves there do not block the next run. Still refused if it is a symlink, not a directory, or not 0700.
+- `.plugins-add` CSS keeps the existing size values; no new size tokens.
