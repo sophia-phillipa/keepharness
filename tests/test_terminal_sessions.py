@@ -520,6 +520,54 @@ def test_close_all_still_ends_the_other_sessions_when_one_end_raises(
     failing.end("cleanup")
 
 
+@pytest.mark.parametrize("sweep", ["reap_idle", "close_all"])
+def test_a_slow_session_end_does_not_block_the_manager_lookups(
+    make_manager, tmp_path, clock, monkeypatch, sweep
+):
+    manager = make_manager()
+    slow = open_session(manager, "p1", tmp_path)
+    clock.advance(1800.0)
+    other = open_session(manager, "p2", tmp_path)
+    ending = threading.Event()
+    original_end = slow.end
+
+    def slow_end(reason):
+        ending.set()
+        time.sleep(1.0)
+        original_end(reason)
+
+    monkeypatch.setattr(slow, "end", slow_end)
+    sweeper = threading.Thread(target=getattr(manager, sweep))
+    sweeper.start()
+    assert ending.wait(GUARD_SECONDS)
+    started = time.monotonic()
+    try:
+        # reap_idle keeps the other session; close_all already dropped it, so either answer is fast.
+        manager.get(other.id)
+    except TerminalError:
+        pass
+    elapsed = time.monotonic() - started
+    sweeper.join(GUARD_SECONDS)
+    assert elapsed < 0.2
+    assert not sweeper.is_alive()
+    assert not slow.is_alive()
+
+
+def test_ending_a_shell_that_exited_on_its_own_signals_no_pid(make_manager, tmp_path, monkeypatch):
+    manager = make_manager()
+    session = open_session(manager, "p1", tmp_path)
+    shell_pid = session._pid
+    session.write("exit 0\n")
+    wait_for(lambda: not session.is_alive())
+    signalled = []
+    monkeypatch.setattr(os, "killpg", lambda group, sig: signalled.append(("killpg", group, sig)))
+    monkeypatch.setattr(os, "kill", lambda pid, sig: signalled.append(("kill", pid, sig)))
+    session.end("deleted")
+    session._kill_groups()
+    monkeypatch.undo()
+    assert not [call for call in signalled if call[1] == shell_pid]
+
+
 def test_ending_a_session_kills_background_jobs_of_the_shell(make_manager, tmp_path):
     manager = make_manager()
     session = open_session(manager, "p1", tmp_path)
@@ -550,11 +598,15 @@ def test_event_byte_limit_is_four_mebibytes():
     assert terminal.EVENT_BYTES_LIMIT == 4 * 1024 * 1024
 
 
-def test_screen_caps_the_current_line_at_64_kib_and_drops_the_excess():
+def test_screen_line_limit_is_four_kibibytes():
+    assert terminal.SCREEN_LINE_LIMIT == 4 * 1024
+
+
+def test_screen_caps_the_current_line_at_the_line_limit_and_drops_the_excess():
     screen = _Screen(ring_lines=10)
-    screen.feed("x" * (64 * 1024 + 1000))
+    screen.feed("x" * (terminal.SCREEN_LINE_LIMIT + 1000))
     screen.feed("\n")
-    assert screen.lines() == ["x" * (64 * 1024)]
+    assert screen.lines() == ["x" * terminal.SCREEN_LINE_LIMIT]
 
 
 @pytest.mark.parametrize("configured", ["bash", "relative/sh", "/nonexistent/sh", "/"])
