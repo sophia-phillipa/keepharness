@@ -10747,3 +10747,138 @@ body.panel-order-reversed #sidebar .sidebar-tree {
     padding-inline: 24px;
   }
 }
+
+/* File editor pane (D-055 P5): docked between the chat and the side panel from 1000 px, a modal overlay below. */
+#editor-pane {
+  position: relative;
+  grid-column: 3;
+  grid-row: 2;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+  min-height: 0;
+  padding: 12px 14px;
+  background: var(--th-panel);
+  border-left: 1px solid var(--th-border);
+}
+#editor-pane[hidden],
+#editor-pane [hidden] {
+  display: none !important;
+}
+#editor-resize {
+  left: -3px;
+}
+@media (min-width: 1000px) {
+  body.editor-open {
+    grid-template-columns: var(--th-sidebar-width, 300px) minmax(0, 1fr) var(--th-editor-width, 380px) auto;
+  }
+  body.editor-open.sidebar-collapsed {
+    grid-template-columns: 0 minmax(0, 1fr) var(--th-editor-width, 380px) auto;
+  }
+  body.editor-open.panel-order-reversed {
+    grid-template-columns: auto minmax(0, 1fr) var(--th-editor-width, 380px) var(--th-sidebar-width, 280px);
+  }
+  body.editor-open.panel-order-reversed.sidebar-collapsed {
+    grid-template-columns: auto minmax(0, 1fr) var(--th-editor-width, 380px) 0;
+  }
+  body.editor-open #activity-panel {
+    grid-column: 4;
+  }
+  body.editor-open.panel-order-reversed #activity-panel {
+    grid-column: 1;
+  }
+  body.editor-open.panel-order-reversed #sidebar {
+    grid-column: 4;
+  }
+}
+@media (max-width: 999px) {
+  #editor-pane:not([hidden]) {
+    position: fixed;
+    inset: 0 0 0 auto;
+    width: min(var(--th-editor-width, 380px), 100vw);
+    z-index: 40;
+  }
+}
+.editor-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.editor-title {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--th-text);
+}
+#editor-path {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  color: var(--th-muted);
+}
+#editor-dirty {
+  font-size: 12px;
+  color: var(--th-muted);
+}
+#editor-empty {
+  margin: auto;
+  color: var(--th-muted);
+  text-align: center;
+}
+#editor-body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 0;
+}
+#editor-notice,
+#editor-error,
+#editor-conflict {
+  margin: 0;
+  font-size: 13px;
+  color: var(--th-text);
+}
+#editor-error {
+  color: var(--th-error);
+}
+#editor-conflict {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  padding: 8px;
+  border: 1px solid var(--th-border);
+  border-radius: 6px;
+  background: var(--th-soft);
+}
+#editor-textarea {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  box-sizing: border-box;
+  resize: none;
+  padding: 10px;
+  border: 1px solid var(--th-border);
+  border-radius: 6px;
+  background: var(--th-bg);
+  color: var(--th-text);
+  font: 13px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+.editor-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+#editor-dirty-dialog {
+  max-width: min(420px, 90vw);
+  border: 1px solid var(--th-border);
+  border-radius: 8px;
+  background: var(--th-panel);
+  color: var(--th-text);
+}

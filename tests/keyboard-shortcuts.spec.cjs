@@ -126,6 +126,7 @@ function contrast(rgb1, rgb2) {
         "Keyboard shortcutsCtrl /",
         "New temporary chatCtrl Shift N",
         "Wide layoutCtrl Shift L",
+        "File editorCtrl Shift E",
       ],
     );
     assert.equal(
@@ -134,7 +135,7 @@ function contrast(rgb1, rgb2) {
     );
     assert.equal(
       await dialog.locator('.keyboard-shortcut-row[role="listitem"]').count(),
-      9,
+      10,
     );
     assert.equal(
       await dialog.getByText("Focus composer", { exact: true }).count(),

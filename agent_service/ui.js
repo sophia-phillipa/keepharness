@@ -1900,6 +1900,7 @@ async function api(path, options = {}) {
     error.code = e.code || (providerState ? e.error : undefined);
     error.field = e.field;
     error.status = r.status;
+    error.etag = r.headers.get("ETag");
     if (r.status === 429) {
       const after = r.headers.get("Retry-After");
       error.retryAfter = /^\d+(?:\.\d+)?$/.test(after || "")
@@ -2766,6 +2767,7 @@ $("prompt").addEventListener("keydown", (event) => {
 window.applyActivitySnapshot = function applyActivitySnapshot(data = {}) {
   notifyAttention(data);
   observedActivityJobs = Array.isArray(data.jobs) ? [...data.jobs] : [];
+  updateEditorStatus();
   renderWorkspaceTasks(observedActivityJobs);
   const pending = new Set(
     (data.needs_you || []).map((item) => item.conversation_id).filter(Boolean),
@@ -6532,6 +6534,8 @@ function renderProjectFileEntries(list, entries, tree = fileTree) {
     });
     const row = document.createElement("div");
     row.className = "project-file-row";
+    if (!tree.foldersOnly && entry.type !== "directory")
+      item.addEventListener("dblclick", () => openEditorFromTree(entry.path));
     if (entry.type === "directory") {
       const open = tree.expanded.has(entry.path),
         toggle = document.createElement("button");
@@ -11732,6 +11736,8 @@ $("settings-appearance").querySelector(".shortcut-help").textContent =
   "+Shift+P: search KeepHarness\n" +
   shortcutModifier +
   "+Shift+L: wide layout\n" +
+  shortcutModifier +
+  "+Shift+E: file editor\n" +
   "Escape: close the current dialog or panel";
 const keyboardShortcuts = [
   ["Search KeepHarness", [shortcutModifier, "K"]],
@@ -11743,6 +11749,7 @@ const keyboardShortcuts = [
   ["Keyboard shortcuts", [shortcutModifier, "/"]],
   ["New temporary chat", [shortcutModifier, "Shift", "N"]],
   ["Wide layout", [shortcutModifier, "Shift", "L"]],
+  ["File editor", [shortcutModifier, "Shift", "E"]],
 ];
 let shortcutReturnFocus = null;
 function renderKeyboardShortcuts() {
@@ -12098,6 +12105,218 @@ $("wide-toggle").onclick = () =>
 $("wide-layout-toggle").onchange = (event) =>
   setWideLayout(event.target.checked);
 setWideLayout(prefs.get("wide_layout", false) === true);
+// File editor pane (D-055 P5): one owner for the open state, the open file and the save flow.
+const editorPane = $("editor-pane"),
+  editorText = $("editor-textarea"),
+  editorNarrow = matchMedia("(max-width: 999px)");
+let editor = { project: "", rootId: "", path: "", etag: "", eol: "lf", writable: true, saved: "" };
+let editorPending = null;
+let editorDrag = null;
+const editorUrl = (file) =>
+  "/v1/project-files/content?project_id=" +
+  encodeURIComponent(file.project) +
+  "&root_id=" +
+  encodeURIComponent(file.rootId) +
+  "&path=" +
+  encodeURIComponent(file.path);
+function updateEditorStatus() {
+  const running = observedActivityJobs.some(
+    (job) => job.project === editor.project && job.state === "running",
+  );
+  $("editor-dirty").hidden = editorText.value === editor.saved;
+  $("editor-notice").hidden = !editor.path || (!running && editor.writable);
+  $("editor-notice").textContent = running
+    ? "A turn is running in this project; the agent may also change this file."
+    : "This file is read-only here.";
+  $("editor-save").disabled = !editor.writable;
+}
+function syncEditorMode() {
+  if (editorNarrow.matches) {
+    editorPane.setAttribute("role", "dialog");
+    editorPane.setAttribute("aria-modal", "true");
+  } else {
+    editorPane.removeAttribute("role");
+    editorPane.removeAttribute("aria-modal");
+  }
+}
+function setEditorOpen(on) {
+  document.body.classList.toggle("editor-open", on);
+  editorPane.hidden = !on;
+  $("editor-toggle").setAttribute("aria-pressed", String(on));
+  $("editor-settings-toggle").checked = on;
+  prefs.set("editor_open", on);
+  syncEditorMode();
+}
+function openEditor() {
+  // Below 1000 px both panels are overlays; only one may cover the page.
+  if (editorNarrow.matches && !$("activity-panel").hidden) setPanelOpen(false, false);
+  setEditorOpen(true);
+  if (editorNarrow.matches) $("editor-close").focus();
+}
+// Closing or switching with unsaved text asks Save / Discard / Cancel first.
+function guardEditorDirty(then) {
+  if (editorText.value === editor.saved) return then();
+  editorPending = then;
+  $("editor-dirty-name").textContent = editor.path;
+  $("editor-dirty-dialog").showModal();
+}
+function closeEditor(afterClose) {
+  guardEditorDirty(() => {
+    setEditorOpen(false);
+    afterClose?.();
+  });
+}
+async function resolveEditorDirty(choice) {
+  const then = editorPending;
+  editorPending = null;
+  $("editor-dirty-dialog").close();
+  if (choice === "cancel") {
+    $("editor-settings-toggle").checked = !editorPane.hidden;
+    return;
+  }
+  if (choice === "discard") editorText.value = editor.saved;
+  else if (!(await saveEditor())) return;
+  updateEditorStatus();
+  then?.();
+}
+function showEditorError(message) {
+  $("editor-error").textContent = message;
+  $("editor-error").hidden = false;
+}
+async function loadEditorFile(file) {
+  try {
+    const data = await (await api(editorUrl(file))).json();
+    editorText.value = data.text.replace(/\r\n/g, "\n");
+    editor = { ...file, etag: data.etag, eol: data.eol, writable: data.writable, saved: editorText.value };
+    editorText.readOnly = !data.writable;
+    $("editor-path").textContent = file.path;
+    $("editor-empty").hidden = true;
+    $("editor-body").hidden = false;
+    $("editor-conflict").hidden = true;
+    $("editor-error").hidden = true;
+    updateEditorStatus();
+    if (editorPane.hidden) openEditor();
+  } catch (error) {
+    showEditorError(error.message);
+  }
+}
+function openEditorFromTree(path) {
+  guardEditorDirty(() =>
+    loadEditorFile({ project: fileTree.project, rootId: fileTree.rootId, path }),
+  );
+}
+// PUT with If-Match; CRLF files get CRLF back on every line. A 412 keeps the text and offers reload or overwrite.
+async function saveEditor(ifMatch = editor.etag) {
+  const text = editorText.value;
+  try {
+    const response = await api(editorUrl(editor), {
+      method: "PUT",
+      headers: { "Content-Type": "application/json", "If-Match": ifMatch },
+      body: JSON.stringify({
+        text: editor.eol === "crlf" ? text.replace(/\n/g, "\r\n") : text,
+      }),
+    });
+    editor = { ...editor, etag: (await response.json()).etag, saved: text };
+    $("editor-conflict").hidden = true;
+    $("editor-error").hidden = true;
+    updateEditorStatus();
+    return true;
+  } catch (error) {
+    if (error.status === 412) {
+      editor.conflictEtag = error.etag;
+      $("editor-conflict").hidden = false;
+    } else showEditorError(error.message);
+    updateEditorStatus();
+    return false;
+  }
+}
+// Below 1000 px the pane is a modal dialog: Tab cycles inside it, Escape closes it and returns focus to the toggle.
+document.addEventListener("keydown", (event) => {
+  if (editorPane.hidden || !editorNarrow.matches || $("editor-dirty-dialog").open) return;
+  if (event.key === "Escape" && !foreignModalOpen()) {
+    event.preventDefault();
+    closeEditor(() => $("editor-toggle").focus());
+  } else if (event.key === "Tab") {
+    const items = [...editorPane.querySelectorAll("button, textarea")].filter(
+      (el) => !el.disabled && el.offsetParent,
+    );
+    const at = items.indexOf(document.activeElement);
+    const next = event.shiftKey
+      ? at <= 0 ? items.length - 1 : at - 1
+      : at < 0 || at === items.length - 1 ? 0 : at + 1;
+    event.preventDefault();
+    items[next].focus();
+  }
+});
+document.addEventListener("keydown", (event) => {
+  if (
+    (event.ctrlKey || event.metaKey) &&
+    event.shiftKey &&
+    !event.altKey &&
+    event.key.toLowerCase() === "e" &&
+    !foreignModalOpen()
+  ) {
+    event.preventDefault();
+    if (editorPane.hidden) openEditor();
+    else closeEditor();
+  }
+});
+editorNarrow.addEventListener("change", (event) => {
+  syncEditorMode();
+  if (event.matches && !editorPane.hidden && !$("activity-panel").hidden) setPanelOpen(false, false);
+});
+syncEditorMode();
+$("editor-toggle").onclick = () => (editorPane.hidden ? openEditor() : closeEditor());
+$("editor-close").onclick = () => closeEditor();
+$("editor-settings-toggle").onchange = (event) =>
+  event.target.checked ? openEditor() : closeEditor();
+$("editor-save").onclick = () => saveEditor();
+$("editor-reload").onclick = () => loadEditorFile(editor);
+$("editor-overwrite").onclick = () => saveEditor(editor.conflictEtag);
+editorText.addEventListener("input", updateEditorStatus);
+editorText.addEventListener("keydown", (event) => {
+  if (
+    (event.ctrlKey || event.metaKey) &&
+    !event.altKey &&
+    !event.shiftKey &&
+    event.key.toLowerCase() === "s"
+  ) {
+    event.preventDefault();
+    void saveEditor();
+  }
+});
+for (const choice of ["save", "discard", "cancel"])
+  $("editor-dirty-" + choice).onclick = () => resolveEditorDirty(choice);
+$("editor-dirty-dialog").addEventListener("cancel", () => {
+  editorPending = null;
+  $("editor-settings-toggle").checked = !editorPane.hidden;
+});
+// Docked: drag the left edge; the stored width is the pane's measured width once the drag ends.
+function sizeEditor(width) {
+  document.body.style.setProperty(
+    "--th-editor-width",
+    Math.round(Math.max(280, Math.min(720, width))) + "px",
+  );
+}
+const editorResize = $("editor-resize");
+editorResize.addEventListener("pointerdown", (event) => {
+  if (event.button !== 0) return;
+  event.preventDefault();
+  editorDrag = { x: event.clientX, width: editorPane.getBoundingClientRect().width };
+  editorResize.setPointerCapture(event.pointerId);
+});
+editorResize.addEventListener("pointermove", (event) => {
+  if (editorDrag) sizeEditor(editorDrag.width + editorDrag.x - event.clientX);
+});
+const endEditorDrag = () => {
+  if (!editorDrag) return;
+  editorDrag = null;
+  prefs.set("editor_width", Math.round(editorPane.getBoundingClientRect().width));
+};
+editorResize.addEventListener("pointerup", endEditorDrag);
+editorResize.addEventListener("pointercancel", endEditorDrag);
+if (Number(prefs.get("editor_width", 0))) sizeEditor(Number(prefs.get("editor_width", 0)));
+setEditorOpen(prefs.get("editor_open", false) === true);
 $("visual-markers-toggle").checked = visualMarkersOn();
 $("visual-markers-toggle").onchange = (event) => {
   prefs.set("visual_markers", event.target.checked);

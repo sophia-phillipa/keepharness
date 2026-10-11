@@ -148,8 +148,10 @@ async function fakeProjectFiles(page, files, log) {
 
 // Opens the Files panel and the home folder of the fake roots, if they are not open yet.
 async function showFiles(page) {
+  if (await page.locator("#activity-panel").isHidden()) await page.locator("#panel-toggle").click();
   if (!(await page.locator("#files-view").isVisible()))
     await page.locator("#files-toggle").click();
+  if (await page.locator("#workspace-system-files").isHidden()) await page.locator('[data-testid="accordion-head-system-files"]').click();
   if (await page.locator("#files-tree").isHidden())
     await page.locator('.file-root[data-root-id="home"]').click();
 }
