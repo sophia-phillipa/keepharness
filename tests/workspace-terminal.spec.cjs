@@ -217,6 +217,7 @@ async function openSettingsWorkspace(page) {
     assert.equal(log.starts[1].status, 200, "the reopen in step 1 reattaches (200)");
     const first = log.starts[0].body;
     assert.ok(first.session_id, "the session id comes back");
+    assert.equal(first.cwd_label, "~", "the No project scope (sem-projeto) starts in the home folder");
     await page.waitForFunction(
       (label) => document.querySelector('[data-testid="terminal-cwd"]')?.textContent.trim() === label,
       first.cwd_label,

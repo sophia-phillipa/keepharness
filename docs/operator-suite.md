@@ -114,6 +114,7 @@ Each file in `tests/operator/areas/` is one area; the id is what `--areas` takes
   masking in page text and provider-state JSON, names-only env and headers, capped rule
   preview, no switches, source path and the changed marker. Codex and DeepSeek skip (no stand-in).
 - `25-plugins-add.cjs` (`plugins-add`): the admin Plugins Add menu (#27 P6): entries per CLI with no DeepSeek entry, a rejected source keeps the dialog open with an error, and accepted sources (real mode only, from `OPERATOR_MARKETPLACE_SOURCE` and `OPERATOR_MARKETPLACE_NAME`) for Claude and Codex.
+- `26-workspace-toggles.cjs` (`workspace-toggles`): the header switches for the wide layout, the file editor and the terminal (D-055, #78): wide layout on and off, the editor's empty state, a terminal echo with End session, all three on with no horizontal overflow, per-provider toggles (real mode only; Codex, Claude and DeepSeek skip when their model is missing), and the narrow window where the terminal closes the editor overlay. Every step leaves the switches off.
 
 ## Add a step
 
