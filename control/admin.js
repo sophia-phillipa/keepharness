@@ -2422,7 +2422,7 @@ detectDevices.onclick = () =>
         deviceStatus.append(
           element(
             "p",
-            "Could not verify all options for this executable.",
+            HarnessI18n.t("admin.localmodel.capabilities_unverified"),
             "hint",
           ),
         );
@@ -2437,7 +2437,7 @@ editor.append(
   deviceOptions,
   element(
     "p",
-    "Choose the identifiers reported by the runtime. With multiple GPUs, separate devices with a comma; the ratio 1,1 splits evenly, 1,2 assigns two parts to the second GPU. Support depends on the runtime. Switching cards requires reviewing this profile before starting.",
+    HarnessI18n.t("admin.localmodel.device_hint"),
     "hint",
   ),
 );
@@ -2445,28 +2445,28 @@ editor.append(
   editorGrid,
   element(
     "p",
-    "Saving only changes the profile for this weights file. It does not modify the running model or the settings of other models. Empty fields use the runtime default.",
+    HarnessI18n.t("admin.localmodel.save_hint"),
     "hint",
   ),
 );
 const profileSave = element(
   "button",
-  "Save this model profile",
+  HarnessI18n.t("admin.localmodel.profile_save"),
   "button primary",
 );
 profileSave.id = "profile-save";
 profilePanel.append(editor, profileSave);
 function markProfileDirty() {
   profileDirty = true;
-  profileSave.textContent = "Save changes to this profile";
+  profileSave.textContent = HarnessI18n.t("admin.localmodel.profile_save_dirty");
 }
 editor.addEventListener("input", markProfileDirty);
 const localPermissions = $("local-model-permissions");
 localPermissions.append(
-  element("h3", "Permissions for this model"),
+  element("h3", HarnessI18n.t("admin.localmodel.permissions_title")),
   element(
     "p",
-    "These choices belong to the selected file. They are not inherited by other quantizations or models.",
+    HarnessI18n.t("admin.localmodel.permissions_hint"),
     "hint",
   ),
 );
@@ -2476,31 +2476,31 @@ toolsInput.type = "checkbox";
 toolsInput.id = "profile-tools";
 toolsLabel.append(
   toolsInput,
-  element("span", "Allow tools · compatibility provided by the administrator"),
+  element("span", HarnessI18n.t("admin.localmodel.allow_tools")),
 );
 localPermissions.append(
   toolsLabel,
   element(
     "p",
-    "The model and runtime need to support tool calls. This choice is not an automatic validation. Without it, internet, terminal, and folder access are blocked. Text attachments can be used as context.",
+    HarnessI18n.t("admin.localmodel.tools_hint"),
     "hint",
   ),
 );
 const modelPermissionFields = [
-  ["read", "Read folders"],
-  ["write", "Modify files"],
-  ["upload", "Receive attachments"],
-  ["internet", "Access internet"],
-  ["shell", "Run commands"],
-  ["hooks", "CLI hooks"],
+  ["read", HarnessI18n.t("admin.localmodel.perm_read_label")],
+  ["write", HarnessI18n.t("admin.localmodel.perm_write_label")],
+  ["upload", HarnessI18n.t("admin.localmodel.perm_upload_label")],
+  ["internet", HarnessI18n.t("admin.localmodel.perm_internet_label")],
+  ["shell", HarnessI18n.t("admin.localmodel.perm_shell_label")],
+  ["hooks", HarnessI18n.t("admin.localmodel.perm_hooks_label")],
 ];
 const permissionHelp = {
-  read: "Allows reading files in authorized folders.",
-  write: "Allows creating and modifying files in authorized folders.",
-  upload: "Allows files sent in the conversation to be used as context.",
-  internet: "Allows network access through the available tools.",
-  shell: "Allows running commands under the model's isolation conditions.",
-  hooks: "Allows the hooks configured in the CLI, when supported.",
+  read: HarnessI18n.t("admin.localmodel.perm_read_help"),
+  write: HarnessI18n.t("admin.localmodel.perm_write_help"),
+  upload: HarnessI18n.t("admin.localmodel.perm_upload_help"),
+  internet: HarnessI18n.t("admin.localmodel.perm_internet_help"),
+  shell: HarnessI18n.t("admin.localmodel.perm_shell_help"),
+  hooks: HarnessI18n.t("admin.localmodel.perm_hooks_help"),
 };
 const permissionGrid = element("div", undefined, "permissions");
 for (const [key, label] of modelPermissionFields) {
@@ -2517,7 +2517,7 @@ localPermissions.append(
   permissionGrid,
   element(
     "p",
-    "Internet authorizes the agent's network features; it does not provide web search by itself. For local models, access depends on available tools, such as terminal or authorized connectors. Changes will be applied the next time the harness starts.",
+    HarnessI18n.t("admin.localmodel.permissions_footer"),
     "hint",
   ),
 );
@@ -2533,25 +2533,25 @@ localPermissions.addEventListener("change", () => {
 let modelRoots = [];
 const modelRootsSection = element("section", undefined, "model-roots");
 modelRootsSection.append(
-  element("h3", "Folders for this model · conversations without a project"),
+  element("h3", HarnessI18n.t("admin.localmodel.roots_title")),
   element(
     "p",
-    "Without a project, the model uses only the folders added here, according to the chosen permissions. Inside a project, the project's folder and permissions add to this model's.",
+    HarnessI18n.t("admin.localmodel.roots_hint"),
     "hint",
   ),
 );
 const modelRootsList = element("div");
 modelRootsList.id = "model-roots-list";
-const modelRootsAdd = element("button", "Add folder", "button secondary");
+const modelRootsAdd = element("button", HarnessI18n.t("admin.localmodel.roots_add"), "button secondary");
 modelRootsAdd.id = "model-roots-add";
 modelRootsAdd.type = "button";
 function renderModelRoots() {
   modelRootsList.replaceChildren();
   for (const root of modelRoots) {
     const row = element("div", undefined, "model-root-row"),
-      remove = element("button", "Remove", "button secondary");
+      remove = element("button", HarnessI18n.t("sidebar.project.folder_remove"), "button secondary");
     remove.type = "button";
-    remove.setAttribute("aria-label", "Remove folder " + root);
+    remove.setAttribute("aria-label", HarnessI18n.t("admin.localmodel.root_remove_label", { path: root }));
     remove.onclick = () => {
       modelRoots = modelRoots.filter((path) => path !== root);
       renderModelRoots();
@@ -2564,7 +2564,7 @@ function renderModelRoots() {
     modelRootsList.append(
       element(
         "p",
-        "No folder authorized for conversations without a project.",
+        HarnessI18n.t("admin.localmodel.roots_empty"),
         "hint",
       ),
     );
@@ -2590,7 +2590,7 @@ function profiles() {
 }
 
 profilePicker.onchange = () => {
-  if (profileDirty && !confirm("Discard unsaved changes to this profile?")) {
+  if (profileDirty && !confirm(HarnessI18n.t("admin.localmodel.discard_confirm"))) {
     profilePicker.value = profileModel;
     return;
   }
@@ -2619,13 +2619,13 @@ function renderProfile() {
       (path) =>
         new Option(
           path.split("/").pop() +
-            (saved[path] ? " · Saved profile" : " · No saved profile"),
+            (saved[path] ? " · " + HarnessI18n.t("admin.localmodel.saved_profile") : " · " + HarnessI18n.t("admin.localmodel.no_saved_profile")),
           path,
         ),
     ),
   );
   if (!paths.length)
-    profilePicker.append(new Option("Find a GGUF file to configure", ""));
+    profilePicker.append(new Option(HarnessI18n.t("admin.localmodel.find_gguf"), ""));
   profilePicker.value = profileModel;
   profilePicker.disabled = !paths.length;
   deviceStatus.replaceChildren();
@@ -2642,54 +2642,54 @@ function renderProfile() {
       const row = element("div", undefined, "hardware-row");
       row.append(
         element("span", name),
-        element("strong", value ?? "Not provided"),
+        element("strong", value ?? HarnessI18n.t("admin.localmodel.not_provided")),
       );
       card.append(row);
     }
     return card;
   }
   summary.append(
-    section("Model and weights", [
+    section(HarnessI18n.t("admin.localmodel.section_model"), [
       [
-        "Model for this profile",
-        profileModel ? profileModel.split("/").pop() : "No file selected",
+        HarnessI18n.t("admin.localmodel.row_model"),
+        profileModel ? profileModel.split("/").pop() : HarnessI18n.t("admin.localmodel.no_file_selected"),
       ],
       [
-        "Saved profile",
+        HarnessI18n.t("admin.localmodel.saved_profile"),
         profile.model_file
-          ? "Yes · only for this model"
-          : "None · does not inherit from another model",
+          ? HarnessI18n.t("admin.localmodel.saved_yes")
+          : HarnessI18n.t("admin.localmodel.saved_none"),
       ],
       [
-        "Server verified",
+        HarnessI18n.t("admin.localmodel.row_verified"),
         active
           ? active.runtime + " · " + active.id
-          : "This file is not running",
+          : HarnessI18n.t("admin.localmodel.not_running"),
       ],
     ]),
   );
   if (profile.description) {
     const description = element("section", undefined, "hardware-card");
     description.append(
-      element("h3", "Profile description"),
+      element("h3", HarnessI18n.t("admin.localmodel.section_description")),
       element("p", profile.description),
     );
     summary.append(description);
   }
   const grid = element("div", undefined, "hardware-grid");
   grid.append(
-    section("GPU · saved profile", [
-      ["Device", p.device],
-      ["Requested layers", p["n-gpu-layers"]],
-      ["Layers actually loaded", "Not measured"],
-      ["VRAM in use", "No telemetry"],
+    section(HarnessI18n.t("admin.localmodel.section_gpu"), [
+      [HarnessI18n.t("admin.localmodel.row_device"), p.device],
+      [HarnessI18n.t("admin.localmodel.row_requested_layers"), p["n-gpu-layers"]],
+      [HarnessI18n.t("admin.localmodel.row_loaded_layers"), HarnessI18n.t("admin.localmodel.not_measured")],
+      [HarnessI18n.t("admin.localmodel.vram_in_use"), HarnessI18n.t("admin.localmodel.no_telemetry")],
     ]),
-    section("CPU · saved profile", [
-      ["MoE layers on CPU", p["n-cpu-moe"]],
-      ["Logical CPUs", p["cpu-range"]],
-      ["Batch CPUs", p["cpu-range-batch"]],
+    section(HarnessI18n.t("admin.localmodel.section_cpu"), [
+      [HarnessI18n.t("admin.localmodel.row_moe_cpu"), p["n-cpu-moe"]],
+      [HarnessI18n.t("admin.localmodel.row_logical_cpus"), p["cpu-range"]],
+      [HarnessI18n.t("admin.localmodel.row_batch_cpus"), p["cpu-range-batch"]],
       [
-        "Threads / batch",
+        HarnessI18n.t("admin.localmodel.row_threads"),
         [p.threads ?? "—", p["threads-batch"] ?? "—"].join(" / "),
       ],
     ]),
@@ -2699,12 +2699,12 @@ function renderProfile() {
     const perf = active.performance || {},
       running = element("details", undefined, "advanced");
     running.append(
-      element("summary", "Parameters of the running process"),
-      section("Arguments detected in the process", [
-        ["GPU · requested layers", perf["n-gpu-layers"]],
-        ["CPU · MoE layers", perf["n-cpu-moe"]],
-        ["Logical CPUs", perf["cpu-range"]],
-        ["Configured context", perf["ctx-size"]],
+      element("summary", HarnessI18n.t("admin.localmodel.summary_running")),
+      section(HarnessI18n.t("admin.localmodel.section_detected"), [
+        [HarnessI18n.t("admin.localmodel.running_gpu_layers"), perf["n-gpu-layers"]],
+        [HarnessI18n.t("admin.localmodel.running_moe"), perf["n-cpu-moe"]],
+        [HarnessI18n.t("admin.localmodel.row_logical_cpus"), perf["cpu-range"]],
+        [HarnessI18n.t("admin.localmodel.running_ctx"), perf["ctx-size"]],
       ]),
     );
     summary.append(running);
@@ -2712,30 +2712,29 @@ function renderProfile() {
   summary.append(
     element(
       "p",
-      "Saved profile and detected arguments do not prove actual allocation. The profile will be applied the next time this model starts.",
+      HarnessI18n.t("admin.localmodel.detected_hint"),
       "hint",
     ),
   );
   if (profileModel) {
     const details = element("details");
     details.append(
-      element("summary", "Full weights path"),
+      element("summary", HarnessI18n.t("admin.localmodel.summary_weights")),
       element("p", profileModel, "hint"),
     );
     summary.append(details);
   }
   $("dashboard-profile").textContent =
-    Object.keys(saved).length +
-    " private profile(s) · settings per weights file";
+    HarnessI18n.t("admin.localmodel.dashboard_count", { count: Object.keys(saved).length });
   $("local-import").hidden = !active;
   $("local-import").textContent =
-    "Copy the running configuration of this model";
+    HarnessI18n.t("admin.localmodel.import_running");
   editor.hidden = !profileModel || step !== 0;
   profileSave.disabled = !profileModel;
   localPermissions.hidden = step !== 0;
   profilePanel.querySelector("h3").textContent = profileModel
-    ? "Model · " + profileModel.split("/").pop()
-    : "No model configured";
+    ? HarnessI18n.t("admin.localmodel.panel_title_model", { name: profileModel.split("/").pop() })
+    : HarnessI18n.t("admin.localmodel.panel_title_none");
   if (!profileDirty) {
     modelRoots = [...(profile.allowed_roots || [])];
     renderModelRoots();
@@ -2752,7 +2751,7 @@ function renderProfile() {
     descriptionInput.value = profile.description || "";
     for (const [key] of hardwareFields)
       $("profile-" + key).value = p[key] || "";
-    profileSave.textContent = "Save this model profile";
+    profileSave.textContent = HarnessI18n.t("admin.localmodel.profile_save");
   }
   const launchChoice = $("local-file").value;
   $("local-file").replaceChildren(
@@ -2764,12 +2763,12 @@ function renderProfile() {
   $("local-start").disabled =
     !profile.model_file || !!active || (!!runtimes.length && !cpuOnly);
   $("local-launch-status").textContent = active
-    ? "This model is already running."
+    ? HarnessI18n.t("admin.localmodel.launch_running")
     : runtimes.length && !cpuOnly
-      ? "Another model is running. To preserve it, use an explicit CPU profile (0 GPU layers), or stop the current server before loading another one on the GPU."
+      ? HarnessI18n.t("admin.localmodel.launch_other")
       : profile.model_file
-        ? "Ready to start using only the profile for this file."
-        : "Configure and save the profile for this file before starting.";
+        ? HarnessI18n.t("admin.localmodel.launch_ready")
+        : HarnessI18n.t("admin.localmodel.launch_configure");
 }
 editor.id = "hardware-editor-details";
 profileSave.onclick = () =>
@@ -2801,9 +2800,7 @@ profileSave.onclick = () =>
     profileDirty = false;
     renderProfile();
     HarnessUI.toast(
-      "Profile saved for " +
-        profile.model_file.split("/").pop() +
-        ". The current process was preserved.",
+      HarnessI18n.t("admin.localmodel.profile_saved", { file: profile.model_file.split("/").pop() }),
     );
   });
 $("local-import").onclick = () =>
@@ -2811,7 +2808,7 @@ $("local-import").onclick = () =>
     if (
       profileDirty &&
       !confirm(
-        "Replace the changes to this profile with the running configuration?",
+        HarnessI18n.t("admin.localmodel.import_confirm"),
       )
     )
       return;
@@ -2819,7 +2816,7 @@ $("local-import").onclick = () =>
     state.local_profiles = { ...profiles(), [profile.model_file]: profile };
     profileDirty = false;
     renderProfile();
-    HarnessUI.toast("Configuration copied only for this model.");
+    HarnessUI.toast(HarnessI18n.t("admin.localmodel.import_toast"));
   });
 action(async () => {
   await load();
@@ -2839,7 +2836,7 @@ $("export-settings").onclick = () =>
     link.click();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
     say(
-      "Saved configuration exported without credentials. Unsaved changes are not included in the file.",
+      HarnessI18n.t("admin.settings.export_done"),
     );
   });
 $("import-settings").onchange = () =>
@@ -2848,13 +2845,13 @@ $("import-settings").onchange = () =>
     $("import-preview").hidden = true;
     const file = $("import-settings").files[0];
     if (!file) return;
-    if (file.size > 60000) throw Error("Configuration file is too large.");
+    if (file.size > 60000) throw Error(HarnessI18n.t("admin.settings.file_too_large"));
     let candidate;
     try {
       candidate = JSON.parse(await file.text());
     } catch {
       throw Error(
-        "The configuration file does not contain valid JSON. Select a file exported by the panel.",
+        HarnessI18n.t("admin.settings.invalid_json"),
       );
     }
     const preview = await request("settings-import", {
@@ -2862,16 +2859,13 @@ $("import-settings").onchange = () =>
       apply: false,
     });
     importBundle = candidate;
-    $("import-summary").textContent =
-      "Replace saved choices: " +
-      preview.services.join(", ") +
-      " · " +
-      preview.projects +
-      " projects" +
-      (preview.local_profile
-        ? " · includes local profile"
-        : " · keeps the current local profile") +
-      ". When applied, enabled services will be started or updated automatically.";
+    $("import-summary").textContent = HarnessI18n.t("admin.settings.import_summary", {
+      services: preview.services.join(", "),
+      projects: HarnessI18n.t("admin.settings.import_projects", { count: preview.projects }),
+      profile: preview.local_profile
+        ? HarnessI18n.t("admin.settings.import_with_profile")
+        : HarnessI18n.t("admin.settings.import_keeps_profile"),
+    });
     $("import-preview").hidden = false;
   });
 $("apply-import").onclick = () =>
@@ -2883,7 +2877,7 @@ $("apply-import").onclick = () =>
     await load();
     $("network").close();
     say(
-      "Configuration imported. Enabled services were started or updated automatically.",
+      HarnessI18n.t("admin.settings.import_done"),
     );
   });
 $("cancel-import").onclick = () => {
