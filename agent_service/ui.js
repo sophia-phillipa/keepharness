@@ -1074,7 +1074,26 @@ const labels = {
   failed: "Failed",
   loading: "Preparing model",
 };
-const status = (text) => {
+// English fallback tone for callers that pass no tone (untranslated text only).
+const englishTone = (text) => {
+  if (
+    /^(Couldn't|Connection lost|Failed|Error|Connect Tailscale|Incomplete response|Run interrupted|Run cancelled|Interrupted|Changes not applied)/.test(
+      text,
+    )
+  )
+    return "error";
+  if (
+    Object.values(labels).includes(text) ||
+    /^(Completed|Copied|Failed run|Cancelled|Running|Thinking|Reasoning|Receiving response|Preparing|Using tool|Tool finished|Plan updated|Run steps|Working|Checking quota|Sending request|Loading|Connected|Cancelling|Reconnecting|Ready to chat)/i.test(
+      text,
+    )
+  )
+    return "progress";
+  return "neutral";
+};
+// Tone of the last status() call: "error", "progress" or "neutral".
+let statusTone = "neutral";
+const status = (text, tone) => {
   if (
     policyPending &&
     policyError &&
@@ -1089,20 +1108,11 @@ const status = (text) => {
   target.hidden = false;
   target.className = "";
   target.textContent = text;
-  if (/^Ready to chat/.test(text)) {
-    target.className = "visually-hidden";
-  } else if (
-    /^(Couldn't|Connection lost|Failed|Error|Connect Tailscale|Incomplete response|Run interrupted|Run cancelled|Interrupted|Changes not applied)/.test(
-      text,
-    )
-  ) {
+  // An explicit tone (translated callers) wins over the English fallback.
+  statusTone = tone || englishTone(text);
+  if (statusTone === "error") {
     HarnessUI.notice(target, text, { error: true });
-  } else if (
-    Object.values(labels).includes(text) ||
-    /^(Completed|Copied|Failed run|Cancelled|Running|Thinking|Reasoning|Receiving response|Preparing|Using tool|Tool finished|Plan updated|Run steps|Working|Checking quota|Sending request|Loading|Connected|Cancelling|Reconnecting|Ready to chat)/i.test(
-      text,
-    )
-  ) {
+  } else if (statusTone === "progress") {
     // F-62: progress stays off screen but announced by this live region.
     target.className = "visually-hidden";
   }
@@ -1423,7 +1433,7 @@ async function refreshProjectPermissions(timeout = 30000) {
     if (policyError) {
       const showingPolicyError = $("status").textContent === policyError;
       policyError = "";
-      if (showingPolicyError) status(t("composer.status.ready"));
+      if (showingPolicyError) status(t("composer.status.ready"), "progress");
     }
     updateEfforts();
     if ([...$("effort").options].some((o) => o.value === effort))
@@ -1431,7 +1441,7 @@ async function refreshProjectPermissions(timeout = 30000) {
   } catch (e) {
     if (sequence !== policySequence) return;
     policyError = t("composer.permissions.load_error", { detail: e.message });
-    status(policyError);
+    status(policyError, "error");
     return false;
   } finally {
     if (sequence === policySequence) {
@@ -2265,7 +2275,10 @@ const history = async (timeout = 30000, background = false) => {
     return true;
   } catch (e) {
     if (request === historyRequest)
-      status(t("sidebar.history.load_failed", { detail: e.message }));
+      status(
+        t("sidebar.history.load_failed", { detail: e.message }),
+        "error",
+      );
     return false;
   }
 };
@@ -2681,6 +2694,7 @@ async function archiveConversation(c, archived) {
       archived
         ? t("sidebar.archive.archived")
         : t("sidebar.archive.restored"),
+      "neutral",
     );
     await history();
     if (!$("settings-archived").hidden) await loadArchived();
@@ -2689,7 +2703,7 @@ async function archiveConversation(c, archived) {
       archived
         ? t("sidebar.archive.archive_failed", { detail: e.message })
         : t("sidebar.archive.unarchive_failed", { detail: e.message });
-    if ($("settings-archived").hidden) status(message);
+    if ($("settings-archived").hidden) status(message, "error");
     else $("archived-error").textContent = message;
   }
 }
@@ -2889,6 +2903,7 @@ function newConversation(
   ) {
     status(
       t("sidebar.new.busy"),
+      "neutral",
     );
     return;
   }
@@ -3011,7 +3026,7 @@ function setProjectPreference(id, key, value) {
     [id]: { ...projectPreferences[id], [key]: value },
   };
   if (!prefs.set("project_list_preferences", next)) {
-    status(t("sidebar.project.save_failed"));
+    status(t("sidebar.project.save_failed"), "error");
     return;
   }
   projectPreferences = next;
@@ -3033,6 +3048,7 @@ function setProjectPreference(id, key, value) {
       : value
         ? t("sidebar.project.favorited")
         : t("sidebar.project.unfavorited"),
+    "neutral",
   );
 }
 function openDeleteProjectFolder(project, label, trigger) {
@@ -3372,6 +3388,7 @@ function renderProjects() {
           if (submitting || cancelling || loading || uploads) {
             status(
               t("sidebar.new.busy_chat"),
+              "neutral",
             );
             return;
           }
@@ -4670,6 +4687,7 @@ function showTurnRetry(run) {
       button.disabled = true;
       button.setAttribute("aria-busy", "true");
       let failure = "";
+      let failureTone;
       try {
         await post("/v1/jobs/" + encodeURIComponent(run.id) + "/retry", {});
         if (req.prompt && $("prompt").value === req.prompt) {
@@ -4680,7 +4698,9 @@ function showTurnRetry(run) {
           saveView();
         }
       } catch (e) {
-        failure = userError(e.code) || e.message;
+        const coded = userError(e.code);
+        failure = coded || e.message;
+        if (coded) failureTone = "neutral";
       }
       if (conversation !== turnConversation) return;
       await load(turnConversation);
@@ -4693,7 +4713,7 @@ function showTurnRetry(run) {
         fresh.focus();
         return;
       }
-      if (failure) status(failure);
+      if (failure) status(failure, failureTone);
       $("prompt").focus();
     };
   }
@@ -5116,10 +5136,10 @@ function showHeldTurn(response, held) {
     try {
       await post("/v1/jobs/" + encodeURIComponent(turn) + path, {});
       showHeldTurn(response, false);
-      status(done);
+      status(done, "neutral");
     } catch (e) {
       run.disabled = discard.disabled = false;
-      status("Couldn't update the queued message: " + e.message);
+      status("Couldn't update the queued message: " + e.message, "error");
     }
   };
   run.onclick = () => choose("/run-queued", t("run_status.queued.released"));
@@ -5482,7 +5502,7 @@ function rememberUpload(entry) {
 async function upload(list) {
   if (temporaryStarting) return;
   if (!canUpload()) {
-    status(t("composer.attachments.disabled_admin"));
+    status(t("composer.attachments.disabled_admin"), "error");
     return;
   }
   if (busy || loading || uploads) return;
@@ -5504,6 +5524,7 @@ async function upload(list) {
                 count: dropped.length,
                 total: picked.length,
               }),
+          "neutral",
         );
         attachmentNotice(dropped, "file_limit");
         break;
@@ -5585,6 +5606,7 @@ async function upload(list) {
           t("composer.attachments.upload_failed", {
             detail: attachmentError(e.code) || e.message,
           }),
+          "error",
         );
       }
     }
@@ -5817,6 +5839,7 @@ async function send() {
       e.status === 429 && submitting
         ? t("composer.send.failed_draft_kept", { detail: e.message })
         : t("composer.send.failed", { detail: e.message }),
+      "error",
     );
     if (e.status === 429) startSendCooldown(e.retryAfter || 5000);
   } finally {
@@ -6082,7 +6105,10 @@ function renderProjectFileEntries(list, entries, tree = fileTree) {
 function selectProjectFileEntry(item, entry, event = {}) {
   if (!canUpload() || uploads > 0) return;
   if (files.length >= MAX_ATTACHMENTS) {
-    status(t("composer.attachments.limit_remove", { max: MAX_ATTACHMENTS }));
+    status(
+      t("composer.attachments.limit_remove", { max: MAX_ATTACHMENTS }),
+      "neutral",
+    );
     return;
   }
   const multi = event.ctrlKey || event.metaKey;
@@ -6636,11 +6662,12 @@ async function returnFromTemporaryChat() {
   // A failed load already consumed the discard mark and left its error: re-arm the mark so the
   // leftover temporary view is not saved over the Home draft, and keep the error visible.
   const message = $("status").textContent;
+  const messageTone = statusTone;
   viewDiscarded = true;
   newConversation("New Conversation", $("project").value, {
     restoreHomeDraft: true,
   });
-  status(message);
+  status(message, messageTone);
 }
 $("close-temporary-chat").onclick = async () => {
   if (!leaveTemporaryChat()) return;
@@ -7655,6 +7682,7 @@ function attachRecentUpload(entry) {
   if (files.length >= MAX_ATTACHMENTS)
     return void status(
       t("composer.attachments.limit_remove", { max: MAX_ATTACHMENTS }),
+      "neutral",
     );
   files.push(entry);
   renderFiles();
@@ -8051,6 +8079,7 @@ async function initialize() {
     status(
       pendingSelectionNotice ||
         (models.length ? "Ready to chat." : "Set up a model to get started."),
+      pendingSelectionNotice ? "neutral" : undefined,
     );
     pendingSelectionNotice = "";
     let resumeWatch = false;
@@ -9178,7 +9207,7 @@ let pendingSelectionNotice = "";
 // initialize() would otherwise overwrite the status line with "Ready to chat."
 prefs.onNotice((code) => {
   const text = userError(code);
-  if (interfaceReady) setTimeout(() => status(text));
+  if (interfaceReady) setTimeout(() => status(text, "neutral"));
   else
     pendingSelectionNotice = pendingSelectionNotice
       ? pendingSelectionNotice + " " + text
