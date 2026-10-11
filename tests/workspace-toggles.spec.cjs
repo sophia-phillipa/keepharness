@@ -62,9 +62,21 @@ async function waitSavedFlag(page, key, on) {
 
 // The three options, with the header button and the Settings > Appearance > Workspace switch for each.
 const OPTIONS = [
-  { key: "wide_layout", button: "#wide-toggle", settings: "#wide-layout-toggle" },
-  { key: "editor_open", button: "#editor-toggle", settings: "#editor-settings-toggle" },
-  { key: "terminal_open", button: "#terminal-toggle", settings: "#terminal-settings-toggle" },
+  {
+    key: "wide_layout",
+    button: "#wide-toggle",
+    settings: "#wide-layout-toggle",
+  },
+  {
+    key: "editor_open",
+    button: "#editor-toggle",
+    settings: "#editor-settings-toggle",
+  },
+  {
+    key: "terminal_open",
+    button: "#terminal-toggle",
+    settings: "#terminal-settings-toggle",
+  },
 ];
 
 // The eight combinations, in a fixed order so a failure names its case.
@@ -77,7 +89,9 @@ for (const wide_layout of [false, true])
 // Clicks only the header buttons whose aria-pressed differs from the wanted state.
 async function setOptions(page, want) {
   for (const option of OPTIONS) {
-    const pressed = (await page.locator(option.button).getAttribute("aria-pressed")) === "true";
+    const pressed =
+      (await page.locator(option.button).getAttribute("aria-pressed")) ===
+      "true";
     if (pressed !== want[option.key]) await page.locator(option.button).click();
   }
 }
@@ -101,8 +115,16 @@ async function checkOptions(page, want, label) {
     want.wide_layout,
     label + " body.wide-layout",
   );
-  assert.equal(await page.locator("#editor-pane").isVisible(), want.editor_open, label + " editor pane visible");
-  assert.equal(await page.locator("#terminal-pane").isVisible(), want.terminal_open, label + " terminal pane visible");
+  assert.equal(
+    await page.locator("#editor-pane").isVisible(),
+    want.editor_open,
+    label + " editor pane visible",
+  );
+  assert.equal(
+    await page.locator("#terminal-pane").isVisible(),
+    want.terminal_open,
+    label + " terminal pane visible",
+  );
 }
 
 // The editor docks beside main: its left edge is at or past main's right edge, on the same top row.
@@ -121,7 +143,10 @@ async function checkGeometry(page, want, label) {
       innerWidth: window.innerWidth,
     };
   });
-  assert(measured.scrollWidth <= measured.innerWidth, label + " horizontal overflow " + JSON.stringify(measured));
+  assert(
+    measured.scrollWidth <= measured.innerWidth,
+    label + " horizontal overflow " + JSON.stringify(measured),
+  );
   if (!want.editor_open) return;
   assert(measured.editor, label + " editor box");
   assert(
@@ -140,18 +165,27 @@ async function checkGeometry(page, want, label) {
   const sessionIds = [];
   const sessionValue = enrolledSession();
   try {
-    const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
-    await context.addCookies([{ name: SESSION_COOKIE, value: sessionValue, url: harness }]);
+    const context = await browser.newContext({
+      viewport: { width: 1440, height: 900 },
+    });
+    await context.addCookies([
+      { name: SESSION_COOKIE, value: sessionValue, url: harness },
+    ]);
     const page = await context.newPage();
     page.on("pageerror", (error) => pageErrors.push(error.message));
     page.on("response", async (response) => {
       const { pathname } = new URL(response.url());
-      if (pathname === "/v1/terminal/sessions" && response.request().method() === "POST") {
+      if (
+        pathname === "/v1/terminal/sessions" &&
+        response.request().method() === "POST"
+      ) {
         const body = await response.json().catch(() => null);
         if (body?.session_id) sessionIds.push(body.session_id);
       }
     });
-    await page.addInitScript(() => localStorage.setItem("keepharness-tour-seen", "0.16.0"));
+    await page.addInitScript(() =>
+      localStorage.setItem("keepharness-tour-seen", "0.16.0"),
+    );
 
     // The server starts from an empty store (test-ui.sh resets it), so every combination is a real change.
     await page.goto(harness + "/");
@@ -162,29 +196,46 @@ async function checkGeometry(page, want, label) {
       await setOptions(page, want);
       await checkOptions(page, want, label);
       await checkGeometry(page, want, label);
-      for (const key of Object.keys(want)) await waitSavedFlag(page, key, want[key]);
+      for (const key of Object.keys(want))
+        await waitSavedFlag(page, key, want[key]);
     }
 
     // Overlay rule below 1000 px: the editor is a modal overlay; opening the terminal closes it.
-    await setOptions(page, { wide_layout: false, editor_open: false, terminal_open: false });
+    await setOptions(page, {
+      wide_layout: false,
+      editor_open: false,
+      terminal_open: false,
+    });
     await waitSavedFlag(page, "editor_open", false);
     await page.setViewportSize({ width: 900, height: 800 });
     await page.locator("#editor-toggle").click();
     await page.getByTestId("editor-pane").waitFor({ state: "visible" });
-    assert.equal(await page.getByTestId("editor-pane").getAttribute("aria-modal"), "true", "editor is the overlay first");
+    assert.equal(
+      await page.getByTestId("editor-pane").getAttribute("aria-modal"),
+      "true",
+      "editor is the overlay first",
+    );
 
     // The editor overlay covers the header, so the terminal opens with its shortcut, as a user would.
     await page.keyboard.press("Control+Backquote");
     await page.getByTestId("terminal-pane").waitFor({ state: "visible" });
     await page.getByTestId("editor-pane").waitFor({ state: "hidden" });
-    assert.equal(await page.locator("#editor-toggle").getAttribute("aria-pressed"), "false", "editor toggle released");
     assert.equal(
-      await page.locator("#editor-settings-toggle").evaluate((input) => input.checked),
+      await page.locator("#editor-toggle").getAttribute("aria-pressed"),
+      "false",
+      "editor toggle released",
+    );
+    assert.equal(
+      await page
+        .locator("#editor-settings-toggle")
+        .evaluate((input) => input.checked),
       false,
       "editor Settings switch released",
     );
     assert.equal(
-      await page.evaluate(() => document.body.classList.contains("editor-open")),
+      await page.evaluate(() =>
+        document.body.classList.contains("editor-open"),
+      ),
       false,
       "body no longer marks the editor open",
     );
@@ -194,7 +245,11 @@ async function checkGeometry(page, want, label) {
     await waitSavedFlag(page, "terminal_open", true);
 
     assert.deepEqual(pageErrors, [], "no page errors");
-    console.log("workspace-toggles: " + COMBINATIONS.length + " combinations and the 900 px overlay rule passed");
+    console.log(
+      "workspace-toggles: " +
+        COMBINATIONS.length +
+        " combinations and the 900 px overlay rule passed",
+    );
   } finally {
     // End the shells this run opened: DELETE is idempotent, so a session already gone is fine.
     for (const id of sessionIds)

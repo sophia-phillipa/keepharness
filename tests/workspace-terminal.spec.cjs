@@ -84,7 +84,9 @@ async function waitSaved(page, key, expected) {
     if ((await savedValue(page, key)) === expected) return;
     await delay(100);
   }
-  assert.fail(key + " never reached " + JSON.stringify(expected) + " on the server");
+  assert.fail(
+    key + " never reached " + JSON.stringify(expected) + " on the server",
+  );
 }
 
 // A pixel height is saved as measured by the layout, so allow the rounding of the border.
@@ -114,9 +116,18 @@ function recordTerminal(page, log) {
     if (pathname === "/v1/terminal/sessions" && request.method() === "POST") {
       const body = await response.json().catch(() => null);
       log.starts.push({ status: response.status(), body });
-    } else if (request.method() === "DELETE" && /^\/v1\/terminal\/sessions\/[^/]+$/.test(pathname)) {
-      log.ends.push({ status: response.status(), id: pathname.split("/").pop() });
-    } else if (request.method() === "POST" && /\/v1\/terminal\/sessions\/[^/]+\/input$/.test(pathname)) {
+    } else if (
+      request.method() === "DELETE" &&
+      /^\/v1\/terminal\/sessions\/[^/]+$/.test(pathname)
+    ) {
+      log.ends.push({
+        status: response.status(),
+        id: pathname.split("/").pop(),
+      });
+    } else if (
+      request.method() === "POST" &&
+      /\/v1\/terminal\/sessions\/[^/]+\/input$/.test(pathname)
+    ) {
       try {
         log.inputs.push(request.postDataJSON().data);
       } catch {
@@ -132,7 +143,9 @@ async function waitForOutput(page, token, minimum) {
   await page.waitForFunction(
     ([text, expected]) => {
       const output = document.querySelector('[data-testid="terminal-output"]');
-      return output !== null && output.textContent.split(text).length - 1 >= expected;
+      return (
+        output !== null && output.textContent.split(text).length - 1 >= expected
+      );
     },
     [token, minimum],
     { timeout: 8000 },
@@ -163,8 +176,12 @@ async function openSettingsWorkspace(page) {
   const log = { starts: [], ends: [], inputs: [] };
   let page = null;
   try {
-    const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
-    await context.addCookies([{ name: SESSION_COOKIE, value: enrolledSession(), url: harness }]);
+    const context = await browser.newContext({
+      viewport: { width: 1440, height: 900 },
+    });
+    await context.addCookies([
+      { name: SESSION_COOKIE, value: enrolledSession(), url: harness },
+    ]);
     page = await context.newPage();
     page.on("pageerror", (error) => pageErrors.push(error.message));
     recordTerminal(page, log);
@@ -179,73 +196,150 @@ async function openSettingsWorkspace(page) {
 
     // 1. Closed by default; rail button, Settings switch and Control+Backquote agree and persist.
     assert.equal(await railToggle.getAttribute("title"), "Terminal");
-    assert.equal(await railToggle.getAttribute("aria-pressed"), "false", "starts unpressed");
-    assert.equal(await pane.isVisible(), false, "chat-first: the terminal starts closed");
+    assert.equal(
+      await railToggle.getAttribute("aria-pressed"),
+      "false",
+      "starts unpressed",
+    );
+    assert.equal(
+      await pane.isVisible(),
+      false,
+      "chat-first: the terminal starts closed",
+    );
     // A missing key reads as closed; loading the page does not write it.
-    assert.equal(await savedValue(page, "terminal_open"), undefined, "nothing saved before a choice");
+    assert.equal(
+      await savedValue(page, "terminal_open"),
+      undefined,
+      "nothing saved before a choice",
+    );
 
     await openSettingsWorkspace(page);
     const settingsSwitch = page.getByTestId("terminal-settings-toggle");
-    assert.equal(await settingsSwitch.isChecked(), false, "Settings switch starts off");
-    assert.match(await page.getByTestId("workspace-group").textContent(), /Terminal/);
+    assert.equal(
+      await settingsSwitch.isChecked(),
+      false,
+      "Settings switch starts off",
+    );
+    assert.match(
+      await page.getByTestId("workspace-group").textContent(),
+      /Terminal/,
+    );
     await page.keyboard.press("Escape");
 
     await railToggle.click();
     await pane.waitFor({ state: "visible" });
-    assert.equal(await railToggle.getAttribute("aria-pressed"), "true", "rail reports pressed");
-    assert.equal(await focusedId(page), "terminal-input", "opening focuses the terminal input");
+    assert.equal(
+      await railToggle.getAttribute("aria-pressed"),
+      "true",
+      "rail reports pressed",
+    );
+    assert.equal(
+      await focusedId(page),
+      "terminal-input",
+      "opening focuses the terminal input",
+    );
     await waitSaved(page, "terminal_open", true);
 
     await page.keyboard.press("Control+Backquote");
     await pane.waitFor({ state: "hidden" });
-    assert.equal(await railToggle.getAttribute("aria-pressed"), "false", "shortcut closes it");
-    assert.equal(await focusedId(page), "terminal-toggle", "closing with focus inside moves it to the rail button");
+    assert.equal(
+      await railToggle.getAttribute("aria-pressed"),
+      "false",
+      "shortcut closes it",
+    );
+    assert.equal(
+      await focusedId(page),
+      "terminal-toggle",
+      "closing with focus inside moves it to the rail button",
+    );
     await waitSaved(page, "terminal_open", false);
 
     await openSettingsWorkspace(page);
-    assert.equal(await settingsSwitch.isChecked(), false, "switch follows the shortcut");
+    assert.equal(
+      await settingsSwitch.isChecked(),
+      false,
+      "switch follows the shortcut",
+    );
     await settingsSwitch.check();
     await pane.waitFor({ state: "visible" });
-    assert.equal(await railToggle.getAttribute("aria-pressed"), "true", "rail follows the switch");
+    assert.equal(
+      await railToggle.getAttribute("aria-pressed"),
+      "true",
+      "rail follows the switch",
+    );
     await waitSaved(page, "terminal_open", true);
     await page.keyboard.press("Escape");
 
     // 2. Opening starts a real session (201); the reopen of step 1 reattaches (200). The cwd label shows
     // and a typed command runs.
-    await until(() => log.starts.length === 2, "each open calls the start route");
-    assert.equal(log.starts[0].status, 201, "the first open creates the session");
-    assert.equal(log.starts[1].status, 200, "the reopen in step 1 reattaches (200)");
+    await until(
+      () => log.starts.length === 2,
+      "each open calls the start route",
+    );
+    assert.equal(
+      log.starts[0].status,
+      201,
+      "the first open creates the session",
+    );
+    assert.equal(
+      log.starts[1].status,
+      200,
+      "the reopen in step 1 reattaches (200)",
+    );
     const first = log.starts[0].body;
     assert.ok(first.session_id, "the session id comes back");
-    assert.equal(first.cwd_label, "~", "the No project scope (sem-projeto) starts in the home folder");
+    assert.equal(
+      first.cwd_label,
+      "~",
+      "the No project scope (sem-projeto) starts in the home folder",
+    );
     await page.waitForFunction(
-      (label) => document.querySelector('[data-testid="terminal-cwd"]')?.textContent.trim() === label,
+      (label) =>
+        document
+          .querySelector('[data-testid="terminal-cwd"]')
+          ?.textContent.trim() === label,
       first.cwd_label,
     );
 
     await runLine(page, "echo kh-term-ok");
     await waitForOutput(page, "kh-term-ok", 2);
-    await until(() => log.inputs.includes("echo kh-term-ok\n"), "Enter sends the line plus a newline");
+    await until(
+      () => log.inputs.includes("echo kh-term-ok\n"),
+      "Enter sends the line plus a newline",
+    );
 
     // 3. A hidden prompt masks the input, and the typed secret never reaches the output.
     const input = page.getByTestId("terminal-input");
     // dash (the harness shell on this host) has no `read -s`, so the hidden read turns echo off itself.
     await runLine(page, "stty -echo; read x; stty echo");
     await page.waitForFunction(
-      () => document.querySelector('[data-testid="terminal-input"]')?.type === "password",
+      () =>
+        document.querySelector('[data-testid="terminal-input"]')?.type ===
+        "password",
       null,
       { timeout: 8000 },
     );
     await input.fill("kh-secret-123");
     await input.press("Enter");
     await page.waitForFunction(
-      () => document.querySelector('[data-testid="terminal-input"]')?.type === "text",
+      () =>
+        document.querySelector('[data-testid="terminal-input"]')?.type ===
+        "text",
       null,
       { timeout: 8000 },
     );
-    await until(() => log.inputs.includes("kh-secret-123\n"), "the secret reaches the shell");
-    const outputAfterSecret = await page.getByTestId("terminal-output").textContent();
-    assert.equal(outputAfterSecret.includes("kh-secret-123"), false, "the secret never shows in the output");
+    await until(
+      () => log.inputs.includes("kh-secret-123\n"),
+      "the secret reaches the shell",
+    );
+    const outputAfterSecret = await page
+      .getByTestId("terminal-output")
+      .textContent();
+    assert.equal(
+      outputAfterSecret.includes("kh-secret-123"),
+      false,
+      "the secret never shows in the output",
+    );
 
     // 4. Ctrl+C interrupts a running command; a new command then runs. Tab and Up send their bytes.
     await runLine(page, "sleep 30");
@@ -260,7 +354,11 @@ async function openSettingsWorkspace(page) {
       () => log.inputs.includes("\t") && log.inputs.includes("\x1b[A"),
       "Tab and Up buttons send their bytes",
     );
-    assert.equal(await page.getByTestId("terminal-send-ctrl-d").isVisible(), true, "Ctrl+D button shown");
+    assert.equal(
+      await page.getByTestId("terminal-send-ctrl-d").isVisible(),
+      true,
+      "Ctrl+D button shown",
+    );
     await page.getByTestId("terminal-send-ctrl-c").click(); // clears the half-typed Tab and Up bytes
 
     // 5. Closing and reopening the pane reattaches (200) to the same session; earlier output stays.
@@ -268,24 +366,42 @@ async function openSettingsWorkspace(page) {
     await pane.waitFor({ state: "hidden" });
     await railToggle.click();
     await pane.waitFor({ state: "visible" });
-    await until(() => log.starts.length === 3, "reopening calls the start route again");
+    await until(
+      () => log.starts.length === 3,
+      "reopening calls the start route again",
+    );
     assert.equal(log.starts[2].status, 200, "reopening reattaches (200)");
     assert.equal(log.starts[2].body.created, false, "reattach does not create");
-    assert.equal(log.starts[2].body.session_id, first.session_id, "same session");
+    assert.equal(
+      log.starts[2].body.session_id,
+      first.session_id,
+      "same session",
+    );
     await waitForOutput(page, "kh-term-ok", 2);
 
     // 6. End session sends DELETE (204); the next open starts a fresh session (201).
     await page.getByTestId("terminal-end-session").click();
     await until(() => log.ends.length === 1, "End session sends DELETE");
     assert.equal(log.ends[0].status, 204, "DELETE answers 204");
-    assert.equal(log.ends[0].id, first.session_id, "DELETE names the ended session");
+    assert.equal(
+      log.ends[0].id,
+      first.session_id,
+      "DELETE names the ended session",
+    );
     await railToggle.click();
     await pane.waitFor({ state: "hidden" });
     await railToggle.click();
     await pane.waitFor({ state: "visible" });
-    await until(() => log.starts.length === 4, "reopening after End session starts a session");
+    await until(
+      () => log.starts.length === 4,
+      "reopening after End session starts a session",
+    );
     assert.equal(log.starts[3].status, 201, "a fresh session is created");
-    assert.notEqual(log.starts[3].body.session_id, first.session_id, "the new session differs");
+    assert.notEqual(
+      log.starts[3].body.session_id,
+      first.session_id,
+      "the new session differs",
+    );
 
     // 7. With the run console open too, the terminal sits above it.
     await page.evaluate(() => document.activeElement?.blur());
@@ -299,7 +415,11 @@ async function openSettingsWorkspace(page) {
       paneBox.y + paneBox.height <= consoleBox.y + 1,
       "terminal pane sits above the run console",
     );
-    assert.equal(await pane.isVisible(), true, "the terminal stays open next to the console");
+    assert.equal(
+      await pane.isVisible(),
+      true,
+      "the terminal stays open next to the console",
+    );
     await page.keyboard.press("Control+j");
     await consoleDrawer.waitFor({ state: "hidden" });
 
@@ -322,7 +442,10 @@ async function openSettingsWorkspace(page) {
     await shortcutList.waitFor({ state: "visible" });
     const listText = await shortcutList.textContent();
     assert.match(listText, /Terminal/, "the shortcuts list has a Terminal row");
-    assert.ok(listText.includes("`"), "the Terminal row shows the backquote key");
+    assert.ok(
+      listText.includes("`"),
+      "the Terminal row shows the backquote key",
+    );
     await page.keyboard.press("Escape");
     await openSettingsWorkspace(page);
     assert.match(
@@ -339,7 +462,8 @@ async function openSettingsWorkspace(page) {
     await handle.focus();
     for (let step = 0; step < 3; step++) await page.keyboard.press("ArrowUp");
     await until(
-      async () => Math.round((await pane.boundingBox()).height) !== heightBefore,
+      async () =>
+        Math.round((await pane.boundingBox()).height) !== heightBefore,
       "ArrowUp on the handle resizes the pane",
     );
     const heightAfter = Math.round((await pane.boundingBox()).height);
@@ -349,7 +473,8 @@ async function openSettingsWorkspace(page) {
     await page.locator("#startup-gate").waitFor({ state: "hidden" });
     await pane.waitFor({ state: "visible" });
     assert.ok(
-      Math.abs(Math.round((await pane.boundingBox()).height) - heightAfter) <= 2,
+      Math.abs(Math.round((await pane.boundingBox()).height) - heightAfter) <=
+        2,
       "terminal height survives a reload",
     );
 
@@ -361,7 +486,8 @@ async function openSettingsWorkspace(page) {
       const { pathname } = new URL(request.url());
       if (request.method() !== "POST") return;
       if (pathname === "/v1/terminal/sessions") sessionPosts.push(request);
-      else if (/\/v1\/terminal\/sessions\/[^/]+\/input$/.test(pathname)) inputPosts.push(request);
+      else if (/\/v1\/terminal\/sessions\/[^/]+\/input$/.test(pathname))
+        inputPosts.push(request);
     };
     page.on("request", countPost);
     await page.route("**/v1/terminal/sessions", (route) =>
@@ -377,11 +503,22 @@ async function openSettingsWorkspace(page) {
     await pane.waitFor({ state: "hidden" });
     await railToggle.click();
     await pane.waitFor({ state: "visible" });
-    await until(() => sessionPosts.length === 1, "the reopen asks the server for a session");
+    await until(
+      () => sessionPosts.length === 1,
+      "the reopen asks the server for a session",
+    );
     await runLine(page, "echo kh-refused-target");
     await delay(500);
-    assert.equal(inputPosts.length, 0, "no input is sent after a refused start");
-    assert.equal(await page.getByTestId("terminal-cwd").textContent(), "", "no cwd label from the old session");
+    assert.equal(
+      inputPosts.length,
+      0,
+      "no input is sent after a refused start",
+    );
+    assert.equal(
+      await page.getByTestId("terminal-cwd").textContent(),
+      "",
+      "no cwd label from the old session",
+    );
     assert.match(
       await page.getByTestId("terminal-notice").textContent(),
       /Open the terminal to start a session/,
@@ -395,7 +532,8 @@ async function openSettingsWorkspace(page) {
   } finally {
     // Best effort: end the session this spec left running (the owner's shell belongs to the harness).
     // A refused start (409) carries no session id, so take the last start that succeeded.
-    const live = log.starts.filter((start) => start.status < 300).at(-1)?.body?.session_id;
+    const live = log.starts.filter((start) => start.status < 300).at(-1)
+      ?.body?.session_id;
     if (page && live && !log.ends.some((end) => end.id === live))
       await page.request
         .delete(harness + "/v1/terminal/sessions/" + live)

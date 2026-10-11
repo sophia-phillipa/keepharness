@@ -118,7 +118,9 @@
     tabButtons[next].click();
     tabButtons[next].focus();
   });
-  const close = button(HarnessI18n.t("run_console.close.label"), () => toggle(false));
+  const close = button(HarnessI18n.t("run_console.close.label"), () =>
+    toggle(false),
+  );
   close.classList.add("run-console-close");
   close.prepend(HarnessUI.icon("chevron-down"));
   let consoleHeight = Math.max(340, innerHeight * 0.45),
@@ -145,12 +147,22 @@
     resize(maximized ? consoleLimit() : restoreHeight, false);
   });
   maximize.id = "run-console-maximize";
-  maximize.setAttribute("aria-label", HarnessI18n.t("run_console.maximize.aria"));
+  maximize.setAttribute(
+    "aria-label",
+    HarnessI18n.t("run_console.maximize.aria"),
+  );
   maximize.setAttribute("aria-controls", drawer.id);
   maximize.setAttribute("aria-pressed", "false");
-  header.append(el("h2", HarnessI18n.t("run_console.title")), tabs, maximize, close);
+  header.append(
+    el("h2", HarnessI18n.t("run_console.title")),
+    tabs,
+    maximize,
+    close,
+  );
   const controls = el("div", null, "run-console-controls");
-  const runSelect = select("console-run", [["", HarnessI18n.t("run_console.run.select")]]);
+  const runSelect = select("console-run", [
+    ["", HarnessI18n.t("run_console.run.select")],
+  ]);
   runSelect.addEventListener("change", () => chooseRun(runSelect.value));
   const error = el("p", "", "run-console-error");
   error.setAttribute("role", "status");
@@ -161,24 +173,35 @@
   strip.dataset.tour = "status-strip";
   strip.setAttribute("role", "region");
   strip.setAttribute("aria-label", HarnessI18n.t("run_console.status.label"));
-  const toggleButton = button(HarnessI18n.t("run_console.toggle.checking"), () =>
-    toggle(drawer.hidden),
+  const toggleButton = button(
+    HarnessI18n.t("run_console.toggle.checking"),
+    () => toggle(drawer.hidden),
   );
   toggleButton.id = "run-status-toggle";
   toggleButton.setAttribute("aria-controls", drawer.id);
   toggleButton.setAttribute("aria-expanded", "false");
   toggleButton.title = HarnessI18n.t("run_console.toggle.title");
-  const inboxButton = button(HarnessI18n.t("run_console.inbox.button", { count: 0 }), () =>
-    openInbox("request", inboxButton),
+  const inboxButton = button(
+    HarnessI18n.t("run_console.inbox.button", { count: 0 }),
+    () => openInbox("request", inboxButton),
   );
   inboxButton.id = "needs-you-toggle";
   inboxButton.setAttribute("aria-haspopup", "dialog");
-  const shortcut = el("span", HarnessI18n.t("run_console.shortcut"), "run-status-shortcut");
+  const shortcut = el(
+    "span",
+    HarnessI18n.t("run_console.shortcut"),
+    "run-status-shortcut",
+  );
   shortcut.setAttribute("aria-hidden", "true");
-  const stripAction = button(HarnessI18n.t("run_console.toggle.expand"), () => toggle(drawer.hidden));
+  const stripAction = button(HarnessI18n.t("run_console.toggle.expand"), () =>
+    toggle(drawer.hidden),
+  );
   stripAction.id = "run-status-action";
   stripAction.prepend(HarnessUI.icon("chevron-up"));
-  stripAction.setAttribute("aria-label", HarnessI18n.t("run_console.strip_action.label"));
+  stripAction.setAttribute(
+    "aria-label",
+    HarnessI18n.t("run_console.strip_action.label"),
+  );
   stripAction.setAttribute("aria-controls", drawer.id);
   stripAction.setAttribute("aria-expanded", "false");
   strip.append(toggleButton, inboxButton, stripAction, shortcut);
@@ -224,7 +247,9 @@
     ].map((v) => [v, v]),
   ]);
   const logSearch = input("console-log-search", "search");
-  const logType = select("console-log-type", [["", HarnessI18n.t("run_console.log.all_types")]]);
+  const logType = select("console-log-type", [
+    ["", HarnessI18n.t("run_console.log.all_types")],
+  ]);
   const logOrder = select("console-log-order", [
     ["newest", HarnessI18n.t("run_console.log.order_newest")],
     ["oldest", HarnessI18n.t("run_console.log.order_oldest")],
@@ -241,7 +266,8 @@
     error.textContent = message || "";
   };
   const duration = (span) => {
-    if (span.start_ts == null) return HarnessI18n.t("run_console.duration.unknown");
+    if (span.start_ts == null)
+      return HarnessI18n.t("run_console.duration.unknown");
     const seconds = Math.max(
       0,
       (span.end_ts ?? Date.now() / 1000) - span.start_ts,
@@ -271,7 +297,10 @@
   };
   function contentValue(span, section) {
     const records = span.content || [];
-    if (!Array.isArray(records)) return records[section] ?? HarnessI18n.t("run_console.content.not_recorded");
+    if (!Array.isArray(records))
+      return (
+        records[section] ?? HarnessI18n.t("run_console.content.not_recorded")
+      );
     const values = [];
     for (const record of records) {
       const data = record.data || {};
@@ -304,7 +333,8 @@
       )
         values.push(data.result?.answer ?? data.answer ?? data);
     }
-    if (!values.length) return HarnessI18n.t("run_console.content.not_recorded");
+    if (!values.length)
+      return HarnessI18n.t("run_console.content.not_recorded");
     return values.every((value) => typeof value === "string")
       ? values.join("")
       : values;
@@ -654,8 +684,9 @@
       if (inbox.open) renderInbox();
     } catch (failure) {
       if (sequence !== state.activitySequence) return;
-      toggleButton.textContent = toggleButton.title =
-        HarnessI18n.t("run_console.toggle.unavailable");
+      toggleButton.textContent = toggleButton.title = HarnessI18n.t(
+        "run_console.toggle.unavailable",
+      );
       showError(failure.message);
     }
   }
@@ -780,7 +811,12 @@
       (item) => item.job_id === state.run,
     );
     summary.append(
-      el("strong", current?.work_item || current?.title || HarnessI18n.t("run_console.pipeline.current_run")),
+      el(
+        "strong",
+        current?.work_item ||
+          current?.title ||
+          HarnessI18n.t("run_console.pipeline.current_run"),
+      ),
       el(
         "span",
         [current?.state, current?.backend, current?.model]
@@ -795,7 +831,10 @@
     const fork = button(HarnessI18n.t("run_console.action.fork"), () => {});
     fork.disabled = true;
     fork.title = HarnessI18n.t("run_console.action.fork_help");
-    const exportJson = button(HarnessI18n.t("run_console.action.export"), () => {});
+    const exportJson = button(
+      HarnessI18n.t("run_console.action.export"),
+      () => {},
+    );
     exportJson.disabled = true;
     exportJson.title = HarnessI18n.t("run_console.action.export_help");
     for (const action of [rerun, fork, exportJson]) {
@@ -832,7 +871,8 @@
       zoomField.classList.add("run-timeline-zoom");
       body.append(zoomField);
     }
-    if (!state.spans.length) list.append(el("p", HarnessI18n.t("run_console.span.no_spans")));
+    if (!state.spans.length)
+      list.append(el("p", HarnessI18n.t("run_console.span.no_spans")));
     const starts = state.spans
       .map((span) => span.start_ts)
       .filter((value) => value != null);
@@ -961,29 +1001,58 @@
   function spanDetail(span) {
     const detail = el("section", null, "run-span-detail");
     detail.dataset.tour = "span-detail";
-    detail.setAttribute("aria-label", HarnessI18n.t("run_console.span.detail_label"));
+    detail.setAttribute(
+      "aria-label",
+      HarnessI18n.t("run_console.span.detail_label"),
+    );
     detail.append(el("h3", span.name));
     if (span.kind === "harness.effect") {
       const attrs = span.attrs || {};
       detail.append(
-        el("p", HarnessI18n.t("run_console.effect.status", { status: outcome(span) })),
-        el("p", HarnessI18n.t("run_console.span.publication", {
+        el(
+          "p",
+          HarnessI18n.t("run_console.effect.status", { status: outcome(span) }),
+        ),
+        el(
+          "p",
+          HarnessI18n.t("run_console.span.publication", {
             label: publicationLabel(attrs.enforcement),
-          })),
+          }),
+        ),
       );
       for (const [label, value] of [
         [HarnessI18n.t("run_console.effect.label_operation"), attrs.operation],
-        [HarnessI18n.t("run_console.effect.label_destination"), attrs.destination],
-        [HarnessI18n.t("run_console.effect.label_integration"), attrs.integration],
+        [
+          HarnessI18n.t("run_console.effect.label_destination"),
+          attrs.destination,
+        ],
+        [
+          HarnessI18n.t("run_console.effect.label_integration"),
+          attrs.integration,
+        ],
         [HarnessI18n.t("run_console.effect.label_jira_site"), attrs.endpoint],
-        [HarnessI18n.t("run_console.effect.label_artifact_digest"), attrs.artifact_digest],
-        [HarnessI18n.t("run_console.effect.label_arguments_digest"), attrs.arguments_digest],
+        [
+          HarnessI18n.t("run_console.effect.label_artifact_digest"),
+          attrs.artifact_digest,
+        ],
+        [
+          HarnessI18n.t("run_console.effect.label_arguments_digest"),
+          attrs.arguments_digest,
+        ],
         [HarnessI18n.t("run_console.effect.label_approval"), attrs.approved_by],
         [HarnessI18n.t("run_console.effect.label_gate"), attrs.gate_id],
-        [HarnessI18n.t("run_console.effect.label_receipt"), attrs.receipt_issue_key],
+        [
+          HarnessI18n.t("run_console.effect.label_receipt"),
+          attrs.receipt_issue_key,
+        ],
       ]) {
         if (value)
-          detail.append(el("p", HarnessI18n.t("run_console.effect.field", { label, value })));
+          detail.append(
+            el(
+              "p",
+              HarnessI18n.t("run_console.effect.field", { label, value }),
+            ),
+          );
       }
       const history = el("ol", null, "effect-history");
       const names = {
@@ -1001,10 +1070,7 @@
       detail.append(history);
       if (attrs.effect_status === "unknown") {
         detail.append(
-          el(
-            "p",
-            HarnessI18n.t("run_console.effect.unknown_notice"),
-          ),
+          el("p", HarnessI18n.t("run_console.effect.unknown_notice")),
         );
         detail.append(
           button(HarnessI18n.t("run_console.effect.reconcile"), () =>
@@ -1033,7 +1099,10 @@
       detail.append(el("p", HarnessI18n.t("run_console.content.hidden")));
     const detailTabs = el("div", null, "run-detail-tabs");
     detailTabs.setAttribute("role", "tablist");
-    detailTabs.setAttribute("aria-label", HarnessI18n.t("run_console.span.details_label"));
+    detailTabs.setAttribute(
+      "aria-label",
+      HarnessI18n.t("run_console.span.details_label"),
+    );
     const detailBody = el("pre", null, "run-detail-value");
     detailBody.id = "run-detail-value";
     detailBody.setAttribute("role", "tabpanel");
@@ -1106,12 +1175,7 @@
   function showReconciliation(detail, effectId) {
     if (detail.querySelector(".effect-reconciliation")) return;
     const form = el("section", null, "effect-reconciliation");
-    form.append(
-      el(
-        "p",
-        HarnessI18n.t("run_console.reconcile.intro"),
-      ),
-    );
+    form.append(el("p", HarnessI18n.t("run_console.reconcile.intro")));
     const feedback = el("p");
     feedback.setAttribute("role", "status");
     let deciding = false;
@@ -1140,8 +1204,12 @@
       }
     };
     form.append(
-      button(HarnessI18n.t("run_console.reconcile.check"), () => decide("check")),
-      button(HarnessI18n.t("run_console.reconcile.keep_unknown"), () => decide("keep_unknown")),
+      button(HarnessI18n.t("run_console.reconcile.check"), () =>
+        decide("check"),
+      ),
+      button(HarnessI18n.t("run_console.reconcile.keep_unknown"), () =>
+        decide("keep_unknown"),
+      ),
       feedback,
     );
     detail.append(form);
@@ -1277,8 +1345,13 @@
       );
       viewport.tabIndex = 0;
       viewport.setAttribute("role", "region");
-      viewport.setAttribute("aria-label", HarnessI18n.t("run_console.log.table_label"));
-      const more = button(HarnessI18n.t("run_console.log.load_more"), () => loadLogs());
+      viewport.setAttribute(
+        "aria-label",
+        HarnessI18n.t("run_console.log.table_label"),
+      );
+      const more = button(HarnessI18n.t("run_console.log.load_more"), () =>
+        loadLogs(),
+      );
       more.classList.add("run-log-more");
       body.replaceChildren(
         toolbar,
@@ -1288,8 +1361,10 @@
       );
     }
     viewport.replaceChildren(table);
-    body.querySelector(".run-log-count").textContent =
-      HarnessI18n.t("run_console.log.count", { count: state.logs.length });
+    body.querySelector(".run-log-count").textContent = HarnessI18n.t(
+      "run_console.log.count",
+      { count: state.logs.length },
+    );
     const more = body.querySelector(".run-log-more");
     more.textContent = state.logLoading
       ? HarnessI18n.t("run_console.log.loading")
@@ -1316,7 +1391,11 @@
       event.preventDefault();
       void refresh();
     });
-    const apply = el("button", HarnessI18n.t("run_console.filter.apply"), "btn");
+    const apply = el(
+      "button",
+      HarnessI18n.t("run_console.filter.apply"),
+      "btn",
+    );
     apply.type = "submit";
     apply.id = "console-apply-filters";
     filters.append(
@@ -1360,7 +1439,9 @@
       open.id = "console-open-" + item.job_id;
       name.append(open);
       const work = el("td", item.work_item || "—");
-      const tag = button(HarnessI18n.t("run_console.run.tag"), () => tagWorkItem(item, work));
+      const tag = button(HarnessI18n.t("run_console.run.tag"), () =>
+        tagWorkItem(item, work),
+      );
       tag.id = "console-tag-action-" + item.job_id;
       work.append(tag);
       const identity = el(
@@ -1401,7 +1482,11 @@
     const key = input("console-tag-" + item.job_id);
     key.value = item.work_item || "";
     key.maxLength = 128;
-    const save = el("button", HarnessI18n.t("run_console.run.save_work_item"), "btn");
+    const save = el(
+      "button",
+      HarnessI18n.t("run_console.run.save_work_item"),
+      "btn",
+    );
     save.type = "submit";
     form.append(
       field(HarnessI18n.t("run_console.run.work_item_key"), key),
@@ -1455,7 +1540,9 @@
         el(
           "p",
           provider.quota
-            ? HarnessI18n.t("run_console.agents.quota", { quota: JSON.stringify(provider.quota) })
+            ? HarnessI18n.t("run_console.agents.quota", {
+                quota: JSON.stringify(provider.quota),
+              })
             : HarnessI18n.t("run_console.agents.quota_missing"),
         ),
       );
@@ -1579,7 +1666,12 @@
   function scheduleAlertCard(item) {
     const card = el("section", null, "needs-you-card schedule-alert");
     card.append(
-      el("h3", HarnessI18n.t("run_console.inbox.scheduled_task", { title: item.title })),
+      el(
+        "h3",
+        HarnessI18n.t("run_console.inbox.scheduled_task", {
+          title: item.title,
+        }),
+      ),
       el("p", item.message),
     );
     if (item.job_id)
@@ -1596,7 +1688,12 @@
     const id = item.gate_id || item.approval_id;
     card.dataset.requestId = id;
     card.append(
-      el("h3", item.question || item.tool || HarnessI18n.t("run_console.request.approval_required")),
+      el(
+        "h3",
+        item.question ||
+          item.tool ||
+          HarnessI18n.t("run_console.request.approval_required"),
+      ),
       el(
         "p",
         [item.work_item, item.project_id, item.job_id]
@@ -1627,7 +1724,10 @@
         if (step.reason) row.append(el("p", step.reason));
         steps.append(row);
       }
-      card.append(steps, el("p", HarnessI18n.t("run_console.request.plan_expired")));
+      card.append(
+        steps,
+        el("p", HarnessI18n.t("run_console.request.plan_expired")),
+      );
       return card;
     }
     if (publish) appendPublishEvidence(card, item);
@@ -1667,7 +1767,8 @@
           el(
             "p",
             [
-              item.risk && HarnessI18n.t("run_console.request.risk", { risk: item.risk }),
+              item.risk &&
+                HarnessI18n.t("run_console.request.risk", { risk: item.risk }),
               item.publish && HarnessI18n.t("run_console.request.publication"),
             ]
               .filter(Boolean)
@@ -1678,7 +1779,11 @@
         card.append(el("pre", JSON.stringify(item.evidence, null, 2)));
     } else {
       card.append(
-        el("p", item.request?.message || HarnessI18n.t("run_console.request.action_approval")),
+        el(
+          "p",
+          item.request?.message ||
+            HarnessI18n.t("run_console.request.action_approval"),
+        ),
         el("pre", JSON.stringify(item.request || {}, null, 2)),
       );
       for (const question of item.request?.questions || []) {
@@ -1732,8 +1837,12 @@
     };
     if (publish) {
       card.append(
-        button(HarnessI18n.t("run_console.request.approve"), () => resolve({ choice: "approve" })),
-        button(HarnessI18n.t("run_console.request.deny"), () => resolve({ choice: "deny" })),
+        button(HarnessI18n.t("run_console.request.approve"), () =>
+          resolve({ choice: "approve" }),
+        ),
+        button(HarnessI18n.t("run_console.request.deny"), () =>
+          resolve({ choice: "deny" }),
+        ),
       );
     } else if (isGate) {
       const submit = button(HarnessI18n.t("run_console.request.submit"), () => {
@@ -1772,7 +1881,9 @@
             ),
           }),
         ),
-        button(HarnessI18n.t("run_console.request.deny"), () => resolve({ approved: false, scope: "once" })),
+        button(HarnessI18n.t("run_console.request.deny"), () =>
+          resolve({ approved: false, scope: "once" }),
+        ),
       );
     }
     card.append(feedback);

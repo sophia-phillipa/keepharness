@@ -103,8 +103,8 @@ const path = require("node:path");
       /^DeepSeek rejected the API key\. In the admin panel, paste a valid DeepSeek API key/,
     );
     // Retired cloud execution guidance directs an explicit native conversation.
-    const isolation = await page.evaluate(
-      () => userError("isolation_unavailable"),
+    const isolation = await page.evaluate(() =>
+      userError("isolation_unavailable"),
     );
     assert.match(isolation, /Start a new native conversation/);
     assert.doesNotMatch(isolation, /Turn isolation|install bubblewrap/);

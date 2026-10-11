@@ -61,7 +61,9 @@ async function waitSaved(page, key, expected) {
     if ((await savedValue(page, key)) === expected) return;
     await delay(100);
   }
-  assert.fail(key + " never reached " + JSON.stringify(expected) + " on the server");
+  assert.fail(
+    key + " never reached " + JSON.stringify(expected) + " on the server",
+  );
 }
 
 // A pixel width is saved as measured by the layout, so allow the rounding of the border.
@@ -122,10 +124,17 @@ async function fakeProjectFiles(page, files, log) {
       if (!file)
         return route.fulfill({
           status: 404,
-          json: { code: "file_not_found", message: "file_not_found", retryable: false },
+          json: {
+            code: "file_not_found",
+            message: "file_not_found",
+            retryable: false,
+          },
         });
       if (request.method() === "GET") {
-        log.gets.push({ project_id: url.searchParams.get("project_id"), path: name });
+        log.gets.push({
+          project_id: url.searchParams.get("project_id"),
+          path: name,
+        });
         return route.fulfill({
           status: 200,
           headers: { ETag: file.etag },
@@ -145,7 +154,11 @@ async function fakeProjectFiles(page, files, log) {
         return route.fulfill({
           status: 412,
           headers: { ETag: file.etag },
-          json: { code: "file_changed", message: "file_changed", retryable: false },
+          json: {
+            code: "file_changed",
+            message: "file_changed",
+            retryable: false,
+          },
         });
       file.text = body.text;
       file.etag = "etag-" + name + "-" + log.puts.length;
@@ -160,10 +173,12 @@ async function fakeProjectFiles(page, files, log) {
 
 // Opens the Files panel and the home folder of the fake roots, if they are not open yet.
 async function showFiles(page) {
-  if (await page.locator("#activity-panel").isHidden()) await page.locator("#panel-toggle").click();
+  if (await page.locator("#activity-panel").isHidden())
+    await page.locator("#panel-toggle").click();
   if (!(await page.locator("#files-view").isVisible()))
     await page.locator("#files-toggle").click();
-  if (await page.locator("#workspace-system-files").isHidden()) await page.locator('[data-testid="accordion-head-system-files"]').click();
+  if (await page.locator("#workspace-system-files").isHidden())
+    await page.locator('[data-testid="accordion-head-system-files"]').click();
   if (await page.locator("#files-tree").isHidden())
     await page.locator('.file-root[data-root-id="home"]').click();
 }
@@ -181,7 +196,9 @@ async function openFromFiles(page, name) {
   await loaded;
   await page.waitForFunction(
     (expected) =>
-      document.querySelector('[data-testid="editor-path"]')?.textContent.includes(expected),
+      document
+        .querySelector('[data-testid="editor-path"]')
+        ?.textContent.includes(expected),
     name,
   );
 }
@@ -229,14 +246,20 @@ const contrastOf = (page, selector) =>
       return 0.2126 * R + 0.7152 * G + 0.0722 * B;
     };
     let background = [255, 255, 255];
-    for (let node = document.querySelector(target); node; node = node.parentElement) {
+    for (
+      let node = document.querySelector(target);
+      node;
+      node = node.parentElement
+    ) {
       const [r, g, b, a = 1] = channels(getComputedStyle(node).backgroundColor);
       if (a > 0) {
         background = [r, g, b];
         break;
       }
     }
-    const foreground = channels(getComputedStyle(document.querySelector(target)).color);
+    const foreground = channels(
+      getComputedStyle(document.querySelector(target)).color,
+    );
     const light = Math.max(luminance(foreground), luminance(background));
     const dark = Math.min(luminance(foreground), luminance(background));
     return (light + 0.05) / (dark + 0.05);
@@ -246,7 +269,9 @@ const contrastOf = (page, selector) =>
   const browser = await chromium.launch();
   const pageErrors = [];
   try {
-    const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+    const context = await browser.newContext({
+      viewport: { width: 1440, height: 900 },
+    });
     const page = await context.newPage();
     page.on("pageerror", (error) => pageErrors.push(error.message));
     await page.addInitScript(() =>
@@ -261,14 +286,26 @@ const contrastOf = (page, selector) =>
     // 1. Own switch, rail/header toggle with aria-pressed, shortcut row and help text.
     const railToggle = page.getByTestId("editor-toggle");
     assert.equal(await railToggle.getAttribute("title"), "File editor");
-    assert.equal(await railToggle.getAttribute("aria-pressed"), "false", "starts unpressed");
-    assert.equal(await editorOpen(page), false, "chat-first: the pane starts closed");
+    assert.equal(
+      await railToggle.getAttribute("aria-pressed"),
+      "false",
+      "starts unpressed",
+    );
+    assert.equal(
+      await editorOpen(page),
+      false,
+      "chat-first: the pane starts closed",
+    );
     await waitSaved(page, "editor_open", false); // the default is saved as false, after the startup save
 
     await openSettingsWorkspace(page);
     const group = page.getByTestId("workspace-group");
     const settingsSwitch = page.getByTestId("editor-settings-toggle");
-    assert.equal(await settingsSwitch.isChecked(), false, "Settings switch starts off");
+    assert.equal(
+      await settingsSwitch.isChecked(),
+      false,
+      "Settings switch starts off",
+    );
     assert.match(await group.textContent(), /File editor/);
     const appearance = page.locator("#settings-appearance");
     assert.match(
@@ -279,7 +316,11 @@ const contrastOf = (page, selector) =>
 
     await railToggle.click();
     await page.getByTestId("editor-pane").waitFor({ state: "visible" });
-    assert.equal(await railToggle.getAttribute("aria-pressed"), "true", "rail reports pressed");
+    assert.equal(
+      await railToggle.getAttribute("aria-pressed"),
+      "true",
+      "rail reports pressed",
+    );
     assert.match(
       await page.getByTestId("editor-empty").textContent(),
       /Open a file from the Files panel/,
@@ -288,14 +329,25 @@ const contrastOf = (page, selector) =>
 
     // The shortcut toggles it closed; the Settings switch follows the one shared owner.
     await page.keyboard.press("Control+Shift+E");
-    await page.waitForFunction(() => !document.querySelector('[data-testid="editor-pane"]')?.offsetParent);
+    await page.waitForFunction(
+      () =>
+        !document.querySelector('[data-testid="editor-pane"]')?.offsetParent,
+    );
     assert.equal(await railToggle.getAttribute("aria-pressed"), "false");
     await waitSaved(page, "editor_open", false);
     await openSettingsWorkspace(page);
-    assert.equal(await settingsSwitch.isChecked(), false, "switch follows the shortcut");
+    assert.equal(
+      await settingsSwitch.isChecked(),
+      false,
+      "switch follows the shortcut",
+    );
     await settingsSwitch.check();
     await page.getByTestId("editor-pane").waitFor({ state: "visible" });
-    assert.equal(await railToggle.getAttribute("aria-pressed"), "true", "rail follows the switch");
+    assert.equal(
+      await railToggle.getAttribute("aria-pressed"),
+      "true",
+      "rail follows the switch",
+    );
     await waitSaved(page, "editor_open", true);
     await page.keyboard.press("Escape");
 
@@ -309,9 +361,14 @@ const contrastOf = (page, selector) =>
     const pane = page.getByTestId("editor-pane");
     const handle = page.getByTestId("editor-resize-handle");
     const before = await handle.boundingBox();
-    await page.mouse.move(before.x + before.width / 2, before.y + before.height / 2);
+    await page.mouse.move(
+      before.x + before.width / 2,
+      before.y + before.height / 2,
+    );
     await page.mouse.down();
-    await page.mouse.move(before.x - 80, before.y + before.height / 2, { steps: 8 });
+    await page.mouse.move(before.x - 80, before.y + before.height / 2, {
+      steps: 8,
+    });
     await page.mouse.up();
     const width = Math.round((await pane.boundingBox()).width);
     await waitSavedNear(page, "editor_width", width);
@@ -323,7 +380,11 @@ const contrastOf = (page, selector) =>
     await page.reload();
     await page.locator("#startup-gate").waitFor({ state: "hidden" });
     await pane.waitFor({ state: "visible" });
-    assert.equal(await railToggle.getAttribute("aria-pressed"), "true", "survives a reload");
+    assert.equal(
+      await railToggle.getAttribute("aria-pressed"),
+      "true",
+      "survives a reload",
+    );
     assert.ok(
       Math.abs(Math.round((await pane.boundingBox()).width) - width) <= 2,
       "editor width survives a reload",
@@ -333,26 +394,47 @@ const contrastOf = (page, selector) =>
     await openFromFiles(page, "notes.txt");
     const textarea = page.getByTestId("editor-textarea");
     assert.equal(await textarea.inputValue(), "alpha\nbeta\n");
-    assert.equal(log.gets.at(-1).project_id, PROJECT, "GET carries the project");
+    assert.equal(
+      log.gets.at(-1).project_id,
+      PROJECT,
+      "GET carries the project",
+    );
     assert.equal(log.gets.at(-1).path, "notes.txt", "GET carries the path");
-    assert.equal(await page.getByTestId("editor-dirty").isVisible(), false, "clean at open");
+    assert.equal(
+      await page.getByTestId("editor-dirty").isVisible(),
+      false,
+      "clean at open",
+    );
 
     await textarea.fill("alpha\nbeta\ngamma\n");
-    assert.equal(await page.getByTestId("editor-dirty").isVisible(), true, "dirty marker shows");
+    assert.equal(
+      await page.getByTestId("editor-dirty").isVisible(),
+      true,
+      "dirty marker shows",
+    );
     await page.getByTestId("editor-save").click();
     await eventually(() => log.puts.length === 1, "one PUT after save");
     assert.equal(log.puts[0].path, "notes.txt");
-    assert.equal(log.puts[0].ifMatch, "etag-notes-1", "PUT sends If-Match with the open ETag");
+    assert.equal(
+      log.puts[0].ifMatch,
+      "etag-notes-1",
+      "PUT sends If-Match with the open ETag",
+    );
     assert.equal(log.puts[0].text, "alpha\nbeta\ngamma\n");
-    await page.waitForFunction(() =>
-      !document.querySelector('[data-testid="editor-dirty"]')?.offsetParent,
+    await page.waitForFunction(
+      () =>
+        !document.querySelector('[data-testid="editor-dirty"]')?.offsetParent,
     );
 
     const etagAfterFirstSave = files["notes.txt"].etag;
     await textarea.fill("alpha\nbeta\ngamma\ndelta\n");
     await page.keyboard.press("Control+s");
     await eventually(() => log.puts.length === 2, "Ctrl+S saves too");
-    assert.equal(log.puts[1].ifMatch, etagAfterFirstSave, "second PUT uses the ETag of the first save");
+    assert.equal(
+      log.puts[1].ifMatch,
+      etagAfterFirstSave,
+      "second PUT uses the ETag of the first save",
+    );
     assert.equal(log.puts[1].text, "alpha\nbeta\ngamma\ndelta\n");
 
     // 4. CRLF file: the client edits with \n, the save restores \r\n on every line.
@@ -361,10 +443,21 @@ const contrastOf = (page, selector) =>
     await page.keyboard.press("Control+End");
     await page.keyboard.type("three");
     await page.getByTestId("editor-save").click();
-    await eventually(() => log.puts.length === 3, "CRLF save reaches the server");
+    await eventually(
+      () => log.puts.length === 3,
+      "CRLF save reaches the server",
+    );
     assert.equal(log.puts[2].path, "windows.txt");
-    assert.equal(log.puts[2].text, "one\r\ntwo\r\nthree", "every line keeps CRLF, no bare LF");
-    assert.equal(files["windows.txt"].text, "one\r\ntwo\r\nthree", "file keeps its CRLF lines");
+    assert.equal(
+      log.puts[2].text,
+      "one\r\ntwo\r\nthree",
+      "every line keeps CRLF, no bare LF",
+    );
+    assert.equal(
+      files["windows.txt"].text,
+      "one\r\ntwo\r\nthree",
+      "file keeps its CRLF lines",
+    );
 
     // 5. A 412 keeps the user's text and offers reload or overwrite.
     await openFromFiles(page, "notes.txt");
@@ -374,10 +467,16 @@ const contrastOf = (page, selector) =>
     const conflict = page.getByTestId("editor-conflict");
     await conflict.waitFor({ state: "visible" });
     assert.equal(await conflict.getAttribute("role"), "alert");
-    assert.equal(await textarea.inputValue(), "mine only\n", "the user's text is kept");
+    assert.equal(
+      await textarea.inputValue(),
+      "mine only\n",
+      "the user's text is kept",
+    );
     await page.getByTestId("editor-overwrite").click();
     await eventually(
-      () => log.puts.at(-1).ifMatch === "etag-agent-changed" && log.puts.at(-1).text === "mine only\n",
+      () =>
+        log.puts.at(-1).ifMatch === "etag-agent-changed" &&
+        log.puts.at(-1).text === "mine only\n",
       "overwrite retries with the ETag the server reported",
     );
     await conflict.waitFor({ state: "hidden" });
@@ -390,8 +489,14 @@ const contrastOf = (page, selector) =>
     await page.getByTestId("editor-save").click();
     const notice = page.getByTestId("editor-notice");
     await notice.waitFor({ state: "visible" });
-    assert.match(await notice.textContent(), /A turn is running in this project/);
-    await eventually(() => log.puts.length === putsBefore + 1, "save still reaches the server");
+    assert.match(
+      await notice.textContent(),
+      /A turn is running in this project/,
+    );
+    await eventually(
+      () => log.puts.length === putsBefore + 1,
+      "save still reaches the server",
+    );
 
     // 7. Closing or switching with unsaved text asks Save / Discard / Cancel.
     await textarea.fill("unsaved draft\n");
@@ -400,7 +505,11 @@ const contrastOf = (page, selector) =>
     await dirtyDialog.waitFor({ state: "visible" });
     await page.getByTestId("editor-dirty-cancel").click();
     assert.equal(await pane.isVisible(), true, "cancel keeps the pane open");
-    assert.equal(await textarea.inputValue(), "unsaved draft\n", "cancel keeps the text");
+    assert.equal(
+      await textarea.inputValue(),
+      "unsaved draft\n",
+      "cancel keeps the text",
+    );
     await railToggle.click();
     await dirtyDialog.waitFor({ state: "visible" });
     await page.getByTestId("editor-dirty-discard").click();
@@ -415,10 +524,15 @@ const contrastOf = (page, selector) =>
     await page.locator('[role="treeitem"][data-path="windows.txt"]').dblclick();
     await dirtyDialog.waitFor({ state: "visible" });
     await page.getByTestId("editor-dirty-save").click();
-    await eventually(() => log.puts.length === putsBeforeSwitch + 1, "Save in the dialog writes first");
+    await eventually(
+      () => log.puts.length === putsBeforeSwitch + 1,
+      "Save in the dialog writes first",
+    );
     assert.equal(log.puts.at(-1).path, "notes.txt");
     await page.waitForFunction(() =>
-      document.querySelector('[data-testid="editor-path"]')?.textContent.includes("windows.txt"),
+      document
+        .querySelector('[data-testid="editor-path"]')
+        ?.textContent.includes("windows.txt"),
     );
 
     // 8. Below 1000 px the pane is an overlay: focus is trapped and returns to the toggle.
@@ -427,7 +541,11 @@ const contrastOf = (page, selector) =>
     await pane.waitFor({ state: "hidden" });
     await railToggle.click();
     await pane.waitFor({ state: "visible" });
-    assert.equal(await pane.getAttribute("role"), "dialog", "overlay is a dialog");
+    assert.equal(
+      await pane.getAttribute("role"),
+      "dialog",
+      "overlay is a dialog",
+    );
     assert.equal(await pane.getAttribute("aria-modal"), "true");
     for (let step = 0; step < 25; step++) {
       await page.keyboard.press("Tab");
@@ -438,15 +556,23 @@ const contrastOf = (page, selector) =>
     }
     await page.keyboard.press("Escape");
     await pane.waitFor({ state: "hidden" });
-    const focusedAfterClose = await page.evaluate(
-      () => document.activeElement?.getAttribute("data-testid"),
+    const focusedAfterClose = await page.evaluate(() =>
+      document.activeElement?.getAttribute("data-testid"),
     );
-    assert.equal(focusedAfterClose, "editor-toggle", "focus returns to the toggle");
+    assert.equal(
+      focusedAfterClose,
+      "editor-toggle",
+      "focus returns to the toggle",
+    );
 
     // Phone width (≤ 620 px): the header toggle is dropped (the Settings switch stays).
     await page.setViewportSize({ width: 600, height: 800 });
     assert.equal(await railToggle.count(), 1);
-    assert.equal(await railToggle.isVisible(), false, "editor header toggle is hidden at 600 px");
+    assert.equal(
+      await railToggle.isVisible(),
+      false,
+      "editor header toggle is hidden at 600 px",
+    );
     await page.setViewportSize({ width: 1440, height: 900 });
 
     // With the editor open, Enter on a file row opens that file in the editor.
@@ -456,7 +582,9 @@ const contrastOf = (page, selector) =>
     await page.locator('[role="treeitem"][data-path="notes.txt"]').focus();
     await page.keyboard.press("Enter");
     await page.waitForFunction(() =>
-      document.querySelector('[data-testid="editor-path"]')?.textContent.includes("notes.txt"),
+      document
+        .querySelector('[data-testid="editor-path"]')
+        ?.textContent.includes("notes.txt"),
     );
     await railToggle.click();
     await pane.waitFor({ state: "hidden" });
@@ -470,9 +598,21 @@ const contrastOf = (page, selector) =>
     await dirtyDialog.waitFor({ state: "visible" });
     await page.getByTestId("editor-dirty-save").click();
     await page.getByTestId("editor-conflict").waitFor({ state: "visible" });
-    assert.equal(await pane.isVisible(), true, "a failed save keeps the pane open");
-    assert.equal(await settingsSwitch.isChecked(), true, "Settings switch matches the open pane");
-    assert.equal(await railToggle.getAttribute("aria-pressed"), "true", "header toggle matches the open pane");
+    assert.equal(
+      await pane.isVisible(),
+      true,
+      "a failed save keeps the pane open",
+    );
+    assert.equal(
+      await settingsSwitch.isChecked(),
+      true,
+      "Settings switch matches the open pane",
+    );
+    assert.equal(
+      await railToggle.getAttribute("aria-pressed"),
+      "true",
+      "header toggle matches the open pane",
+    );
     await page.keyboard.press("Escape");
     await railToggle.click();
     await dirtyDialog.waitFor({ state: "visible" });

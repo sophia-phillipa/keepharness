@@ -49,7 +49,11 @@ const contrastOf = (page, selector) =>
       return 0.2126 * R + 0.7152 * G + 0.0722 * B;
     };
     let background = [255, 255, 255];
-    for (let node = document.querySelector(target); node; node = node.parentElement) {
+    for (
+      let node = document.querySelector(target);
+      node;
+      node = node.parentElement
+    ) {
       const [r, g, b, a = 1] = channels(getComputedStyle(node).backgroundColor);
       if (a > 0) {
         background = [r, g, b];
@@ -105,7 +109,11 @@ const contrastOf = (page, selector) =>
     assert.equal(defaults.switchOn, false, "Settings switch starts off");
     assert.equal(defaults.messagesMax, "1040px", "default column unchanged");
     assert.equal(defaults.composerMax, "672px", "default composer unchanged");
-    assert.equal(await savedWideLayout(page), false, "default is saved as false");
+    assert.equal(
+      await savedWideLayout(page),
+      false,
+      "default is saved as false",
+    );
 
     // Header button: class, aria-pressed, the widened column and the server write.
     await headerButton.click();
@@ -126,8 +134,8 @@ const contrastOf = (page, selector) =>
 
     // Shortcut: Ctrl+Shift+L on Linux (Cmd+Shift+L on macOS) toggles it back off and on again.
     await page.keyboard.press("Control+Shift+L");
-    await page.waitForFunction(() =>
-      !document.body.classList.contains("wide-layout"),
+    await page.waitForFunction(
+      () => !document.body.classList.contains("wide-layout"),
     );
     assert.equal((await layout()).pressed, "false");
     await waitSaved(page, false);
@@ -164,10 +172,14 @@ const contrastOf = (page, selector) =>
     const settingsSwitch = page.getByTestId("wide-layout-toggle");
     assert.equal(await settingsSwitch.isChecked(), true);
     await settingsSwitch.uncheck();
-    await page.waitForFunction(() =>
-      !document.body.classList.contains("wide-layout"),
+    await page.waitForFunction(
+      () => !document.body.classList.contains("wide-layout"),
     );
-    assert.equal((await layout()).pressed, "false", "header follows the switch");
+    assert.equal(
+      (await layout()).pressed,
+      "false",
+      "header follows the switch",
+    );
     await waitSaved(page, false);
     await settingsSwitch.check();
     await page.waitForFunction(() =>
@@ -203,12 +215,30 @@ const contrastOf = (page, selector) =>
         },
         [palette, dark],
       );
-      const icon = await contrastOf(page, '[data-testid="wide-layout-header-toggle"]');
-      const label = await contrastOf(page, '[data-testid="workspace-group"] label');
-      const text = await contrastOf(page, "#settings-appearance .shortcut-help");
-      assert.ok(icon >= 3, palette + " header icon contrast " + icon.toFixed(2));
-      assert.ok(label >= 4.5, palette + " switch label contrast " + label.toFixed(2));
-      assert.ok(text >= 4.5, palette + " help text contrast " + text.toFixed(2));
+      const icon = await contrastOf(
+        page,
+        '[data-testid="wide-layout-header-toggle"]',
+      );
+      const label = await contrastOf(
+        page,
+        '[data-testid="workspace-group"] label',
+      );
+      const text = await contrastOf(
+        page,
+        "#settings-appearance .shortcut-help",
+      );
+      assert.ok(
+        icon >= 3,
+        palette + " header icon contrast " + icon.toFixed(2),
+      );
+      assert.ok(
+        label >= 4.5,
+        palette + " switch label contrast " + label.toFixed(2),
+      );
+      assert.ok(
+        text >= 4.5,
+        palette + " help text contrast " + text.toFixed(2),
+      );
     }
 
     assert.deepEqual(pageErrors, [], "no uncaught page errors");

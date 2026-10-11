@@ -10825,7 +10825,11 @@ body.panel-order-reversed #sidebar .sidebar-tree {
   background: var(--th-code);
   color: var(--th-text);
   border-radius: var(--th-radius);
-  font: 13px/1.45 ui-monospace, SFMono-Regular, Consolas, monospace;
+  font:
+    13px/1.45 ui-monospace,
+    SFMono-Regular,
+    Consolas,
+    monospace;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
@@ -10837,7 +10841,11 @@ body.panel-order-reversed #sidebar .sidebar-tree {
 .terminal-input {
   width: 100%;
   min-width: 0;
-  font: 13px ui-monospace, SFMono-Regular, Consolas, monospace;
+  font:
+    13px ui-monospace,
+    SFMono-Regular,
+    Consolas,
+    monospace;
 }
 
 /* File editor pane (D-055 P5): docked between the chat and the side panel from 1000 px, a modal overlay below. */
@@ -10863,16 +10871,28 @@ body.panel-order-reversed #sidebar .sidebar-tree {
 }
 @media (min-width: 1000px) {
   body.editor-open {
-    grid-template-columns: var(--th-rail-width) var(--th-sidebar-width, 300px) minmax(0, 1fr) var(--th-editor-width, 380px) auto;
+    grid-template-columns: var(--th-rail-width) var(
+        --th-sidebar-width,
+        300px
+      ) minmax(0, 1fr) var(--th-editor-width, 380px) auto;
   }
   body.editor-open.sidebar-collapsed {
-    grid-template-columns: var(--th-rail-width) 0 minmax(0, 1fr) var(--th-editor-width, 380px) auto;
+    grid-template-columns: var(--th-rail-width) 0 minmax(0, 1fr) var(
+        --th-editor-width,
+        380px
+      ) auto;
   }
   body.editor-open.panel-order-reversed {
-    grid-template-columns: var(--th-rail-width) auto minmax(0, 1fr) var(--th-editor-width, 380px) var(--th-sidebar-width, 280px);
+    grid-template-columns: var(--th-rail-width) auto minmax(0, 1fr) var(
+        --th-editor-width,
+        380px
+      ) var(--th-sidebar-width, 280px);
   }
   body.editor-open.panel-order-reversed.sidebar-collapsed {
-    grid-template-columns: var(--th-rail-width) auto minmax(0, 1fr) var(--th-editor-width, 380px) 0;
+    grid-template-columns: var(--th-rail-width) auto minmax(0, 1fr) var(
+        --th-editor-width,
+        380px
+      ) 0;
   }
   body.editor-open #activity-panel {
     grid-column: 5;
@@ -10960,7 +10980,11 @@ body.panel-order-reversed #sidebar .sidebar-tree {
   border-radius: 6px;
   background: var(--th-bg);
   color: var(--th-text);
-  font: 13px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
+  font:
+    13px/1.5 ui-monospace,
+    SFMono-Regular,
+    Menlo,
+    monospace;
 }
 .editor-actions {
   display: flex;

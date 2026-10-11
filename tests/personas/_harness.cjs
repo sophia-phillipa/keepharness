@@ -148,7 +148,9 @@ async function mockHarness(page, over = {}) {
         const id = pathname.split("/")[3];
         const found = s.turns.find((t) => t.id === id);
         // The real job endpoint has no has_turn_edits: only the conversation payload carries it.
-        const job = structuredClone(found || { id, state: "completed", result: {} });
+        const job = structuredClone(
+          found || { id, state: "completed", result: {} },
+        );
         delete job.has_turn_edits;
         return job;
       }

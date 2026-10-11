@@ -10,11 +10,17 @@ const path = require("node:path");
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE || "playwright");
 
 const REAL_HARNESS = (process.env.HARNESS_URL || "").replace(/\/$/, "");
-assert(REAL_HARNESS, "HARNESS_URL is required (run through scripts/test-ui.sh)");
+assert(
+  REAL_HARNESS,
+  "HARNESS_URL is required (run through scripts/test-ui.sh)",
+);
 
 // The pt-BR expectations come from the shipped catalog, so this spec holds no Portuguese text.
 const PT_BR = JSON.parse(
-  fs.readFileSync(path.join(__dirname, "..", "harness_ui", "assets", "locales", "pt-br.json"), "utf8"),
+  fs.readFileSync(
+    path.join(__dirname, "..", "harness_ui", "assets", "locales", "pt-br.json"),
+    "utf8",
+  ),
 );
 const TABS = ["Pipeline", "Timeline", "Logs", "Runs", "Agents"];
 const EN_EMPTY = "Select a run to inspect its recorded steps.";
@@ -30,9 +36,13 @@ async function setLanguage(language) {
 }
 
 async function openHarness(browser, route) {
-  const context = await browser.newContext({ viewport: { width: 1280, height: 860 } });
+  const context = await browser.newContext({
+    viewport: { width: 1280, height: 860 },
+  });
   const page = await context.newPage();
-  await page.addInitScript(() => localStorage.setItem("keepharness-tour-seen", "0.16.0"));
+  await page.addInitScript(() =>
+    localStorage.setItem("keepharness-tour-seen", "0.16.0"),
+  );
   if (route) await page.route("**/assets/locales/index.json", route);
   await page.goto(REAL_HARNESS + "/");
   await page.locator("#startup-gate").waitFor({ state: "hidden" });
@@ -48,11 +58,18 @@ async function openConsole(page) {
 async function assertConsole(page, tabLabels, emptyText, needsYouPattern) {
   await openConsole(page);
   for (const label of tabLabels) {
-    await page.getByRole("tab", { name: label, exact: true }).waitFor({ state: "visible" });
+    await page
+      .getByRole("tab", { name: label, exact: true })
+      .waitFor({ state: "visible" });
   }
   await page.getByRole("tab", { name: tabLabels[0], exact: true }).click();
-  await page.getByText(emptyText, { exact: true }).waitFor({ state: "visible" });
-  assert.match(await page.locator("#needs-you-toggle").textContent(), needsYouPattern);
+  await page
+    .getByText(emptyText, { exact: true })
+    .waitFor({ state: "visible" });
+  assert.match(
+    await page.locator("#needs-you-toggle").textContent(),
+    needsYouPattern,
+  );
 }
 
 (async () => {
@@ -61,7 +78,10 @@ async function assertConsole(page, tabLabels, emptyText, needsYouPattern) {
     await setLanguage(null);
     const english = await openHarness(browser);
     try {
-      assert.equal(await english.page.evaluate(() => document.documentElement.lang), "en");
+      assert.equal(
+        await english.page.evaluate(() => document.documentElement.lang),
+        "en",
+      );
       await assertConsole(english.page, TABS, EN_EMPTY, EN_NEEDS_YOU);
     } finally {
       await english.context.close();
@@ -72,21 +92,37 @@ async function assertConsole(page, tabLabels, emptyText, needsYouPattern) {
     const completeIndex = async (route) => {
       const response = await route.fetch();
       const index = await response.json();
-      index.locales = index.locales.map((locale) => (locale.tag === "pt-BR" ? { ...locale, complete: true } : locale));
+      index.locales = index.locales.map((locale) =>
+        locale.tag === "pt-BR" ? { ...locale, complete: true } : locale,
+      );
       await route.fulfill({ response, json: index });
     };
     const pt = await openHarness(browser, completeIndex);
     try {
-      assert.equal(await pt.page.evaluate(() => document.documentElement.lang), "pt-BR");
-      const tabLabels = TABS.map((name) => PT_BR["run_console.tab." + name.toLowerCase()]);
+      assert.equal(
+        await pt.page.evaluate(() => document.documentElement.lang),
+        "pt-BR",
+      );
+      const tabLabels = TABS.map(
+        (name) => PT_BR["run_console.tab." + name.toLowerCase()],
+      );
       const emptyText = PT_BR["run_console.pipeline.select_run"];
-      const [head, tail] = PT_BR["run_console.inbox.button"].split("{count}").map(escapeRegExp);
-      await assertConsole(pt.page, tabLabels, emptyText, new RegExp("^" + head + "\\d+" + tail + "$"));
+      const [head, tail] = PT_BR["run_console.inbox.button"]
+        .split("{count}")
+        .map(escapeRegExp);
+      await assertConsole(
+        pt.page,
+        tabLabels,
+        emptyText,
+        new RegExp("^" + head + "\\d+" + tail + "$"),
+      );
     } finally {
       await setLanguage(null);
       await pt.context.close();
     }
-    console.log("PASS language-run-console: English and pt-BR run console strings");
+    console.log(
+      "PASS language-run-console: English and pt-BR run console strings",
+    );
   } finally {
     await browser.close();
   }

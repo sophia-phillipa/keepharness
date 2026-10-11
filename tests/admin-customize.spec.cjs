@@ -574,7 +574,9 @@ const contrast = (a, b) => {
     // Add menu (#27): entries come from each CLI's catalog actions; Refresh re-reads them.
     await page.setViewportSize({ width: 1440, height: 1000 });
     const addButton = page.locator("#plugins-add");
-    const menuItems = page.locator('[data-testid="plugins-add-menu"] [role="menuitem"]');
+    const menuItems = page.locator(
+      '[data-testid="plugins-add-menu"] [role="menuitem"]',
+    );
     const dialog = page.locator("#plugins-add-dialog");
     const refreshWith = async (codexActions, claudeActions) => {
       CATALOGS.codex.actions = codexActions;
@@ -596,9 +598,7 @@ const contrast = (a, b) => {
     await refreshWith(["marketplace_add"], []);
     assert.equal(await addButton.count(), 1);
     await addButton.click();
-    assert.deepEqual(await menuItems.allInnerTexts(), [
-      "Add a marketplace",
-    ]);
+    assert.deepEqual(await menuItems.allInnerTexts(), ["Add a marketplace"]);
     await page.keyboard.press("Escape");
 
     // (c) two providers: one item each, labelled with the provider name.
@@ -641,8 +641,8 @@ const contrast = (a, b) => {
     const addError = page.locator('[data-testid="plugins-add-error"]');
     await page.waitForFunction(
       () =>
-        document.querySelector('[data-testid="plugins-add-error"]')
-          ?.textContent.length > 0,
+        document.querySelector('[data-testid="plugins-add-error"]')?.textContent
+          .length > 0,
     );
     assert.equal(
       await addError.innerText(),
@@ -660,9 +660,17 @@ const contrast = (a, b) => {
     await page.keyboard.press("Enter");
     assert.equal(await focusedText(), "Add a marketplace");
     await page.keyboard.press("ArrowUp");
-    assert.equal(await focusedText(), "Add MCP server", "ArrowUp wraps to last");
+    assert.equal(
+      await focusedText(),
+      "Add MCP server",
+      "ArrowUp wraps to last",
+    );
     await page.keyboard.press("ArrowDown");
-    assert.equal(await focusedText(), "Add a marketplace", "ArrowDown wraps to first");
+    assert.equal(
+      await focusedText(),
+      "Add a marketplace",
+      "ArrowDown wraps to first",
+    );
     await page.keyboard.press("ArrowDown");
     assert.equal(await focusedText(), "Add MCP server");
     await page.keyboard.press("Escape");
@@ -692,7 +700,9 @@ const contrast = (a, b) => {
     const addRules = css.match(/\.plugins-add[^{]*\{[^}]*\}/g) || [];
     assert(addRules.length >= 10, "Add rules found: " + addRules.length);
     assert.deepEqual(
-      addRules.filter((rule) => /#[0-9a-f]{3,8}\b|\b(?:rgb|hsl)a?\(/i.test(rule)),
+      addRules.filter((rule) =>
+        /#[0-9a-f]{3,8}\b|\b(?:rgb|hsl)a?\(/i.test(rule),
+      ),
       [],
     );
 

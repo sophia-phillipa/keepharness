@@ -298,7 +298,11 @@ runPersona("harness-turn-review", [
       const toggle = page.locator('[data-testid="turn-review-toggle"]');
       await toggle.waitFor();
       await page.waitForTimeout(300);
-      assert.equal(eventStreams, 2, "the running turn was read again after it finished");
+      assert.equal(
+        eventStreams,
+        2,
+        "the running turn was read again after it finished",
+      );
       assert.equal(await toggle.textContent(), "6 files changed");
       assert.deepEqual(
         requested.filter((p) => p === "/v1/jobs/job-2/file-changes"),
@@ -438,9 +442,7 @@ runPersona("harness-turn-review", [
       await send(page, "FAKE-EDITS change the files", 1);
       await page.locator('[data-testid="turn-review-toggle"]').click();
       const measured = await page.evaluate(() => {
-        const answer = document.querySelector(
-          "#messages .message.assistant",
-        );
+        const answer = document.querySelector("#messages .message.assistant");
         const list = answer.querySelector('[data-testid="turn-review-list"]');
         const chat = document.querySelector("#messages");
         return {

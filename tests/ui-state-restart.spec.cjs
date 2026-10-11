@@ -14,7 +14,14 @@ const os = require("node:os");
 const path = require("node:path");
 
 const ROOT = path.resolve(__dirname, "..");
-const PORTS = { a: 18096, b: 18097, fresh: 18098, locked: 18099, c: 18100, d: 18101 };
+const PORTS = {
+  a: 18096,
+  b: 18097,
+  fresh: 18098,
+  locked: 18099,
+  c: 18100,
+  d: 18101,
+};
 const READ_ONLY_NOTICE =
   "Interface preferences can't be saved right now, so changes last until you reload. Check the harness state folder.";
 const results = [];
@@ -896,12 +903,23 @@ async function step(name, work) {
         );
         page = await openPage(browser, moved);
         assert.equal(
-          await page.evaluate(() => document.body.classList.contains("wide-layout")),
+          await page.evaluate(() =>
+            document.body.classList.contains("wide-layout"),
+          ),
           true,
         );
-        assert.equal(await page.locator("#wide-toggle").getAttribute("aria-pressed"), "true");
-        assert.equal(await page.locator("#editor-toggle").getAttribute("aria-pressed"), "true");
-        assert.equal(await page.locator("#terminal-toggle").getAttribute("aria-pressed"), "true");
+        assert.equal(
+          await page.locator("#wide-toggle").getAttribute("aria-pressed"),
+          "true",
+        );
+        assert.equal(
+          await page.locator("#editor-toggle").getAttribute("aria-pressed"),
+          "true",
+        );
+        assert.equal(
+          await page.locator("#terminal-toggle").getAttribute("aria-pressed"),
+          "true",
+        );
         assert.equal(await page.getByTestId("editor-pane").isVisible(), true);
         assert.equal(await page.getByTestId("terminal-pane").isVisible(), true);
         await page.context().close();
