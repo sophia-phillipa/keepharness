@@ -1113,7 +1113,11 @@ const status = (text, tone) => {
     policyPending &&
     policyError &&
     (isRunLabel(text) ||
-      ["Failed run", "Run cancelled", "Run interrupted"].includes(text))
+      [
+        t("run_status.terminal.failed"),
+        t("run_status.terminal.cancelled"),
+        t("run_status.terminal.interrupted"),
+      ].includes(text))
   )
     text = policyError;
   const target = $("status");
@@ -1906,14 +1910,14 @@ function conversationUpdated(c = {}) {
 function waitReasonLabel(reason) {
   return (
     {
-      human_approval: "Waiting for your approval",
-      conversation_parent: "Waiting for the previous response",
-      provider_capacity: "Waiting for another task on this provider",
-      held_after_stop: "Held after Stop",
-      conversation: "Waiting for this conversation",
-      work_item: "Waiting for this work item",
-      writable_root: "Waiting for access to project files",
-      queue: "Waiting in the queue",
+      human_approval: t("conversation.summary.waiting_for_approval"),
+      conversation_parent: t("run_status.wait.conversation_parent"),
+      provider_capacity: t("run_status.wait.provider_capacity"),
+      held_after_stop: t("run_status.wait.held_after_stop"),
+      conversation: t("run_status.wait.conversation"),
+      work_item: t("run_status.wait.work_item"),
+      writable_root: t("run_status.wait.writable_root"),
+      queue: t("run_status.activity.queued"),
     }[reason] || reason
   );
 }
@@ -3973,8 +3977,8 @@ function activityTitle(e) {
       "interrupted",
     ].includes(type)
   )
-    return runLabel(type) || "Run interrupted";
-  if (type === "plan_updated") return "Plan updated";
+    return runLabel(type) || t("run_status.terminal.interrupted");
+  if (type === "plan_updated") return t("run_status.label.plan_updated");
   if (type === "maestro_planning") return "Planning";
   if (type === "maestro_plan") return "Execution plan set";
   if (type === "maestro_step") return "Specialist started working";
@@ -4201,13 +4205,13 @@ function assistant(id = "", model = $("model").value, replayTools = false) {
   a.el.prepend(title);
   const chip = document.createElement("p");
   chip.className = "run-highlight";
-  chip.textContent = "⏳ Waiting to run";
+  chip.textContent = t("run_status.activity.waiting_to_run");
   a.el.insertBefore(chip, a.body);
   const activity = document.createElement("details"),
     activitySummary = document.createElement("summary"),
     milestones = document.createElement("ol");
   activity.className = "message-activity";
-  activitySummary.textContent = "Run steps";
+  activitySummary.textContent = t("run_status.activity.steps");
   milestones.className = "activity-milestones";
   activity.append(activitySummary, milestones);
   activity.hidden = !replayTools;
@@ -4826,8 +4830,8 @@ function event(e) {
       setActivitySummary(
         active,
         ["completed", "failed", "cancelled", "interrupted"].includes(e.type)
-          ? runLabel(e.type) || "Run steps"
-          : "Working…",
+          ? runLabel(e.type) || t("run_status.activity.steps")
+          : t("run_status.activity.working"),
       );
     }
   }
@@ -4848,10 +4852,11 @@ function event(e) {
     return;
   }
   if (e.type === "plan_updated") {
-    status("Plan updated");
+    status(t("run_status.label.plan_updated"), "progress");
   } else if (e.type === "answer_delta" && e.data.parent_tool_use_id) {
-    if (active) setActivitySummary(active, "Specialist is responding…");
-    status("Specialist is responding…");
+    if (active)
+      setActivitySummary(active, t("run_status.status.specialist_responding"));
+    status(t("run_status.status.specialist_responding"), "neutral");
     return;
   } else if (e.type === "answer_delta") {
     // F-87: re-render the markdown at most once per frame, not per delta.
@@ -4862,7 +4867,7 @@ function event(e) {
       renderAnswer(body, body.rawAnswer);
       scroll();
     });
-    status("Receiving response…");
+    status(t("run_status.status.receiving"), "progress");
   } else if (e.type === "reasoning_delta" || e.type === "reasoning_summary") {
     if (active) setActivitySummary(active, t("conversation.turn.thinking"));
     status(t("run_status.activity.reasoning"), "progress");
@@ -5013,10 +5018,16 @@ async function result(
   showWorkflowRecovery(r);
   showTurnRetry(r);
   const terminal = {
-    completed: "Completed",
-    failed: "Failed run",
-    cancelled: "Run cancelled",
-    interrupted: "Run interrupted",
+    completed: t("run_status.label.completed"),
+    failed: t("run_status.terminal.failed"),
+    cancelled: t("run_status.terminal.cancelled"),
+    interrupted: t("run_status.terminal.interrupted"),
+  };
+  const terminalTone = {
+    completed: "progress",
+    failed: "error",
+    cancelled: "error",
+    interrupted: "error",
   };
   const condition = executionCondition(
     r.result?.condition || r.result?.error,
@@ -5083,32 +5094,42 @@ async function result(
     const modelId = data.model || $("model").value,
       model = modelId ? modelIcon(modelId) + " " + modelName(modelId) : "",
       { worked: duration, waited } = runTiming(data);
-    active.meta.textContent = [model, duration, waited && "waited " + waited]
+    active.meta.textContent = [
+      model,
+      duration,
+      waited && t("run_status.activity.waited", { waited }),
+    ]
       .filter(Boolean)
       .join(" · ");
     if (data.deployment)
       active.meta.textContent +=
         (active.meta.textContent ? " · " : "") +
-        (data.deployment.applied ? "Changes applied" : "Changes not applied");
+        (data.deployment.applied
+          ? t("run_status.deployment.applied")
+          : t("run_status.deployment.not_applied"));
     setActivitySummary(
       active,
       condition
         ? condition.title
         : terminal[r.state]
           ? duration
-            ? "Worked for " + duration
-            : "Run steps"
-          : "Working…",
+            ? t("run_status.activity.worked_for", { duration })
+            : t("run_status.activity.steps")
+          : t("run_status.activity.working"),
     );
-    if (data.incomplete)
-      status("Incomplete response. Narrow the scope and try again.");
-    else status(condition?.title || terminal[r.state] || r.state);
+    if (data.incomplete) status(t("run_status.status.incomplete"), "error");
+    else
+      status(
+        condition?.title || terminal[r.state] || r.state,
+        condition ? undefined : terminalTone[r.state],
+      );
     if (!terminal[r.state]) pendingGateStatus();
     if (data.deployment)
       status(
         data.deployment.applied
-          ? "Changes applied to the project. Checking for a panel update…"
-          : "Changes not applied.",
+          ? t("run_status.deployment.applied_notice")
+          : t("run_status.deployment.not_applied_notice"),
+        data.deployment.applied ? "neutral" : "error",
       );
     if (selected()?.backend === "codex") {
       if (data.quota_before) quotaSnapshot("before", data.quota_before);
@@ -5192,8 +5213,8 @@ async function watch(retries = 0) {
       signal: controller.signal,
     });
     if (controller !== current) return;
-    $("activity-state").textContent = "● Tracking execution";
-    status("Tracking execution…");
+    $("activity-state").textContent = t("run_status.activity.tracking_state");
+    status(t("run_status.status.tracking"), "neutral");
     pendingGateStatus();
     const reader = r.body.getReader(),
       decoder = new TextDecoder();
@@ -5231,7 +5252,9 @@ async function watch(retries = 0) {
   } catch (e) {
     if (controller === current && e.name !== "AbortError") {
       paintMotion("");
-      $("activity-state").textContent = "⚠ Connection lost";
+      $("activity-state").textContent = t(
+        "run_status.activity.connection_lost",
+      );
       streamDisconnected = true;
       $("resume-execution").hidden = false;
       status(t("run_status.connection.lost"), "error");
@@ -5394,7 +5417,7 @@ async function load(id, legacy = false, restoredView = null, scrollTop) {
         active.meta.textContent = [
           r.result?.model || model || "",
           duration,
-          waited && "waited " + waited,
+          waited && t("run_status.activity.waited", { waited }),
         ]
           .filter(Boolean)
           .join(" · ");
@@ -5403,8 +5426,8 @@ async function load(id, legacy = false, restoredView = null, scrollTop) {
           condition
             ? condition.title
             : duration
-              ? "Worked for " + duration
-              : "Run steps",
+              ? t("run_status.activity.worked_for", { duration })
+              : t("run_status.activity.steps"),
         );
       }
     }
@@ -8905,7 +8928,9 @@ function resetActivity(clearHistory = true) {
   delete list.dataset.omitted;
   $("activity-truncation").hidden = true;
   $("activity-failures").hidden = true;
-  $("activity-state").textContent = "Waiting for execution";
+  $("activity-state").textContent = t(
+    "run_status.activity.waiting_for_execution",
+  );
 }
 function recordActivity(e) {
   const type = e.type,
@@ -8920,20 +8945,22 @@ function recordActivity(e) {
   )
     return;
   if (type === "answer_delta") {
-    $("activity-state").textContent = "Receiving response";
+    $("activity-state").textContent = t("run_status.activity.receiving");
     return;
   }
   if (["reasoning_delta", "reasoning_summary", "thinking"].includes(type)) {
-    $("activity-state").textContent = "Thinking";
+    $("activity-state").textContent = t("run_status.label.thinking");
     return;
   }
   if (type === "tool_start" || type === "tool_end") {
     $("activity-state").textContent = failed
-      ? "A step failed"
-      : "Run in progress";
+      ? t("run_status.activity.step_failed")
+      : t("run_status.activity.in_progress");
     if (failed) {
       $("activity-failures").hidden = false;
-      $("activity-failures").textContent = "A step in this run failed.";
+      $("activity-failures").textContent = t(
+        "run_status.activity.step_failed_detail",
+      );
     }
     return;
   }
@@ -8965,8 +8992,9 @@ function recordActivity(e) {
     const count = Number(list.dataset.omitted || 0) + 1;
     list.dataset.omitted = count;
     $("activity-truncation").hidden = false;
-    $("activity-truncation").textContent =
-      count + " earlier milestones remain in the run log.";
+    $("activity-truncation").textContent = t("run_status.activity.truncated", {
+      count,
+    });
   }
   $("activity-state").textContent = title;
 }
