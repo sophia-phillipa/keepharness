@@ -154,4 +154,4 @@ DELETE /v1/pages/5d1c…   {"project_id": "p", "revision": "9f2c…"}
   while a save is in flight stays "Unsaved changes" and goes out with the next save.
 - New page focuses its title as soon as the editor opens. Refreshing the page list must
   not move focus after the user has started editing, even on a slow connection.
-- Error copy for every code above lives in `userErrors` in `agent_service/ui.js`.
+- Error copy for every code above lives under `error.<code>` in `harness_ui/assets/locales/en.json` (and `pt-br.json`), read by `userError()` in `agent_service/ui.js`.

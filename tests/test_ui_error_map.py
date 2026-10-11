@@ -2,11 +2,13 @@
 
 The codes are collected from the source (``APIError``/``ToolError``/``ResourceError``
 literals, attachment skip reasons, the worker's settle codes and the provider
-conditions), so a new code fails here until ``agent_service/ui.js`` gives it a sentence
-in ``userErrors``, ``attachmentError``, ``attachmentNotice`` or ``conditionCopy``, or it
-is listed in ``INTERNAL_ONLY`` with the reason the web UI can never receive it.
+conditions), so a new code fails here until ``harness_ui/assets/locales/en.json`` gives
+it an ``error.<code>`` key, or ``agent_service/ui.js`` gives it a sentence in
+``attachmentError``, ``attachmentNotice`` or ``conditionCopy``, or it is listed in
+``INTERNAL_ONLY`` with the reason the web UI can never receive it.
 """
 
+import json
 import re
 from pathlib import Path
 
@@ -14,6 +16,9 @@ from agent_service.services import queue_worker
 
 ROOT = Path(__file__).resolve().parents[1]
 UI = (ROOT / "agent_service" / "ui.js").read_text(encoding="utf-8")
+LOCALES = ROOT / "harness_ui" / "assets" / "locales"
+ENGLISH = json.loads((LOCALES / "en.json").read_text(encoding="utf-8"))
+ERROR_KEYS = {key for key in ENGLISH if key.startswith("error.")}
 SOURCES = [
     *sorted((ROOT / "agent_service").rglob("*.py")),
     *sorted((ROOT / "adapters").rglob("*.py")),
@@ -94,9 +99,8 @@ def block(start):
 
 def ui_codes():
     keys = re.compile(r"^\s+\"?([a-z0-9_]+)\"?:", re.M)
-    codes = set()
+    codes = {key.removeprefix("error.") for key in ERROR_KEYS}
     for start in (
-        "const userErrors = {",
         "const conditionCopy = {",
         "function attachmentError(",
         "function attachmentNotice(",
@@ -108,6 +112,16 @@ def ui_codes():
 def test_every_server_code_has_readable_ui_copy():
     missing = sorted(server_codes() - INTERNAL_ONLY - ui_codes())
     assert not missing, "codes without UI copy: " + ", ".join(missing)
+
+
+def test_user_error_copy_lives_in_the_catalog():
+    assert "const userErrors" not in UI
+    assert ERROR_KEYS, "en.json has no error.<code> keys"
+
+
+def test_every_error_key_has_a_pt_br_translation():
+    pt_br = json.loads((LOCALES / "pt-br.json").read_text(encoding="utf-8"))
+    assert sorted(ERROR_KEYS - set(pt_br)) == []
 
 
 def test_internal_only_codes_are_still_raised():

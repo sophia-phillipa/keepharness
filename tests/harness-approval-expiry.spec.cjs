@@ -216,7 +216,7 @@ const path = require("node:path");
     console.log("PASS P5: narrow-screen reload and replay remain usable");
 
     const guidance = await page.evaluate(
-      () => userErrors.approval_session_required,
+      () => userError("approval_session_required"),
     );
     assert.match(guidance, /enroll/i);
     assert.match(guidance, /approve-device/);

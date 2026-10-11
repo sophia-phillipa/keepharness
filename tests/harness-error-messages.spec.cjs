@@ -104,14 +104,14 @@ const path = require("node:path");
     );
     // Retired cloud execution guidance directs an explicit native conversation.
     const isolation = await page.evaluate(
-      () => userErrors.isolation_unavailable,
+      () => userError("isolation_unavailable"),
     );
     assert.match(isolation, /Start a new native conversation/);
     assert.doesNotMatch(isolation, /Turn isolation|install bubblewrap/);
     const localSafety = await page.evaluate(() => [
-      userErrors.unsafe_scoped_home,
-      userErrors.scoped_private_file_linked,
-      userErrors.scoped_private_files_unavailable,
+      userError("unsafe_scoped_home"),
+      userError("scoped_private_file_linked"),
+      userError("scoped_private_files_unavailable"),
     ]);
     assert.match(localSafety[0], /workspace.*unsafe/);
     assert.match(localSafety[1], /remove the link/);
