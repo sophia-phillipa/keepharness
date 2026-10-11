@@ -4,6 +4,7 @@ import json
 import re
 import shutil
 import subprocess
+from html.parser import HTMLParser
 from pathlib import Path
 
 import pytest
@@ -220,3 +221,52 @@ def test_every_t_key_used_by_the_ui_exists_in_english():
     }
     assert "settings_search.status.found" in used  # the scan sees the pilot keys
     assert sorted(used - set(english)) == []
+
+
+INDEX_HTML = Path(__file__).resolve().parents[1] / "agent_service" / "index.html"
+VOID_TAGS = {"area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "source", "track", "wbr"}
+
+
+class StaticI18nMarkup(HTMLParser):
+    """Collects each data-i18n* attribute with the whitespace-normalized text of its element."""
+
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.stack = []
+        self.found = []  # (attribute name, key, text)
+
+    @staticmethod
+    def marks(attrs):
+        return [(name, value) for name, value in attrs if name.startswith("data-i18n")]
+
+    def handle_starttag(self, tag, attrs):
+        if tag in VOID_TAGS:
+            self.found += [(name, value, "") for name, value in self.marks(attrs)]
+            return
+        self.stack.append({"tag": tag, "marks": self.marks(attrs), "parts": []})
+
+    def handle_endtag(self, tag):
+        if tag not in (entry["tag"] for entry in self.stack):
+            return
+        while True:
+            entry = self.stack.pop()
+            text = " ".join("".join(entry["parts"]).split())
+            self.found += [(name, value, text) for name, value in entry["marks"]]
+            if entry["tag"] == tag:
+                return
+
+    def handle_data(self, data):
+        for entry in self.stack:
+            entry["parts"].append(data)
+
+
+def test_static_markup_keys_exist_and_wrapped_text_is_english():
+    english = load(LOCALES / "en.json")
+    parser = StaticI18nMarkup()
+    parser.feed(INDEX_HTML.read_text(encoding="utf-8"))
+    parser.close()
+    assert parser.found, "index.html lost its data-i18n attributes"
+    for name, key, text in parser.found:
+        assert key in english, (name, key)
+        if name == "data-i18n":
+            assert text == " ".join(english[key].split()), (key, text)

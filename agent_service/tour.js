@@ -7,29 +7,29 @@
   const steps = [
     {
       target: "composer",
-      title: "Write and route work",
-      text: "Write a request, type / to choose agents, skills and commands, or @@ to call one of your agents. The chips under the box attach files and Space pages and choose plugins; the pickers set access, model and effort.",
+      titleKey: "tour.write.title",
+      textKey: "tour.write.text",
     },
     {
       target: "rail-areas",
-      title: "Space, Scheduled and Plugins",
-      text: "The rail opens Space (pages for each project), Scheduled (recurring tasks), Runs and Plugins (skills, agents and MCPs). Hover or focus a rail button to read its name.",
+      titleKey: "tour.rail.title",
+      textKey: "tour.rail.text",
     },
     {
       target: "sidebar-state-groups",
-      title: "Conversations by state",
-      text: "Project chats stay inside their project; other conversations are listed under Chats, with what needs you first. A yellow dot means a conversation needs your answer; a spinner, running; a ring, queued; red, failed; blue, an unread answer.",
+      titleKey: "tour.conversations.title",
+      textKey: "tour.conversations.text",
     },
     {
       target: "run-console-tabs",
-      title: "Live status and the Run console",
-      text: "The status strip keeps running, queued and needs-you counts visible; select it or press Ctrl/⌘+J to open the Run console. Pipeline shows the current plan, Timeline and Logs show execution detail, and Runs lists work across the project.",
+      titleKey: "tour.status.title",
+      textKey: "tour.status.text",
       reveal: "console",
     },
     {
       target: "settings-admin",
-      title: "Settings and help",
-      text: "Settings holds Appearance, Plugins, Agents, Models, Usage, Connect a client and About. On the computer that runs KeepHarness, its System section shows providers, operations, run history and catalogs. KeepHarness was called Tail Harness before 0.15. Choose Take the tour in Settings to replay this guide.",
+      titleKey: "tour.settings.title",
+      textKey: "tour.settings.text",
     },
   ];
 
@@ -90,10 +90,10 @@
         <h2 id="tour-title"></h2>
         <p id="tour-description"></p>
         <div class="tour-actions">
-          <button id="tour-skip" type="button">Skip tour</button>
+          <button id="tour-skip" type="button">${HarnessI18n.t("tour.skip")}</button>
           <span class="tour-spacer"></span>
-          <button id="tour-back" type="button">Back</button>
-          <button id="tour-next" type="button">Next</button>
+          <button id="tour-back" type="button">${HarnessI18n.t("tour.back")}</button>
+          <button id="tour-next" type="button">${HarnessI18n.t("tour.next")}</button>
         </div>
       </section>`;
     document.body.append(root);
@@ -128,13 +128,23 @@
         index = candidate;
         target = found;
         const step = steps[index];
-        root.querySelector("#tour-counter").textContent =
-          `${index + 1} of ${steps.length}`;
-        root.querySelector("#tour-title").textContent = step.title;
-        root.querySelector("#tour-description").textContent = step.text;
+        root.querySelector("#tour-counter").textContent = HarnessI18n.t(
+          "tour.counter",
+          {
+            current: index + 1,
+            total: steps.length,
+          },
+        );
+        root.querySelector("#tour-title").textContent = HarnessI18n.t(
+          step.titleKey,
+        );
+        root.querySelector("#tour-description").textContent = HarnessI18n.t(
+          step.textKey,
+        );
         root.querySelector("#tour-back").disabled = index === 0;
-        root.querySelector("#tour-next").textContent =
-          index === steps.length - 1 ? "Finish" : "Next";
+        root.querySelector("#tour-next").textContent = HarnessI18n.t(
+          index === steps.length - 1 ? "tour.finish" : "tour.next",
+        );
         target.scrollIntoView({
           block: "nearest",
           inline: "nearest",
