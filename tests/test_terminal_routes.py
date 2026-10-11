@@ -38,10 +38,12 @@
 import asyncio
 import hashlib
 import json
+import time
 
 import httpx
 import pytest
 
+from agent_service import app as app_module
 from agent_service import approval_sessions
 from agent_service.app import create_app
 from agent_service.terminal import TerminalManager
@@ -389,5 +391,33 @@ def test_app_shutdown_closes_every_terminal_session(make_harness_config, monkeyp
         assert len(started) == 1
         assert len(closed) == 1
         assert not started[0].is_alive()
+    finally:
+        app.state.service.db.close()
+
+
+def test_lifespan_reaper_ends_idle_sessions_even_with_a_foreground_child(
+    make_harness_config, monkeypatch, tmp_path
+):
+    now = [0.0]
+    monkeypatch.setenv("SHELL", "/bin/sh")
+    monkeypatch.setattr(app_module, "REAP_SECONDS", 0.01)
+    monkeypatch.setattr(
+        app_module,
+        "TerminalManager",
+        lambda *, clock: TerminalManager(clock=lambda: now[0], idle_timeout=1800.0),
+    )
+    app = create_app(make_harness_config())
+
+    async def scenario():
+        session, _ = await asyncio.to_thread(app.state.terminal.start, "sem-projeto", str(tmp_path))
+        session.write("sleep 30\n")
+        now[0] += 1800.0
+        deadline = time.monotonic() + GUARD_SECONDS
+        while session.is_alive():
+            assert time.monotonic() < deadline, "idle session was not reaped"
+            await asyncio.sleep(0.01)
+
+    try:
+        run_app(app, scenario)
     finally:
         app.state.service.db.close()

@@ -39,6 +39,8 @@ from .terminal import TerminalManager
 
 logger = logging.getLogger(__name__)
 
+REAP_SECONDS = 30.0
+
 # Historical name; tests and scripts still import ``Service``.
 Service = ConversationService
 
@@ -49,11 +51,20 @@ def create_app(config, runtime_path=None):
     build_versions = system_routes.BuildVersions()
     terminal = TerminalManager(clock=time.monotonic)
 
+    async def reap_terminals():
+        while True:
+            await asyncio.sleep(REAP_SECONDS)
+            try:
+                await asyncio.to_thread(terminal.reap_idle)
+            except Exception as error:
+                logger.warning("terminal idle reap failed error=%s", type(error).__name__)
+
     @asynccontextmanager
     async def lifespan(app):
         worker = asyncio.create_task(service.worker())
         due_runs = asyncio.create_task(scheduler.run(service))
         temporary_cleanup = asyncio.create_task(service.temporary.sweep())
+        terminal_reaper = asyncio.create_task(reap_terminals())
 
         async def watch_runtime():
             previous = None
@@ -97,6 +108,11 @@ def create_app(config, runtime_path=None):
                 pass
             await service.effects.close()
             await service.temporary.close_all()
+            terminal_reaper.cancel()
+            try:
+                await terminal_reaper
+            except asyncio.CancelledError:
+                pass
             await asyncio.to_thread(terminal.close_all)
             service.db.close()
 
