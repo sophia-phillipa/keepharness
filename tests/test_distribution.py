@@ -28,8 +28,10 @@ INVENTORY = {
 class DistributionTest(unittest.TestCase):
     def test_service_paths_and_permissions(self):
         config = files(Path("/tmp/user with space"), "/tmp/env/bin/python", 8100)
-        self.assertEqual(len(config), 2)  # service + launcher; no browser menu entry
+        self.assertEqual(len(config), 3)  # service + launcher + CLI; no browser menu entry
         self.assertFalse(any(path.suffix == ".desktop" for path in config))
+        cli = config[Path("/tmp/user with space/.local/bin/keepharness")]
+        self.assertEqual(cli, ('#!/bin/sh\nexec /tmp/env/bin/keepharness "$@"\n', 0o700))
         unit = next(text for path, (text, mode) in config.items() if path.suffix == ".service")
         self.assertIn("--port 8100", unit)
         self.assertIn("Restart=on-failure", unit)

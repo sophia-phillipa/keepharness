@@ -55,6 +55,21 @@ def test_install_py_never_writes_browser_entry_with_or_without_desktop(tmp_path)
     assert not any(p.suffix == ".desktop" for p in install.files(home, "/python"))
 
 
+def test_cli_wrapper_is_written_and_rollback_removes_it(tmp_path, monkeypatch):
+    from control import install
+
+    monkeypatch.setattr(install, "rollback_refusal", lambda home: None)
+    monkeypatch.setattr(install, "rollback_state", lambda home: home)
+    wrapper = tmp_path / ".local/bin/keepharness"
+    content, mode = install.files(tmp_path, "/venv/bin/python")[wrapper]
+    wrapper.parent.mkdir(parents=True)
+    install.atomic_write(wrapper, content, mode)
+    assert wrapper.read_text() == '#!/bin/sh\nexec /venv/bin/keepharness "$@"\n'
+    assert wrapper.stat().st_mode & 0o777 == 0o700
+    install.rollback(tmp_path, run=lambda *a, **kw: None)
+    assert not wrapper.exists()
+
+
 def test_install_py_rollback_removes_only_exact_legacy_browser_entry(tmp_path, monkeypatch):
     from control import install
 

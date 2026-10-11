@@ -136,9 +136,12 @@ systemctl --user start {SERVICE}
 {shlex.quote(str(python))} -c {shlex.quote("from control.install import wait_ready; wait_ready(" + str(port) + ")")}
 exec xdg-open http://127.0.0.1:{port}/
 """
+    # The CLI on the user's PATH (e.g. `keepharness approve-device`): the venv's own entry point.
+    cli = f'#!/bin/sh\nexec {shlex.quote(str(Path(python).parent / "keepharness"))} "$@"\n'
     return {
         home / ".config/systemd/user" / SERVICE: (unit, 0o600),
         home / (".local/bin/" + PRODUCT.slug + "-open"): (launcher, 0o700),
+        home / (".local/bin/" + PRODUCT.slug): (cli, 0o700),
     }
 
 
