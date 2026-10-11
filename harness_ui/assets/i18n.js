@@ -104,10 +104,27 @@
     return sourceTexts.get(text) ?? text;
   }
 
+  // Settings › Appearance switches the page in place: only a complete locale or English is accepted, and any
+  // other tag returns false with nothing changed. The page is not reloaded; listeners re-render what they own.
+  function setLanguage(tag) {
+    if (typeof tag !== "string") return false;
+    const locale = exact(tag) ?? (tag === SOURCE_TAG ? { tag, file: SOURCE_FILE } : undefined);
+    const catalog = locale && (locale.file === SOURCE_FILE ? english : readJson(locale.file));
+    if (!catalog) return false;
+    active = { tag: locale.tag, catalog };
+    rules.active = new Intl.PluralRules(locale.tag);
+    sourceTexts = undefined;
+    document.documentElement.lang = locale.tag;
+    window.HarnessI18n.apply(document);
+    for (const callback of listeners) callback(locale.tag);
+    return true;
+  }
+
   window.HarnessI18n = {
     t: (key, params) => translate(key, params) ?? key,
     tag: () => active.tag,
     source,
+    setLanguage,
     apply(root = document) {
       for (const element of root.querySelectorAll("[data-i18n]")) {
         const text = translate(element.getAttribute("data-i18n"));

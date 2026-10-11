@@ -2059,6 +2059,7 @@
   "search.settings_path": "Configurações › {group}",
   "search.title": "Pesquisar no KeepHarness",
   "settings.admin.frame_title": "Administração: {section}",
+  "settings.appearance.language_label": "Idioma",
   "settings.storage.usage": "Armazenamento: {runs_used} de {runs_limit} execuções · {bytes_used} de {bytes_limit} de arquivos neste projeto.",
   "settings.storage.usage_almost_full": "Armazenamento: {runs_used} de {runs_limit} execuções · {bytes_used} de {bytes_limit} de arquivos neste projeto. Quase cheio: conversas arquivadas ainda contam, então exclua permanentemente as que você não precisa mais.",
   "settings_search.row.unavailable": "Indisponível para o modelo atual.",

@@ -257,8 +257,13 @@ async function step(name, work) {
         );
         await page.click("#menu");
         await setReadingSize(page, "19");
+        await page.evaluate(() => window.HarnessPrefs.set("language", "pt-BR"));
         await flush(page);
-        const expected = { sidebar_collapsed: true, reading_size: "19" };
+        const expected = {
+          sidebar_collapsed: true,
+          reading_size: "19",
+          language: "pt-BR",
+        };
         assert.deepEqual(
           Object.fromEntries(
             Object.keys(expected).map((key) => [key, onDisk(shared)[key]]),
@@ -281,6 +286,10 @@ async function step(name, work) {
           true,
         );
         assert.equal(await page.locator("#reading-size").inputValue(), "19");
+        assert.equal(
+          await page.evaluate(() => window.HarnessPrefs.get("language")),
+          "pt-BR",
+        );
         assert.equal(await lsItem(page, "sidebar-collapsed"), null);
         await page.context().close();
       },

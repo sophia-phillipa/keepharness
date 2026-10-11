@@ -2059,6 +2059,7 @@
   "search.settings_path": "Settings › {group}",
   "search.title": "Search KeepHarness",
   "settings.admin.frame_title": "Administration: {section}",
+  "settings.appearance.language_label": "Language",
   "settings.storage.usage": "Storage: {runs_used} of {runs_limit} runs · {bytes_used} of {bytes_limit} of files in this project.",
   "settings.storage.usage_almost_full": "Storage: {runs_used} of {runs_limit} runs · {bytes_used} of {bytes_limit} of files in this project. Almost full: archived chats still count, so delete the ones you no longer need permanently.",
   "settings_search.row.unavailable": "Unavailable for the current model.",
