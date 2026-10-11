@@ -2952,7 +2952,9 @@ $("cancel-import").onclick = () => {
 function renderMcpDefaults() {
   const select = $("mcp-default-model"),
     saved = state.settings.mcp_defaults || {};
-  select.replaceChildren(new Option("Automatic · current configuration", ""));
+  select.replaceChildren(
+    new Option(HarnessI18n.t("admin.mcp.default_auto"), ""),
+  );
   for (const [backend, spec] of Object.entries(state.settings.services))
     if (spec.enabled)
       for (const model of spec.models.filter((m) =>
@@ -2971,12 +2973,14 @@ function renderMcpDefaults() {
   renderMcpEfforts(saved.effort || "");
   $("save-mcp").disabled = false;
   $("mcp-save-note").textContent = state.status.running
-    ? "Changes will be applied without stopping the harness."
-    : "When you save an enabled model, the harness starts automatically. Existing conversations are not deleted.";
+    ? HarnessI18n.t("admin.mcp.save_note_running")
+    : HarnessI18n.t("admin.mcp.save_note_stopped");
 }
 function renderMcpEfforts(preferred = "") {
   const select = $("mcp-default-effort");
-  select.replaceChildren(new Option("Automatic · compatible effort", ""));
+  select.replaceChildren(
+    new Option(HarnessI18n.t("admin.mcp.effort_auto"), ""),
+  );
   const value = $("mcp-default-model").value;
   if (!value) {
     select.disabled = true;
@@ -2991,7 +2995,12 @@ function renderMcpEfforts(preferred = "") {
   for (const effort of efforts)
     select.append(new Option(effortLabels[effort] || effort, effort));
   if (preferred && !efforts.includes(preferred))
-    select.append(new Option(preferred + " · saved, check account", preferred));
+    select.append(
+      new Option(
+        HarnessI18n.t("admin.mcp.effort_saved", { effort: preferred }),
+        preferred,
+      ),
+    );
   select.value = preferred;
   settingsSearchChanged("changed");
 }
@@ -3012,10 +3021,7 @@ $("save-mcp").onclick = () =>
       await request("settings", draft);
       state.settings = draft;
       settings.mcp_defaults = draft.mcp_defaults;
-      HarnessUI.notice(
-        $("mcp-feedback"),
-        "MCP default saved. The configuration is applied automatically to upcoming requests.",
-      );
+      HarnessUI.notice($("mcp-feedback"), HarnessI18n.t("admin.mcp.saved"));
     } catch (e) {
       HarnessUI.notice($("mcp-feedback"), e.message, { error: true });
     }
@@ -3034,27 +3040,37 @@ async function refreshDashboard() {
     const data = await request("dashboard");
     if (!data.available) throw Error("Metrics temporarily unavailable");
     const format = (n) =>
-      n == null ? "Not provided" : Number(n).toLocaleString("en-US");
-    $("dashboard-updated").textContent =
-      "updated " + new Date(data.checked_at * 1000).toLocaleTimeString("en-US");
+      n == null
+        ? HarnessI18n.t("admin.dashboard.not_provided")
+        : Number(n).toLocaleString("en-US");
+    $("dashboard-updated").textContent = HarnessI18n.t(
+      "admin.dashboard.updated",
+      { time: new Date(data.checked_at * 1000).toLocaleTimeString("en-US") },
+    );
     const values = [
       [
-        "Requests / second",
+        HarnessI18n.t("admin.dashboard.metric_requests"),
         format(Number(data.requests_per_second.toFixed(3))),
-        "Average over the last 60 seconds",
+        HarnessI18n.t("admin.dashboard.metric_requests_detail"),
       ],
-      ["Running / queued", data.active + " / " + data.queued, "Current state"],
       [
-        "Reported tokens",
+        HarnessI18n.t("admin.dashboard.metric_running"),
+        data.active + " / " + data.queued,
+        HarnessI18n.t("admin.dashboard.metric_running_detail"),
+      ],
+      [
+        HarnessI18n.t("admin.dashboard.metric_tokens"),
         data.input_tokens == null && data.output_tokens == null
-          ? "Not provided"
+          ? HarnessI18n.t("admin.dashboard.not_provided")
           : format((data.input_tokens || 0) + (data.output_tokens || 0)),
-        format(data.measured_jobs) + " requests with metrics",
+        HarnessI18n.t("admin.dashboard.metric_tokens_detail", {
+          jobs: format(data.measured_jobs),
+        }),
       ],
       [
-        "Output / second",
+        HarnessI18n.t("admin.dashboard.metric_output"),
         format(data.latest_output_tokens_per_second),
-        "Last measured run",
+        HarnessI18n.t("admin.dashboard.metric_output_detail"),
       ],
     ];
     $("dashboard-metrics").replaceChildren(
@@ -3070,18 +3086,20 @@ async function refreshDashboard() {
     );
     const hw = data.hardware;
     const gib = (n) =>
-      n == null ? "Not provided" : (n / 1073741824).toFixed(1) + " GiB";
+      n == null
+        ? HarnessI18n.t("admin.dashboard.not_provided")
+        : (n / 1073741824).toFixed(1) + " GiB";
     const resources = [
       [
-        "CPU",
+        HarnessI18n.t("admin.dashboard.resource_cpu"),
         hw.cpu_percent == null
-          ? "Waiting for sample"
+          ? HarnessI18n.t("admin.dashboard.waiting_sample")
           : format(hw.cpu_percent) + "%",
         hw.cpu_percent,
         100,
       ],
       [
-        "Memory",
+        HarnessI18n.t("admin.dashboard.resource_memory"),
         gib(hw.memory_used) + " / " + gib(hw.memory_total),
         hw.memory_used,
         hw.memory_total,
@@ -3090,13 +3108,17 @@ async function refreshDashboard() {
     for (const gpu of hw.gpus) {
       resources.push(
         [
-          "GPU " + gpu.name,
+          HarnessI18n.t("admin.dashboard.resource_gpu_named", {
+            name: gpu.name,
+          }),
           format(gpu.percent) + "% · " + format(gpu.temperature) + " °C",
           gpu.percent,
           100,
         ],
         [
-          "VRAM " + gpu.name,
+          HarnessI18n.t("admin.dashboard.resource_vram_named", {
+            name: gpu.name,
+          }),
           gib(gpu.vram_used) + " / " + gib(gpu.vram_total),
           gpu.vram_used,
           gpu.vram_total,
@@ -3104,7 +3126,12 @@ async function refreshDashboard() {
       );
     }
     if (!hw.gpus.length)
-      resources.push(["GPU", "Measurement unavailable", null, 100]);
+      resources.push([
+        HarnessI18n.t("admin.dashboard.resource_gpu"),
+        HarnessI18n.t("admin.dashboard.measurement_unavailable"),
+        null,
+        100,
+      ]);
     $("server-resources").replaceChildren(
       ...resources.map(([label, value, current, max]) => {
         const box = element("div");
@@ -3121,26 +3148,26 @@ async function refreshDashboard() {
       }),
     );
     const names = {
-      queued: "Queued",
-      running: "Running",
-      completed: "Completed",
-      failed: "Failed",
-      cancelled: "Cancelled",
-      interrupted: "Interrupted",
+      queued: HarnessI18n.t("admin.dashboard.state_queued"),
+      running: HarnessI18n.t("admin.dashboard.state_running"),
+      completed: HarnessI18n.t("admin.dashboard.state_completed"),
+      failed: HarnessI18n.t("admin.dashboard.state_failed"),
+      cancelled: HarnessI18n.t("admin.dashboard.state_cancelled"),
+      interrupted: HarnessI18n.t("admin.dashboard.state_interrupted"),
     };
-    $("recent-count").textContent =
-      "Showing " +
-      data.recent.length +
-      " of " +
-      (data.recent_count ?? data.recent.length) +
-      " · last ones ended within 30 min";
+    $("recent-count").textContent = HarnessI18n.t(
+      "admin.dashboard.recent_count",
+      {
+        shown: data.recent.length,
+        total: data.recent_count ?? data.recent.length,
+      },
+    );
     $("recent-runs").setAttribute(
       "aria-label",
-      "Showing " +
-        data.recent.length +
-        " of " +
-        (data.recent_count ?? data.recent.length) +
-        " runs",
+      HarnessI18n.t("admin.dashboard.recent_label", {
+        shown: data.recent.length,
+        total: data.recent_count ?? data.recent.length,
+      }),
     );
     const holder = $("recent-runs");
     const retained = new Map(
@@ -3170,14 +3197,16 @@ async function refreshDashboard() {
           job.backend,
           job.model,
           [job.backend, job.model].filter(Boolean).join(" · ") ||
-            "Runner not provided",
+            HarnessI18n.t("admin.dashboard.runner_not_provided"),
         ),
         document.createTextNode(
           " · " +
             [
               names[job.state] || job.state,
-              job.project || "No project",
-              format(job.output_tokens) + " output tokens",
+              job.project || HarnessI18n.t("sidebar.project.none"),
+              HarnessI18n.t("admin.dashboard.output_tokens", {
+                tokens: format(job.output_tokens),
+              }),
             ].join(" · "),
         ),
       );
@@ -3193,13 +3222,14 @@ async function refreshDashboard() {
       holder.replaceChildren(
         element(
           "p",
-          "No run active or finished in the last 30 minutes.",
+          HarnessI18n.t("admin.dashboard.empty_recent"),
           "empty-history",
         ),
       );
   } catch (e) {
-    $("dashboard-updated").textContent =
-      "Could not refresh; the latest data remains visible.";
+    $("dashboard-updated").textContent = HarnessI18n.t(
+      "admin.dashboard.refresh_failed",
+    );
   } finally {
     dashboardLoading = false;
   }
@@ -3231,14 +3261,17 @@ async function refreshExecution(row) {
         .join("");
     const nodes = [];
     for (const [title, value] of [
-      ["Prompt", data.prompt],
-      ["Response", answer || "Not received yet"],
+      [HarnessI18n.t("admin.execution.prompt"), data.prompt],
+      [
+        HarnessI18n.t("admin.execution.response"),
+        answer || HarnessI18n.t("admin.execution.not_received"),
+      ],
     ]) {
       nodes.push(element("h4", title), element("pre", value, "execution-text"));
     }
     if (data.metrics) {
       nodes.push(
-        element("h4", "Reported tokens and metrics"),
+        element("h4", HarnessI18n.t("admin.execution.section_metrics")),
         describeExecutionData(data.metrics),
       );
     }
@@ -3247,12 +3280,12 @@ async function refreshExecution(row) {
     );
     if (agents.length || data.orchestration) {
       nodes.push(
-        element("h4", "Agents and planning"),
+        element("h4", HarnessI18n.t("admin.execution.section_agents")),
         describeExecutionData(data.orchestration || agents.map((e) => e.data)),
       );
     }
     if (data.spans?.length) {
-      nodes.push(element("h4", "Execution spans"));
+      nodes.push(element("h4", HarnessI18n.t("admin.execution.section_spans")));
       const spans = element("ol", undefined, "execution-spans");
       for (const span of data.spans) {
         const item = element("li");
@@ -3261,37 +3294,49 @@ async function refreshExecution(row) {
           outcome === "unknown"
             ? span.end_ts == null
               ? span.start_ts == null
-                ? "Pending"
-                : "In progress"
-              : "Outcome unknown"
+                ? HarnessI18n.t("admin.execution.status_pending")
+                : HarnessI18n.t("admin.execution.status_in_progress")
+              : HarnessI18n.t("admin.execution.status_unknown")
             : outcome;
         const duration =
           Number.isFinite(span.start_ts) && Number.isFinite(span.end_ts)
-            ? ` · ${Math.max(0, span.end_ts - span.start_ts).toFixed(1)} s`
+            ? HarnessI18n.t("admin.execution.span_seconds", {
+                seconds: Math.max(0, span.end_ts - span.start_ts).toFixed(1),
+              })
             : "";
         item.append(
           element("strong", span.name || span.kind),
-          document.createTextNode(` · ${span.kind} · ${status}${duration}`),
+          document.createTextNode(
+            HarnessI18n.t("admin.execution.span_line", {
+              kind: span.kind,
+              status,
+              duration,
+            }),
+          ),
         );
         spans.append(item);
       }
       nodes.push(spans);
     }
-    nodes.push(element("h4", "Activity · last 500 events"));
+    nodes.push(
+      element("h4", HarnessI18n.t("admin.execution.section_activity")),
+    );
     const activity = element("ol", undefined, "execution-events");
     const labels = {
-      thinking: "Thinking",
-      reasoning_summary: "Reasoning summary",
-      tool_start: "Tool started",
-      tool_end: "Tool finished",
-      context_usage: "Context usage",
-      maestro_planning: "Planning",
-      maestro_step: "Agent step",
-      completed: "Completed",
-      failed: "Failed",
-      cancelled: "Cancelled",
-      running: "Running",
-      queued: "Queued",
+      thinking: HarnessI18n.t("admin.execution.event_thinking"),
+      reasoning_summary: HarnessI18n.t(
+        "admin.execution.event_reasoning_summary",
+      ),
+      tool_start: HarnessI18n.t("admin.execution.event_tool_start"),
+      tool_end: HarnessI18n.t("admin.execution.event_tool_end"),
+      context_usage: HarnessI18n.t("admin.execution.event_context_usage"),
+      maestro_planning: HarnessI18n.t("admin.execution.event_planning"),
+      maestro_step: HarnessI18n.t("admin.execution.event_agent_step"),
+      completed: HarnessI18n.t("admin.dashboard.state_completed"),
+      failed: HarnessI18n.t("admin.dashboard.state_failed"),
+      cancelled: HarnessI18n.t("admin.dashboard.state_cancelled"),
+      running: HarnessI18n.t("admin.dashboard.state_running"),
+      queued: HarnessI18n.t("admin.dashboard.state_queued"),
     };
     for (const event of events
       .filter((e) => !["answer_delta", "reasoning_delta"].includes(e.type))
@@ -3312,8 +3357,9 @@ async function refreshExecution(row) {
     nodes.push(activity);
     detail.replaceChildren(...nodes);
   } catch (e) {
-    row.lastElementChild.textContent =
-      "Could not query this run. The update will be retried.";
+    row.lastElementChild.textContent = HarnessI18n.t(
+      "admin.execution.query_failed",
+    );
   } finally {
     delete row.dataset.loading;
   }
@@ -3321,30 +3367,33 @@ async function refreshExecution(row) {
 
 function describeExecutionData(value) {
   const labels = {
-    input_tokens: "Input tokens",
-    output_tokens: "Output tokens",
-    cached_tokens: "Cached tokens",
-    thinking_tokens: "Thinking tokens",
-    inference_seconds: "Run time (s)",
-    total_seconds: "Duration (s)",
-    backend: "Provider",
-    model: "Model",
-    effort: "Effort",
-    role: "Role",
-    steps: "Steps",
-    metrics: "Metrics",
-    text: "Message",
-    tool: "Tool",
-    index: "Step",
-    status: "Status",
-    answer: "Response",
-    context_usage: "Context",
-    result: "Result",
-    prompt: "Instruction",
+    input_tokens: HarnessI18n.t("admin.execution.field_input_tokens"),
+    output_tokens: HarnessI18n.t("admin.execution.field_output_tokens"),
+    cached_tokens: HarnessI18n.t("admin.execution.field_cached_tokens"),
+    thinking_tokens: HarnessI18n.t("admin.execution.field_thinking_tokens"),
+    inference_seconds: HarnessI18n.t("admin.execution.field_run_time"),
+    total_seconds: HarnessI18n.t("admin.execution.field_duration"),
+    backend: HarnessI18n.t("composer.provider.fallback"),
+    model: HarnessI18n.t("admin.execution.field_model"),
+    effort: HarnessI18n.t("admin.execution.field_effort"),
+    role: HarnessI18n.t("admin.execution.field_role"),
+    steps: HarnessI18n.t("admin.execution.field_steps"),
+    metrics: HarnessI18n.t("admin.execution.field_metrics"),
+    text: HarnessI18n.t("admin.execution.field_message"),
+    tool: HarnessI18n.t("admin.execution.field_tool"),
+    index: HarnessI18n.t("admin.execution.field_step"),
+    status: HarnessI18n.t("admin.execution.field_status"),
+    answer: HarnessI18n.t("admin.execution.response"),
+    context_usage: HarnessI18n.t("admin.execution.field_context"),
+    result: HarnessI18n.t("admin.execution.field_result"),
+    prompt: HarnessI18n.t("admin.execution.field_instruction"),
   };
   const box = element("div", undefined, "observed-data");
   if (value === null || typeof value !== "object") {
-    box.textContent = value == null ? "Not provided" : String(value);
+    box.textContent =
+      value == null
+        ? HarnessI18n.t("admin.dashboard.not_provided")
+        : String(value);
     return box;
   }
   for (const [key, item] of Object.entries(value)) {
@@ -3354,7 +3403,12 @@ function describeExecutionData(value) {
       group.append(describeExecutionData(item));
     else
       group.append(
-        element("span", item == null ? "Not provided" : String(item)),
+        element(
+          "span",
+          item == null
+            ? HarnessI18n.t("admin.dashboard.not_provided")
+            : String(item),
+        ),
       );
     box.append(group);
   }
@@ -3377,11 +3431,15 @@ function showStep(value) {
   if (!wizard || !engine || !integrating) {
     if (wizard)
       $("wizard-progress").textContent =
-        step === 0 ? "Choose service and models" : "Review and finish";
+        step === 0
+          ? HarnessI18n.t("admin.wizard.step_models")
+          : HarnessI18n.t("admin.wizard.step_review");
     return;
   }
   const plugins = integrationKind() === "plugin",
-    title = plugins ? "Plugins" : "Connectors";
+    title = plugins
+      ? HarnessI18n.t("customize.chip.plugins")
+      : HarnessI18n.t("admin.integrations.title_connectors");
   $("integration-provider").value = engine;
   $("integration-provider").disabled = true;
   $("integrations")
@@ -3395,19 +3453,31 @@ function showStep(value) {
       ),
     );
   $("integration-help").textContent = plugins
-    ? "Plugins are resource packages for the " +
-      (engine === "claude" ? "Claude Code" : "Codex") +
-      " engine. Check the description, install the package, and refresh the list. Then select the plugins you want to load and save. MCP servers are managed in the Connectors tab."
-    : "MCP connectors let the model use tools from other services. To connect: choose Register MCP connector, enter a name and the official URL of the service (or the local command in JSON), and run it. If the service requires login, choose Authenticate connector and complete the official authorization. Refresh the list, select the connector, and save. Registering does not confirm that the connection is authenticated or working.";
+    ? HarnessI18n.t("admin.integrations.help_plugins", {
+        engine: engine === "claude" ? "Claude Code" : "Codex",
+      })
+    : HarnessI18n.t("admin.integrations.help_connectors");
   const options = plugins
     ? [
-        ["plugin_install", "Install plugin"],
-        ["plugin_remove", "Remove plugin"],
+        [
+          "plugin_install",
+          HarnessI18n.t("admin.integrations.action_plugin_install"),
+        ],
+        [
+          "plugin_remove",
+          HarnessI18n.t("admin.integrations.action_plugin_remove"),
+        ],
       ]
     : [
-        ["connector_add", "Register MCP connector"],
-        ["login", "Authenticate connector"],
-        ["connector_remove", "Remove connector"],
+        [
+          "connector_add",
+          HarnessI18n.t("admin.integrations.action_connector_add"),
+        ],
+        ["login", HarnessI18n.t("admin.integrations.action_login")],
+        [
+          "connector_remove",
+          HarnessI18n.t("admin.integrations.action_connector_remove"),
+        ],
       ];
   const previous = $("integration-action").value;
   $("integration-action").replaceChildren(
@@ -3419,7 +3489,10 @@ function showStep(value) {
   renderIntegrationCliGuide();
   if (integrationCatalogs.has(engine)) renderCatalog();
   else loadCatalog();
-  $("wizard-progress").textContent = title + " · manage what the CLI can load";
+  $("wizard-progress").textContent = HarnessI18n.t(
+    "admin.wizard.progress_manage",
+    { title },
+  );
   $("wizard-next").hidden = true;
   $("wizard-back").hidden = false;
 }
