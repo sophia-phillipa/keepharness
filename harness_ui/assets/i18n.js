@@ -91,9 +91,23 @@
     );
   }
 
+  // English text of a whole active-catalog string, for code that still recognises English labels.
+  let sourceTexts;
+  function source(text) {
+    if (active.catalog === english) return text;
+    if (!sourceTexts) {
+      sourceTexts = new Map();
+      for (const [key, value] of Object.entries(active.catalog))
+        if (typeof value === "string" && typeof english[key] === "string" && !sourceTexts.has(value))
+          sourceTexts.set(value, english[key]);
+    }
+    return sourceTexts.get(text) ?? text;
+  }
+
   window.HarnessI18n = {
     t: (key, params) => translate(key, params) ?? key,
     tag: () => active.tag,
+    source,
     apply(root = document) {
       for (const element of root.querySelectorAll("[data-i18n]")) {
         const text = translate(element.getAttribute("data-i18n"));

@@ -78,6 +78,7 @@ console.log(
     other: i18n.t("common.run.count", { count: 3 }),
     applied: [nodes[0].textContent, nodes[1].textContent, nodes[2].attrs.title, nodes[3].attrs["aria-label"]],
     api: globalThis.apiRequests,
+    source: [i18n.source(i18n.t("common.app.name")), i18n.source("Not in any catalog")],
   }),
 );
 """
@@ -203,6 +204,7 @@ def test_plural_and_fallback_in_active_locale(pt_root):
     assert result["app"] == "Test locale app"
     assert (result["one"], result["other"]) == ("1 job", "3 jobs")
     assert result["unknown"] == "common.unknown.key"
+    assert result["source"] == ["KeepHarness", "Not in any catalog"]
 
 
 def test_missing_catalog_file_stays_english(pt_root):
@@ -262,7 +264,21 @@ def test_every_t_key_used_by_the_ui_exists_in_english():
 
 
 INDEX_HTML = Path(__file__).resolve().parents[1] / "agent_service" / "index.html"
-VOID_TAGS = {"area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "source", "track", "wbr"}
+VOID_TAGS = {
+    "area",
+    "base",
+    "br",
+    "col",
+    "embed",
+    "hr",
+    "img",
+    "input",
+    "link",
+    "meta",
+    "source",
+    "track",
+    "wbr",
+}
 
 
 class StaticI18nMarkup(HTMLParser):

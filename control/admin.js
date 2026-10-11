@@ -3847,10 +3847,12 @@ function decoratePanelButtons() {
     const label = (
       button.getAttribute("aria-label") || button.textContent
     ).trim();
+    // The patterns are English: match the English text of a translated label.
+    const englishLabel = HarnessI18n.source(label);
     const action = buttonActions.find(([pattern, , helpKey]) =>
       button.dataset.panelHelp
         ? button.dataset.panelHelp === helpKey
-        : pattern.test(label),
+        : pattern.test(englishLabel),
     );
     const folder = button.closest(
       "#folder-picker-breadcrumb,#folder-picker-list",
