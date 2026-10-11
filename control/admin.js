@@ -1490,8 +1490,8 @@ $("full-access").onchange = () => {
       await load({ select: false });
       say(
         enabled
-          ? "Full access is now offered in the chat's access menu."
-          : "Full access is no longer offered in the chat's access menu.",
+          ? HarnessI18n.t("admin.access.full_access_on")
+          : HarnessI18n.t("admin.access.full_access_off"),
       );
     } finally {
       toggle.checked = state.settings.full_access === true;
@@ -1519,7 +1519,7 @@ async function browseFolders(path = "") {
   $("folder-picker-error").hidden = true;
   $("folder-picker-list").replaceChildren();
   $("folder-picker-breadcrumb").replaceChildren();
-  $("folder-picker-status").textContent = "Loading folders from the server…";
+  $("folder-picker-status").textContent = HarnessI18n.t("admin.folders.loading");
   $("folder-picker-list").setAttribute("aria-busy", "true");
   try {
     const data = await request(
@@ -1555,15 +1555,14 @@ async function browseFolders(path = "") {
       $("folder-picker-list").append(button);
     }
     $("folder-picker-status").textContent = data.truncated
-      ? "Showing the first 200 subfolders. Open a folder or provide a more specific path."
-      : data.directories.length +
-        " subfolder(s). " +
-        (!data.directories.length
-          ? "This folder has no subfolders. You can choose it."
-          : "Open a subfolder or choose the current folder.");
+      ? HarnessI18n.t("admin.folders.truncated")
+      : HarnessI18n.t(
+          data.directories.length ? "admin.folders.some" : "admin.folders.none",
+          { count: data.directories.length },
+        );
   } catch (e) {
     if (sequence !== folderPickerSequence) return;
-    $("folder-picker-status").textContent = "Could not list this folder.";
+    $("folder-picker-status").textContent = HarnessI18n.t("admin.folders.list_failed");
     $("folder-picker-error").textContent = e.message;
     $("folder-picker-error").hidden = false;
   } finally {
@@ -1636,7 +1635,7 @@ $("integration-run").onclick = () =>
         data.command = JSON.parse(source);
       } catch {
         throw Error(
-          'Enter the command as a valid JSON list, for example: ["program", "argument"].',
+          HarnessI18n.t("admin.integrations.command_json_example"),
         );
       }
       if (
@@ -1646,11 +1645,11 @@ $("integration-run").onclick = () =>
         !data.command[0].trim()
       )
         throw Error(
-          "Enter the command as a JSON list of strings, starting with the program to run.",
+          HarnessI18n.t("admin.integrations.command_list_strings"),
         );
     }
     await request("integration", data);
-    say("Operation started. Track the result below.");
+    say(HarnessI18n.t("admin.operations.started"));
     pollOperations();
   });
 $("integration-refresh").onclick = () =>
@@ -1659,7 +1658,7 @@ $("integration-refresh").onclick = () =>
     state.integrations = fresh.integrations;
     renderProviders();
     say(
-      "Integrations updated. Select them in the connectors and plugins area.",
+      HarnessI18n.t("admin.integrations.updated"),
     );
   });
 $("install-model-button").onclick = () =>
@@ -1669,7 +1668,7 @@ $("install-model-button").onclick = () =>
       accepted: $("model-consent").checked,
       runtime: $("install-runtime").value,
     });
-    say("Download started. Track progress in Operations.");
+    say(HarnessI18n.t("admin.models.download_started"));
     pollOperations();
   });
 let operationTimer,
@@ -1695,10 +1694,10 @@ async function pollOperations() {
       : allJobs.filter((j) => j.state === "running");
     $("operations-panel").hidden = !jobs.length;
     const names = {
-      running: "In progress",
-      completed: "Completed",
-      failed: "Failed",
-      cancelled: "Cancelled",
+      running: HarnessI18n.t("admin.operations.state_running"),
+      completed: HarnessI18n.t("admin.operations.state_completed"),
+      failed: HarnessI18n.t("admin.operations.state_failed"),
+      cancelled: HarnessI18n.t("admin.operations.state_cancelled"),
     };
     // Keep a half-typed login code (and its focus) across the 2 s refresh.
     const typing = document.querySelector("#operations .operation-code input");
@@ -1723,12 +1722,12 @@ async function pollOperations() {
         const output = /Traceback \(most recent call last\)/.test(
           j.output || "",
         )
-          ? "Could not complete the operation. Try again; if it persists, check the service."
+          ? HarnessI18n.t("admin.operations.failed_generic")
           : j.output;
         const pre = element(
           "pre",
           output?.replace("[gemini_client_retired] ", "") ||
-            "Waiting for the CLI…",
+            HarnessI18n.t("admin.operations.waiting_cli"),
         );
         d.append(pre);
         const deviceCode =
@@ -1736,7 +1735,7 @@ async function pollOperations() {
             ? DEVICE_CODE.exec(j.output || "")?.[0]
             : null;
         if (deviceCode) {
-          const code = element("p", "Your code: ", "login-code");
+          const code = element("p", HarnessI18n.t("admin.login.your_code"), "login-code");
           const value = element("strong", deviceCode);
           value.dataset.testid = "login-code";
           code.append(value);
@@ -1755,8 +1754,8 @@ async function pollOperations() {
             const link = element(
               "a",
               url.hostname === "antigravity.google"
-                ? "Open migration guide in new tab ↗"
-                : "Open authorization in new tab ↗",
+                ? HarnessI18n.t("admin.login.migration_link")
+                : HarnessI18n.t("admin.login.authorization_link"),
             );
             link.href = url.href;
             link.target = "_blank";
@@ -1769,7 +1768,7 @@ async function pollOperations() {
           const form = element("form", undefined, "operation-code");
           const label = element(
             "label",
-            "Paste the code Claude shows after you sign in",
+            HarnessI18n.t("admin.login.paste_code"),
           );
           const input = element("input");
           input.id = "operation-code-" + j.id;
@@ -1778,7 +1777,7 @@ async function pollOperations() {
           input.spellcheck = false;
           input.required = true;
           label.htmlFor = input.id;
-          const submit = element("button", "Send code", "button primary");
+          const submit = element("button", HarnessI18n.t("admin.login.send_code"), "button primary");
           submit.type = "submit";
           form.append(label, input, submit);
           form.onsubmit = (event) => {
@@ -1789,14 +1788,14 @@ async function pollOperations() {
                 code: input.value.trim(),
               });
               input.value = "";
-              say("Code sent. Finishing the login…");
+              say(HarnessI18n.t("admin.login.code_sent"));
               pollOperations();
             });
           };
           d.append(form);
         }
         if (j.state === "running") {
-          const cancel = element("button", "Cancel", "button secondary");
+          const cancel = element("button", HarnessI18n.t("admin.operations.cancel"), "button secondary");
           cancel.onclick = () =>
             action(async () => {
               await request("cancel-operation", { id: j.id });
@@ -1817,15 +1816,15 @@ async function pollOperations() {
       $("operation-message").textContent = /gemini_client_retired/.test(
         current.output || "",
       )
-        ? "Migration required: this client was discontinued by Google."
+        ? HarnessI18n.t("admin.login.migration_required")
         : current.state === "completed" &&
             activeOperation?.path === "provider-login"
           ? activeOperation.data.provider === "claude"
-            ? "Login completed. The account status was updated in the panel."
-            : "Login completed. Close this window and click Check account."
-          : "Operation " +
-            (names[current.state] || current.state).toLowerCase() +
-            ".";
+            ? HarnessI18n.t("admin.login.completed_claude")
+            : HarnessI18n.t("admin.login.completed_other")
+          : HarnessI18n.t("admin.operations.state_message", {
+              state: (names[current.state] || current.state).toLowerCase(),
+            });
       $("operation-retry").hidden =
         !["failed", "cancelled"].includes(current.state) ||
         /gemini_client_retired/.test(current.output || "");
@@ -1838,7 +1837,7 @@ async function pollOperations() {
     $("operations-panel").hidden = false;
     HarnessUI.notice(
       $("operations-status"),
-      "Could not refresh operations. We will try again in 5 seconds.",
+      HarnessI18n.t("admin.operations.refresh_failed"),
       { error: true },
     );
     clearTimeout(operationTimer);
@@ -1854,7 +1853,7 @@ $("local-files").onclick = () =>
     discoveredModelFiles = result.files;
     renderProfile();
     $("local-files-status").textContent =
-      result.files.length + " file(s) found. Select a file to configure.";
+      HarnessI18n.t("admin.local_models.files_found", { count: result.files.length });
   });
 $("add-local-model").onclick = () => {
   $("local-add").hidden = false;
@@ -1877,10 +1876,10 @@ for (const mode of ["download", "file"])
 $("use-local-file").onclick = () => {
   const file = $("local-file").value;
   if (!file) {
-    say("Search for and select a GGUF file on this machine.", true);
+    say(HarnessI18n.t("admin.local_models.select_gguf"), true);
     return;
   }
-  if (profileDirty && !confirm("Discard unsaved changes to this profile?"))
+  if (profileDirty && !confirm(HarnessI18n.t("admin.local_models.discard_confirm")))
     return;
   profileModel = file;
   profileDirty = false;
@@ -1891,10 +1890,10 @@ $("use-local-file").onclick = () => {
 };
 $("local-start").onclick = () =>
   action(async () => {
-    if (profileDirty) throw Error("Save this model profile before starting.");
+    if (profileDirty) throw Error(HarnessI18n.t("admin.local_models.save_before_start"));
     await request("local-start", { file: profileModel, use_profile: true });
     say(
-      "Server starting. Track Operations and refresh the inventory after loading.",
+      HarnessI18n.t("admin.local_models.starting"),
     );
     pollOperations();
   });
@@ -1906,27 +1905,41 @@ const workspace = element("div", undefined, "provider-workspace");
 $("configured-providers").before(workspace);
 const list = element("div", undefined, "provider-list");
 const listHeading = element("div", undefined, "provider-list-heading");
-listHeading.append(element("h2", "Providers"), $("add-provider"));
+listHeading.append(element("h2", HarnessI18n.t("admin.providers.list_heading")), $("add-provider"));
 list.append(listHeading, $("configured-providers"));
 workspace.append(list);
 document.body.append(providerDialog);
 const emptyInspector = element("section", undefined, "dashboard-live");
-emptyInspector.setAttribute("aria-label", "Activity and performance");
+emptyInspector.setAttribute("aria-label", HarnessI18n.t("admin.dashboard.aria_label"));
 emptyInspector.id = "inspector-empty";
 $("dashboard").before(emptyInspector);
 emptyInspector.innerHTML =
-  "<div class=section-heading><div><h2>Real-time operation</h2><p>Last 24 hours · <span id=dashboard-updated>checking</span></p></div></div><div id=dashboard-metrics class=dashboard-metrics></div><section class=card><div class=panel-header><h3>Local server</h3><small>Machine-wide usage</small></div><div id=server-resources class=server-resources></div></section><section class=card><div class=panel-header><h3>Runs · read-only</h3><small id=recent-count></small></div><div id=recent-runs></div></section><p class=hint>Output per second: run average, including tools and time waiting on the provider. It does not represent raw GPU speed. Tokens are only what the services report. Finished runs leave this list after 30 minutes; history is preserved.</p>";
+  "<div class=section-heading><div><h2>" +
+  HarnessI18n.t("admin.dashboard.realtime_title") +
+  "</h2><p>" +
+  HarnessI18n.t("admin.dashboard.last_24h") +
+  "<span id=dashboard-updated>" +
+  HarnessI18n.t("admin.dashboard.checking") +
+  "</span></p></div></div><div id=dashboard-metrics class=dashboard-metrics></div><section class=card><div class=panel-header><h3>" +
+  HarnessI18n.t("admin.dashboard.local_server") +
+  "</h3><small>" +
+  HarnessI18n.t("admin.dashboard.machine_usage") +
+  "</small></div><div id=server-resources class=server-resources></div></section><section class=card><div class=panel-header><h3>" +
+  HarnessI18n.t("admin.dashboard.runs_readonly") +
+  "</h3><small id=recent-count></small></div><div id=recent-runs></div></section><p class=hint>" +
+  HarnessI18n.t("admin.dashboard.metric_hint_full") +
+  "</p>";
 const executionPage = element("section", undefined, "dashboard-live");
 executionPage.id = "execution-page";
-executionPage.setAttribute("aria-label", "Runs");
+executionPage.setAttribute("aria-label", HarnessI18n.t("admin.dashboard.runs_label"));
 executionPage.append($("recent-runs").closest("section"));
 const metricHint = emptyInspector.querySelector(".hint");
 metricHint.textContent =
-  "Output per second: run average, including tools and time waiting on the provider. It does not represent raw GPU speed. Tokens are only what the services report.";
+  HarnessI18n.t("admin.dashboard.metric_hint");
 executionPage.append(
   element(
     "p",
-    "Finished runs leave this list after 30 minutes; history is preserved.",
+    HarnessI18n.t("admin.dashboard.history_hint"),
     "hint",
   ),
 );
@@ -1934,20 +1947,29 @@ emptyInspector.after(executionPage);
 
 const panelCopy = {
   catalogs: [
-    "Catalogs and vault",
-    "Manage pinned resources, prerequisites and private integration bindings.",
+    HarnessI18n.t("admin.panels.catalogs_title"),
+    HarnessI18n.t("admin.panels.catalogs_text"),
   ],
   connection: [
-    "Connection / MCP",
-    "Choose the model and effort that connected MCP clients use when they do not name one.",
+    HarnessI18n.t("admin.panels.connection_title"),
+    HarnessI18n.t("admin.panels.connection_text"),
   ],
-  home: ["Home", "Track operations and server usage in real time."],
-  plugins: ["Plugins", "Manage plugins, skills, and MCPs"],
+  home: [
+    HarnessI18n.t("admin.panels.home_title"),
+    HarnessI18n.t("admin.panels.home_text"),
+  ],
+  plugins: [
+    HarnessI18n.t("admin.panels.plugins_title"),
+    HarnessI18n.t("admin.panels.plugins_text"),
+  ],
   providers: [
-    "AI Providers",
-    "Connect your AI accounts, choose the models available in conversations, and configure access to files, tools, and services.",
+    HarnessI18n.t("admin.panels.providers_title"),
+    HarnessI18n.t("admin.panels.providers_text"),
   ],
-  runs: ["Runs", "Inspect requests, responses, and run events in real time."],
+  runs: [
+    HarnessI18n.t("admin.panels.runs_title"),
+    HarnessI18n.t("admin.panels.runs_text"),
+  ],
 };
 function renderPanel() {
   const section = Object.hasOwn(panelCopy, location.hash.slice(1))
