@@ -4,6 +4,7 @@ const MAX_ATTACHMENT_BYTES = 100 * 1024 * 1024;
 const AUDIO_ATTACHMENT_TIMEOUT_MS = 8200000;
 ("use strict");
 const $ = (id) => document.getElementById(id);
+const t = (key, params) => HarnessI18n.t(key, params);
 const prefs = window.HarnessPrefs;
 let providers = {},
   models = [],
@@ -1014,7 +1015,9 @@ async function refreshComposerGit() {
     );
     if (request !== composerGitRequest || id !== $("project").value) return;
     $("composer-git").textContent = data.revision || "";
-    $("composer-git").title = data.revision ? "Git: " + data.revision : "";
+    $("composer-git").title = data.revision
+      ? t("composer.git.title", { revision: data.revision })
+      : "";
     $("composer-git").hidden = !data.revision;
   } catch {
     if (request === composerGitRequest && id === $("project").value)
@@ -1159,12 +1162,12 @@ function syncComposerAvailability() {
   $("model-availability-title").textContent =
     condition?.title ||
     (modelAvailabilityError
-      ? "Couldn't check the models"
-      : "No model available");
+      ? t("composer.availability.title_error")
+      : t("composer.availability.title_none"));
   $("model-availability-detail").textContent =
     condition?.message ||
     modelAvailabilityError ||
-    "Add and enable a provider in the admin panel.";
+    t("composer.availability.detail_none");
   $("prompt").disabled = blocked;
   return blocked;
 }
@@ -1190,675 +1193,42 @@ const modelLabel = (model) =>
     ? model.name
     : friendlyModelName(model.id));
 const modelName = (id) =>
-  id ? modelLabel(models.find((m) => m.id === id) || { id }) : "No model";
+  id
+    ? modelLabel(models.find((m) => m.id === id) || { id })
+    : t("composer.model.none");
 const selectedIdentity = () => {
   const m = selected();
   return m
     ? {
         backend: m.backend,
-        provider: providerNames[m.backend] || m.backend || "Provider",
+        provider:
+          providerNames[m.backend] ||
+          m.backend ||
+          t("composer.provider.fallback"),
         model: modelName(m.id),
         modelIcon: modelIcon(m.id),
       }
     : null;
 };
+// Catalog keys for the effort labels; read through effortLabel so a language switch shows at once.
 const efforts = {
-  none: "No reasoning",
-  configured: "Default",
-  low: "Low",
-  medium: "Medium",
-  high: "High",
-  xhigh: "Very high",
-  max: "Maximum",
-  ultra: "Ultra",
+  none: "composer.effort.none",
+  configured: "composer.effort.configured",
+  low: "composer.effort.low",
+  medium: "composer.effort.medium",
+  high: "composer.effort.high",
+  xhigh: "composer.effort.xhigh",
+  max: "composer.effort.max",
+  ultra: "composer.effort.ultra",
 };
-const userErrors = {
-  invalid_temporary:
-    "The temporary chat setting is invalid. Start a new temporary chat and try again.",
-  temporary_session_required:
-    "Start a temporary chat before sending this message. Nothing was sent as a saved conversation.",
-  temporary_backend_unsupported:
-    "This provider does not support temporary chats. Choose Claude, Codex, DeepSeek or a local model.",
-  temporary_session_not_found:
-    "This temporary chat has expired. Close it and start a new temporary chat. Nothing was sent as a saved conversation.",
-  temporary_operation_unsupported:
-    "This action is unavailable in a temporary chat.",
-  temporary_session_limit: "Close another temporary chat before starting one.",
-  temporary_storage_unavailable:
-    "Temporary storage is unavailable. Try again after checking server storage.",
-  retry_source_not_failed:
-    "This turn is not failed anymore, so it can't be retried. The conversation was refreshed.",
-  retry_source_superseded:
-    "A newer turn exists in this conversation, so this one can't be retried. The conversation was refreshed.",
-  retry_not_supported:
-    "Retry isn't available for workflow or scheduled turns. Use Resume workflow or run it again.",
-  catalog_cwd_conflict:
-    "Selected catalogs require different working folders. Run them separately.",
-  catalog_environment_conflict:
-    "Selected catalogs require incompatible environments. Run them separately.",
-  catalog_hook_filter_unsupported:
-    "This execution mode cannot enforce the catalog hook list. Choose a supported native provider.",
-  catalog_runtime_mode_unsupported:
-    "This execution mode cannot provide the catalog runtime. Choose a supported native provider.",
-  catalog_runtime_unavailable:
-    "The catalog runtime is unavailable. Check its prerequisites in Admin.",
-  catalog_preflight_failed:
-    "Catalog prerequisites are missing. Check the catalog in Admin before trying again.",
-  catalog_hook_failed:
-    "A catalog hook failed. Check its run event before trying again.",
-  catalog_hook_timeout:
-    "A catalog hook exceeded its time limit and was stopped.",
-  catalog_hook_unavailable:
-    "A catalog hook could not start. Check its executable path in the manifest.",
-  catalog_hook_output_limit:
-    "A catalog hook exceeded the output limit and was stopped.",
-  effect_integration_scope_denied:
-    "This integration is not bound to the selected project and catalog. Update its binding in Admin.",
-  integration_contract_ambiguous:
-    "Integration contracts conflict. Keep one consistent contract in Admin and the catalog.",
-  integration_contract_invalid:
-    "The integration contract is invalid. Check its declared providers and credential fields in Admin.",
-  integration_contract_unavailable:
-    "The integration contract is missing. Configure it in Admin or the catalog manifest.",
-  integration_credential_field_missing:
-    "A required credential field is missing. Update the write-only binding in Admin.",
-  integration_environment_ambiguous:
-    "Two integrations assign conflicting values to the same environment variable.",
-  integration_environment_unsupported:
-    "This execution mode cannot inject integration credentials. Choose a supported native provider.",
-  secret_binding_invalid:
-    "The credential binding name is invalid. Update it in Admin.",
-  secret_value_invalid:
-    "A credential field is invalid. Enter a nonempty single-line value in Admin.",
-  work_item_locked:
-    "This work item is owned by a running job. Wait until its write access is released.",
-  hooks_not_trusted:
-    "A catalog hook changed or was never trusted, so it was skipped and the turn went on without it. Re-trust the catalog in Admin.",
-  hooks_not_granted:
-    "Catalog hooks were skipped because hook permission was not granted.",
-
-  workflow_source_path_denied:
-    "A workflow input moved outside its authorized folder. Restore it or choose a new input.",
-  workflow_source_size_limit:
-    "A workflow input exceeds the supported size. Reduce it before resuming.",
-  workflow_requirement_denied:
-    "The selected executor does not support this workflow requirement. Check permissions, integrations, operations and mode.",
-  invalid_workflow_inputs: "Workflow inputs must be a JSON object.",
-  invalid_workflow_recovery:
-    "Use resume or re-run from a valid step with optional workflow inputs.",
-  invalid_workflow_step: "Choose a step number from this workflow.",
-  invocation_model_or_effort_mismatch:
-    "This resource requires a different model or effort. Select its execution settings before submitting.",
-  invocation_backend_mismatch:
-    "This resource requires a different provider. Select its provider before submitting.",
-  local_project_hardlink_denied:
-    "A folder contains hardlinks that cannot be safely isolated. Remove the aliases or choose another folder.",
-  workflow_already_exists:
-    "A workflow with this name already exists. Choose another name.",
-  workflow_backend_mismatch: "The workflow backend must match its invocation.",
-  workflow_binding_changed:
-    "Workflow inputs or revisions changed. Resume to validate again and request fresh approval.",
-  workflow_catalog_read_only:
-    "Save workflows in the project collection. Catalogs are read only.",
-  workflow_checkpoint_missing: "This run has no recoverable workflow plan.",
-  workflow_effect_not_completed:
-    "Publication is not confirmed. Inspect its gate and effect record before retrying.",
-  workflow_effect_outcome_unknown:
-    "Publication may have happened. Reconcile its outcome before resuming or rerunning.",
-  workflow_inputs_invalid: "The workflow inputs do not match the step schema.",
-  workflow_invalid_condition:
-    "Use a condition that references a prior step with from and is or equals.",
-  workflow_invalid_document:
-    "The workflow document is invalid. Check its JSON or YAML.",
-  workflow_unknown_field:
-    "The workflow contains an unsupported field. Check its field names and remove unrecognized entries.",
-  workflow_unknown_step_field:
-    "A workflow step contains an unsupported field. Check that step's field names and remove unrecognized entries.",
-  workflow_invalid_effect:
-    "Publication requires a valid effect request and publish enabled.",
-  workflow_invalid_from_step: "Choose a valid starting step for this workflow.",
-  workflow_invalid_gate:
-    "The workflow gate needs a question and distinct choices.",
-  workflow_invalid_id:
-    "Use a short workflow identifier containing letters, numbers, underscores or hyphens.",
-  workflow_invalid_name: "Choose a valid name for the saved workflow.",
-  workflow_invalid_publish: "The workflow publish field must be true or false.",
-  workflow_invalid_requirements:
-    "This workflow requires capabilities the selected executor does not provide.",
-  workflow_invalid_save_target:
-    "Choose a project with a writable workflows collection.",
-  workflow_invalid_schema:
-    "Use the supported JSON schema fields for workflow inputs and outputs.",
-  workflow_invalid_step: "The workflow contains an invalid sequential step.",
-  workflow_invalid_step_id:
-    "Each workflow step needs a unique valid identifier.",
-  workflow_invalid_steps:
-    "A workflow must contain one to twelve sequential steps.",
-  workflow_invalid_version: "This server supports workflow version 1.",
-  workflow_model_or_effort_denied:
-    "Choose a model and effort enabled for this project.",
-  workflow_must_be_standalone: "Select one workflow at a time.",
-  workflow_output_not_approved:
-    "The step output was not approved. Review the evidence before continuing.",
-  workflow_published_step_requires_explicit_rerun:
-    "This changed step already published. Use an explicit re-run with fresh approval.",
-  workflow_requires_successful_chain:
-    "Only a completed, successful chain can be saved as a workflow.",
-  workflow_resource_unavailable:
-    "A required workflow resource is missing or unavailable. Refresh the catalog.",
-  workflow_sequential_only:
-    "This release supports sequential workflows without parallel or repeat steps.",
-  cancellation_retry_required:
-    "Cancellation was not saved because storage is busy. Try Cancel again.",
-  job_not_held: "This message is no longer waiting for your choice.",
-  workflow_source_busy:
-    "Wait for the original run to finish or cancel it before recovery.",
-  workflow_step_not_approved:
-    "The workflow step was not approved. No further steps ran.",
-  workflow_too_large: "The workflow exceeds the supported document size.",
-  workflow_yaml_unavailable_use_json:
-    "Use JSON, or install PyYAML to read YAML workflows.",
-
-  rate_limit:
-    "Too many requests in a short time. The server has temporarily limited this access.",
-  submission_rate_limit:
-    "You sent new requests too quickly. This request wasn't queued.",
-  search_query_too_short:
-    "Type at least two characters to search conversations.",
-  search_rate_limit:
-    "Too many searches in a short time. Wait a moment and search again.",
-  queue_full:
-    "The server queue is full. This request wasn't queued; wait for other runs to finish.",
-  work_item_check_busy:
-    "The server is busy checking work-item patterns. This request wasn't queued.",
-  owner_queue_full:
-    "You reached the queue limit for requests. Wait for one of your runs to finish before sending another.",
-  stream_limit:
-    "There are too many tracking connections open in this session. Close the extra tabs and try again.",
-  login_rate_limit:
-    "Too many sign-in attempts. Check your details before trying to log in again.",
-  model_not_allowed: "This model is not enabled. Check the available models.",
-  model_not_available:
-    "The model is not available. Ask the administrator to check the local server.",
-  uploads_denied: "Attachments are disabled for this service.",
-  authentication_required: "Your connection needs authorization.",
-  project_denied: "You don't have access to this project.",
-  native_failed:
-    "The AI service did not finish the run. Check the activity and try again.",
-  cli_missing:
-    "The provider's command-line tool is missing on the server. Reinstall it, refresh discovery in the admin panel and try again.",
-  isolation_unavailable:
-    "This execution mode is unavailable. Start a new native conversation.",
-  project_name_exists:
-    "A project with that name already exists. Choose a different name.",
-  invalid_project_name: "The name needs to be between 3 and 100 characters.",
-  project_directory_required:
-    "One of the chosen folders no longer exists. Choose an available folder.",
-  project_directory_forbidden:
-    "One of the chosen folders is protected or not authorized.",
-  // Interface preferences (ui-prefs.js).
-  ui_state_unknown_key:
-    "A saved interface preference was not recognized and was skipped.",
-  ui_state_invalid_value:
-    "An interface preference had an invalid value and was not saved.",
-  ui_state_read_only:
-    "Interface preferences can't be saved right now, so changes last until you reload. Check the harness state folder.",
-  // Requests (F-70): every code the server can return has a sentence.
-  payload_limit:
-    "This message is too large to send. Shorten it or attach it as a file.",
-  request_timeout: "The request took too long to arrive. Try again.",
-  invalid_json:
-    "The request was not understood. Refresh the page and try again.",
-  object_required:
-    "The request was not understood. Refresh the page and try again.",
-  internal_error:
-    "Something went wrong on the server. Try again; if it persists, check the harness log.",
-  origin_denied:
-    "This page is not allowed to reach the harness. Open it from the harness address.",
-  invalid_token: "The access key is invalid. Check it and try again.",
-  idempotency_conflict:
-    "This request was already sent with different content. Refresh the page before sending again.",
-  invalid_idempotency_key:
-    "The request was not understood. Refresh the page and try again.",
-  invalid_internal_field:
-    "The request was not understood. Refresh the page and try again.",
-  invalid_prompt: "The message could not be read. Edit it and try again.",
-  prompt_required: "Write a message before sending.",
-  invalid_task_label: "The task label is invalid. Shorten it and try again.",
-  invalid_max_tokens:
-    "The requested answer length is invalid. Refresh the page and try again.",
-  invalid_access_mode:
-    "That access mode is not available. Choose another one and try again.",
-  full_access_disabled:
-    "Full access is turned off. The owner can turn it on in Settings › System › Providers (Allow Full access), or choose another access mode.",
-  invalid_parent_job:
-    "The earlier message this reply continues is unavailable. Start a new conversation.",
-  invalid_event_id: "Tracking could not resume. Refresh the page.",
-  job_not_found: "This run no longer exists. Refresh the conversation list.",
-  result_not_ready: "The run has not finished yet. Wait for it to finish.",
-  job_storage_limit:
-    "This project's run storage is full. Use Delete permanently on conversations you no longer need (archived ones are in Settings › Archived chats), then try again.",
-  // Conversations.
-  conversation_busy:
-    "This conversation is still running. Wait for it to finish or cancel it first.",
-  conversation_has_newer_turn:
-    "This conversation has a newer message from another tab. Open it again from the list to continue.",
-  conversation_not_found:
-    "This conversation no longer exists; it may have been deleted in another tab.",
-  conversation_context_limit:
-    "This conversation is too long for the model's context. Start a new conversation or use a model with a larger context.",
-  conversation_execution_mode_locked:
-    "This conversation's execution mode can't change. Start a new conversation to use the supported default.",
-  conversation_workspace_changed:
-    "This conversation's workspace changed. Start a new conversation.",
-  execution_mode_unsupported:
-    "This conversation uses an execution mode this model or server no longer offers. Start a new native conversation to continue. Its history is still available.",
-  invalid_conversation_title: "Use a title between 1 and 100 characters.",
-  invalid_archived:
-    "Archiving needs a yes or no answer. Refresh the page and try again.",
-  invalid_continuation_target:
-    "Choose Claude or ChatGPT as the app to continue in.",
-  invalid_include_paths:
-    "The include paths option must be yes or no. Refresh the page and try again.",
-  service_restarted:
-    "The harness restarted during this run. Send your message again.",
-  model_removed:
-    "The administrator removed this model during the run. Choose another model and send your message again.",
-  configuration_changed:
-    "The server configuration changed during the run. Send your message again.",
-  context_limit_exceeded:
-    "The content is too large for the model's context. Reduce the content sent at once or use a model with a larger context.",
-  source_context_limit:
-    "The attached content is too large for the model's context. Attach less at once.",
-  // Models and providers.
-  model_denied: "This model is not enabled for you. Choose another model.",
-  model_or_effort_unavailable:
-    "This model or reasoning level is no longer available. Choose another one.",
-  project_file_forbidden:
-    "This file belongs to private server storage and cannot be attached. Choose a document outside the server state folder.",
-  backend_unavailable:
-    "This provider is not available right now. Choose another model.",
-  capability_unavailable:
-    "This model can't do what the request needs. Choose another model.",
-  unsupported:
-    "This model can't run this request. Choose another model or mode.",
-  no_enabled_executor_for_task:
-    "No enabled model can run this task. Ask the administrator to enable one.",
-  use_scoped_inference_tools:
-    "This model cannot run this request. Choose a supported model.",
-  service_project_denied:
-    "This provider is not enabled for this project. Choose another model or ask the administrator.",
-  runtime_config_invalid:
-    "The server configuration is invalid. Ask the administrator to review it in the admin panel.",
-  runtime_immutable_changed:
-    "A server setting that needs a restart changed. Ask the administrator to restart the harness.",
-  codex_login_or_binary_unavailable:
-    "Codex is not installed or not signed in on the server. Check it in the admin panel.",
-  claude_login_or_binary_unavailable:
-    "Claude Code is not installed or not signed in on the server. Check it in the admin panel.",
-  codex_execution_failed:
-    "Codex stopped before finishing the run. Check the activity and try again.",
-  codex_rpc_error:
-    "Codex returned an unexpected response. Try again; if it persists, update Codex.",
-  codex_output_limit:
-    "Codex produced more output than allowed. Narrow the request and try again.",
-  deepseek_execution_failed:
-    "DeepSeek stopped before finishing the run. Check the activity and try again.",
-  deepseek_output_limit:
-    "DeepSeek produced more output than allowed. Narrow the request and try again.",
-  local_execution_failed:
-    "The local model stopped before finishing the run. Check the activity and try again.",
-  local_output_limit:
-    "The local model produced more output than allowed. Narrow the request and try again.",
-  claude_execution_failed:
-    "Claude stopped before finishing the run. Check the activity and try again.",
-  claude_stream_incomplete:
-    "The provider stopped before the answer was complete. Send your message again.",
-  claude_invalid_stream:
-    "Claude returned an unexpected response. Try again; if it persists, update Claude Code.",
-  claude_invalid_question:
-    "Claude asked a question the harness could not safely display. Update Claude Code or revise the request.",
-  claude_invalid_question_answer:
-    "Claude could not use the selected answer. Ask the question again.",
-  claude_output_limit:
-    "Claude produced more output than allowed. Narrow the request and try again.",
-  gemini_execution_failed:
-    "Gemini stopped before finishing the run. Check the activity and try again.",
-  gemini_output_limit:
-    "Gemini produced more output than allowed. Narrow the request and try again.",
-  gemini_acp_unavailable:
-    "The Gemini CLI connection is unavailable. Choose another model.",
-  gemini_acp_incomplete:
-    "The Gemini CLI stopped before the answer was complete. Send your message again.",
-  gemini_acp_invalid:
-    "The Gemini CLI returned an unexpected response. Update the Gemini CLI and try again.",
-  gemini_acp_title_unsupported:
-    "This Gemini CLI version can't name conversations. Update the Gemini CLI.",
-  gemini_client_retired:
-    "This Gemini CLI version is no longer supported. Update the Gemini CLI.",
-  gemini_oauth_unavailable:
-    "Gemini is not signed in on the server. Choose another model.",
-  gemini_effort_unavailable:
-    "This reasoning level is not available for Gemini. Choose another one.",
-  gemini_scoped_unsupported:
-    "Gemini can't run isolated conversations. Start a native conversation.",
-  gemini_access_mode_invalid:
-    "That access mode is not available for Gemini. Choose another one.",
-  gemini_system_auth_conflict:
-    "The server's Gemini settings conflict with the harness sign-in. Ask the administrator to review them.",
-  gemini_system_policy_conflict:
-    "The server's Gemini policy conflicts with the harness. Ask the administrator to review it.",
-  gemini_system_settings_invalid:
-    "The server's Gemini settings are invalid. Ask the administrator to review them.",
-  deepseek_api_configuration_required:
-    "DeepSeek needs an API key. Add it in the admin panel.",
-  deepseek_credential_isolation:
-    "DeepSeek could not verify its private credentials and shell settings. Ask the administrator to review its provider setup.",
-  deepseek_session_identity_ambiguous:
-    "This saved session's DeepSeek identity cannot be verified. Start a new conversation to continue.",
-  deepseek_session_identity_mismatch:
-    "This saved session belongs to another provider or engine. Start a new conversation to use DeepSeek.",
-  codex_session_identity_ambiguous:
-    "This saved session's Codex identity cannot be verified. Start a new conversation to continue.",
-  codex_session_identity_mismatch:
-    "This saved session belongs to another provider or engine. Start a new conversation to use Codex.",
-  local_session_identity_ambiguous:
-    "This saved session's local model identity cannot be verified. Start a new conversation to continue.",
-  local_session_identity_mismatch:
-    "This saved session belongs to another provider or engine. Start a new conversation to use the local model.",
-  deepseek_effort_unavailable:
-    "This reasoning level is not available for DeepSeek. Choose another one.",
-  local_cli_binary_unavailable:
-    "The local model's command-line tool is missing on the server. Check it in the admin panel.",
-  local_filesystem_isolation_unavailable:
-    "The server can't isolate the local model's file access. Ask the administrator to install bubblewrap.",
-  local_project_scope_invalid:
-    "The local model can't reach this project's folders. Check the project folders.",
-  // Step engine (workflows and declared "/" chains); codes keep their persisted names.
-  maestro_model_or_effort_denied:
-    "A workflow step uses a model or effort that is not enabled. Ask the administrator or edit the workflow.",
-  maestro_step_not_allowed:
-    "A workflow step is not allowed here. Edit the workflow.",
-  maestro_invalid_plan_json:
-    "The workflow steps are invalid. Check the workflow.",
-  maestro_invalid_steps: "The workflow steps are invalid. Check the workflow.",
-  maestro_invalid_step: "The workflow steps are invalid. Check the workflow.",
-  maestro_invalid_step_description:
-    "The workflow steps are invalid. Check the workflow.",
-  maestro_step_incomplete: "A workflow step did not finish. Try again.",
-  // Invocations and human option gates.
-  invalid_invocation: "This resource invocation is invalid. Select it again.",
-  invalid_invocation_args:
-    "The resource arguments are too large or invalid. Shorten them and try again.",
-  invalid_invocation_backend:
-    "That resource cannot use the requested provider. Choose another resource or model.",
-  invalid_invocation_id:
-    "The invocation identifier is invalid. Select the resource again.",
-  invalid_invocation_kind:
-    "That resource type cannot be invoked. Select another resource.",
-  invalid_invocation_mode:
-    "That resource cannot run in the requested mode. Select it again.",
-  invalid_invocation_order:
-    "The resource chain order is invalid. Rebuild the chain and try again.",
-  invalid_invocation_resource_id:
-    "The selected resource identifier is invalid. Refresh the palette and select it again.",
-  invocation_chain_limit:
-    "A resource chain can contain at most 12 steps. Remove some steps and try again.",
-  invocation_selection_mismatch:
-    "The selected resources no longer match this invocation. Select them again.",
-  conversational_chain_unsupported:
-    "A conversational agent must run by itself. Remove the other resource steps.",
-  active_persona_resource_conflict:
-    "End the current agent conversation before selecting another resource.",
-  invalid_gate_question:
-    "The provider asked an invalid question. Revise the request and try again.",
-  invalid_gate_options:
-    "The provider supplied invalid answer choices. Revise the request and try again.",
-  invalid_gate_choice: "That answer is no longer available. Choose again.",
-  approval_already_resolved:
-    "This approval was already decided in another view. Refresh to see the accepted decision.",
-  workflow_source_unavailable:
-    "A workflow input file is missing or unreadable. Restore the workspace input files or attachment sources before resuming.",
-  gate_already_resolved: "This question was already answered.",
-  gate_expired: "This question expired. Ask the agent to present it again.",
-  gate_invalidated:
-    "This question was invalidated by an execution change. Ask the agent to present it again.",
-  // Publication requests and evidence-based recovery.
-  effect_already_used:
-    "This publication request was already handled. Review its recorded outcome before preparing another request.",
-  effect_approval_required:
-    "This publication needs approval from an enrolled human session before it can be sent.",
-  effect_arguments_invalid:
-    "This publication has unsupported arguments. Ask the agent to prepare a valid request.",
-  effect_sensitive_content:
-    "Publication was not prepared because it contains private credentials. Remove the sensitive content and request approval again.",
-  effect_artifact_invalid:
-    "The publication artifact is invalid. Ask the agent to check its required fields and prepare it again.",
-  effect_binding_changed:
-    "The publication changed after it was prepared. Review a newly prepared request and approve it again.",
-  effect_contract_invalid:
-    "This publication integration is not configured correctly. Ask the server owner to check its settings.",
-  effect_credentials_not_private:
-    "The publication credentials are not stored privately. Ask the server owner to correct the credential store permissions.",
-  effect_credentials_unavailable:
-    "The harness cannot access this integration's credentials. Ask the server owner to check its credential binding.",
-  effect_destination_denied:
-    "This destination is not allowed for the publication integration. Choose an allowed destination.",
-  effect_duplicate_outcome_pending:
-    "An identical publication is already executing, complete, or has an unknown outcome. Review its recorded outcome before preparing another publication.",
-  effect_execution_inactive:
-    "This run can no longer prepare a publication. Start a new message if you still need it.",
-  effect_integration_unavailable:
-    "This publication integration is unavailable. Ask the server owner to check its configuration.",
-  effect_not_found:
-    "This publication request could not be found. Refresh the run console.",
-  effect_not_unknown:
-    "This publication no longer needs reconciliation. Refresh the run console to see its recorded outcome.",
-  effect_operation_unsupported:
-    "This integration does not support that publication operation. Only creating a Jira issue is available.",
-  effect_prepare_limit:
-    "This execution has reached its publication preparation limit. Review its existing publication requests.",
-  effect_reconcile_backoff:
-    "Wait before checking again so Jira search has time to catch up. The outcome remains unknown; this will not retry publication.",
-  effect_reconcile_invalid:
-    "Choose whether to check external evidence or keep the publication outcome unknown.",
-  effect_request_invalid:
-    "This publication request is invalid. Ask the agent to prepare it again with the required fields.",
-  effect_request_too_large:
-    "This publication request is too large. Reduce the artifact content and prepare it again.",
-  unsafe_scoped_home:
-    "This execution cannot start because its workspace is unsafe. Ask the server owner to check its workspace configuration.",
-  scoped_private_file_linked:
-    "This run cannot start because private server state has a linked copy. Ask the server owner to remove the link before retrying.",
-  scoped_private_files_unavailable:
-    "This run cannot verify private server state. Ask the server owner to check its storage and permissions, then retry.",
-  // Projects, folders and workspaces.
-  invalid_project: "This project is invalid. Choose another one.",
-  project_busy: "This project is busy with another change. Try again shortly.",
-  project_edit_forbidden: "You can't edit this project.",
-  project_registration_disabled:
-    "Adding projects is turned off on this server. Ask the administrator to enable it.",
-  host_denied:
-    "This address is not one KeepHarness answers on. Open it by its usual address.",
-  funnel_denied:
-    "KeepHarness does not answer requests from the public internet. Turn off Tailscale Funnel for it.",
-  project_directory_shared:
-    "One of the chosen folders already belongs to another project.",
-  project_folder_busy:
-    "The project folder is in use by a run. Wait for it to finish.",
-  project_folder_changed:
-    "The project folder changed since you opened it. Review it and try again.",
-  project_folder_confirmation_required: "Confirm the folder name to delete it.",
-  project_folder_deleted: "The project folder was already deleted.",
-  project_folder_delete_failed:
-    "The project folder could not be deleted. Check its permissions.",
-  project_folder_deletion_unsupported:
-    "This project's folder can't be deleted from the app.",
-  project_has_no_directory: "This project has no folder yet. Add one first.",
-  project_root_denied: "This folder is outside the project's allowed folders.",
-  project_root_unavailable:
-    "The project folder is missing or unreadable. Check it on the server.",
-  system_root_denied: "System folders can't be used here.",
-  directory_not_found: "This folder no longer exists. Refresh the list.",
-  path_not_authorized: "This path is not authorized for this project.",
-  read_denied: "You don't have permission to read this file.",
-  file_not_found: "The file no longer exists. Refresh the list.",
-  invalid_path: "The path is invalid.",
-  invalid_query: "The search is invalid. Change it and try again.",
-  invalid_range: "The requested part of the list is invalid. Refresh it.",
-  invalid_selection: "The selection is invalid. Select the files again.",
-  invalid_file_id: "An attachment is no longer available. Attach it again.",
-  empty_workspace: "There is nothing to download in this workspace yet.",
-  preview_not_available: "A preview is not available for this file.",
-  workspace_not_found: "This workspace no longer exists.",
-  workspace_path_denied: "That workspace path is not allowed.",
-  workspace_permission_denied:
-    "You don't have permission to use this workspace.",
-  workspace_project_denied: "This workspace belongs to another project.",
-  workspace_size_limit: "The workspace is larger than allowed.",
-  workspace_size_or_encryption_limit:
-    "The archive is too large or encrypted. Upload a smaller, unencrypted archive.",
-  workspace_storage_limit:
-    "The workspace storage is full. Remove files and try again.",
-  workspace_export_limit: "The workspace is too large to download at once.",
-  workspace_file_limit: "The workspace has too many files.",
-  invalid_archive: "The archive is invalid or damaged.",
-  unsafe_archive_entry:
-    "The archive contains a path that is not allowed. It was not extracted.",
-  binary_file_use_download:
-    "This is a binary file. Download it instead of opening it.",
-  invalid_staged_file:
-    "A file prepared for the isolated run is invalid. Attach it again.",
-  staged_context_limit:
-    "The files prepared for the isolated run are too large. Attach fewer files.",
-  deployment_path_denied:
-    "The changes touch a path that is not allowed. They were not applied.",
-  deployment_file_limit:
-    "The changes touch too many files. They were not applied.",
-  deployment_conflict:
-    "The files changed while the run worked. The changes were not applied.",
-  deployment_javascript_syntax:
-    "The changes contain a JavaScript syntax error. They were not applied.",
-  deployment_python_syntax:
-    "The changes contain a Python syntax error. They were not applied.",
-  restart_schedule_failed:
-    "The changes were applied, but the panel could not schedule its restart.",
-  service_control_denied: "You can't control this service.",
-  invalid_service_action: "That service action is not available.",
-  invalid_service_unit: "That service is not available.",
-  service_not_registered: "That service is not registered for this project.",
-  service_manager_unavailable_requires_systemd_user:
-    "Service control needs the user systemd manager on the server.",
-  // Approvals.
-  ambiguous_work_item:
-    "The invocation matches more than one work item. Tag the run with one key or make the arguments unambiguous.",
-  invalid_work_item:
-    "Use a work-item key with at most 128 characters and no control characters.",
-  invalid_work_item_pattern:
-    "The configured work-item pattern is invalid. Ask the project administrator to correct it.",
-  work_item_project_required: "Choose a project before filtering by work item.",
-  invalid_event_limit:
-    "The event page size is invalid. Reload the run console and try again.",
-  invalid_include_content:
-    "The content visibility option is invalid. Reload the run console and try again.",
-  approval_expired:
-    "This approval request expired. Send your message again if you still need it.",
-  approval_expiration_limit:
-    "The run was cancelled after repeated approval requests expired. Send your message again when you are ready to respond.",
-  approval_session_required:
-    "This browser is not enrolled to approve actions yet. On the computer where KeepHarness runs, run keepharness approve-device --owner local, then open the link it prints in this browser and try again.",
-  approval_session_expired:
-    "This browser's approval session expired (approval sessions last 7 days). The approval is still waiting: ask the admin of this KeepHarness for a new enrollment link (keepharness approve-device), open it in this browser, then approve again.",
-  approval_storage_unsafe:
-    "Approval sessions could not be stored securely. Ask the server owner to check the state directory permissions before trying again.",
-  approval_enrollment_invalid:
-    "This device enrollment link expired or was already used. Ask the owner for a new link.",
-  approval_owner_unknown:
-    "Choose an existing owner id when enrolling this browser.",
-  enrollment_rate_limit:
-    "Too many enrollment attempts. Wait a moment before trying again.",
-  session_rate_limit:
-    "Too many session authentication attempts. Wait a moment before trying again.",
-  invalid_provider_capacity:
-    "The provider capacity is invalid. Ask the administrator to set a positive whole number.",
-  provider_idle_timeout:
-    "The provider stopped responding. Review the run details and try again.",
-  active_runtime_timeout:
-    "The run reached its active time limit. Human approval waiting time was excluded.",
-  invalid_approval_scope: "That approval option is not available.",
-  // Resources.
-  resource_read_denied:
-    "This model can't read the selected resources. Choose another model.",
-  resource_changed:
-    "A selected resource changed. Select it again before sending.",
-  resource_unavailable:
-    "A selected resource is no longer available. Remove it and try again.",
-  resource_unavailable_in_engine:
-    "A selected resource is not available for this model. Remove it or choose another model.",
-  resource_selection_missing:
-    "A selected resource is missing. Select it again before sending.",
-  resource_name_ambiguous:
-    "More than one resource has that name. Pick it from the list.",
-  resource_prompt_limit:
-    "The selected resources are too large. Select fewer resources.",
-  resource_scan_limit:
-    "There are too many resources to list. Narrow the search.",
-  invalid_resource_selections:
-    "The selected resources are invalid. Select them again.",
-  invalid_command_arguments: "The command arguments are invalid.",
-  resources_unavailable_in_workspace:
-    "Resources are not available in this workspace.",
-  harness_resources_unavailable: "Resources are not available right now.",
-  harness_agent_exists: "An agent with that name already exists.",
-  harness_agent_invalid:
-    "The agent details are not valid. Check each field and try again.",
-  harness_agent_limit:
-    "You have reached the limit of 100 agents. Delete one to add another.",
-  harness_agent_changed:
-    "This agent was changed elsewhere. Reload it and try again.",
-  harness_agent_not_found: "That agent no longer exists.",
-  harness_agent_storage_unsafe:
-    "The agents folder cannot be used safely. Check the harness state folder.",
-  page_invalid:
-    "The page is not valid. Check the title and the text and try again.",
-  page_not_found: "That page no longer exists.",
-  page_changed: "This page was changed elsewhere. Reload it and try again.",
-  page_limit:
-    "This project has reached the limit of 500 pages. Delete one to add another.",
-  page_storage_unsafe:
-    "The pages folder cannot be used safely. Check the harness state folder.",
-  schedule_invalid:
-    "The schedule is not valid. Check each field and try again.",
-  schedule_agent_unselected:
-    "Pick the agent in the Agent field instead of typing @@name in the prompt.",
-  schedule_agent_missing:
-    "The agent of this schedule no longer exists. Pick another agent or remove it.",
-  schedule_page_missing:
-    "A page of this schedule no longer exists. Open the schedule and untick it.",
-  schedule_not_found: "That schedule no longer exists.",
-  schedule_changed:
-    "This schedule was changed elsewhere. Reload it and try again.",
-  schedule_limit:
-    "You have reached the limit of 50 schedules. Delete one to add another.",
-  schedule_storage_unsafe:
-    "The schedules folder cannot be used safely. Check the harness state folder.",
-  editor_local_only: "Files can be edited only from this computer.",
-  file_changed: "This file changed since you opened it. Reload it and try again.",
-  file_not_text: "This file is not a text file, so it can't be edited here.",
-  file_not_writable: "This file is read-only. Check its permissions and try again.",
-  file_unavailable: "The file could not be read from disk. Try again.",
-  invalid_input: "The terminal input is not valid. Type it again.",
-  invalid_size: "The terminal size is not valid. Resize the window and try again.",
-  invalid_text: "The file contents could not be read. Reload the file and try again.",
-  precondition_required: "Reload the file before saving it, so the save checks its latest version.",
-  project_not_found: "That project no longer exists. Choose another project.",
-  storage_full: "The disk is full. Free some space and try again.",
-  terminal_local_only: "Terminals can be opened only from this computer.",
-  terminal_unavailable: "The terminal is not available right now. Try again shortly.",
-  terminal_limit: "Four terminals are already busy. End one and try again.",
-  terminal_not_found: "That terminal session has ended. Reopen the terminal to start a new one.",
-  terminal_exited: "The shell has exited. Reopen the terminal to start a new one.",
-};
+const effortLabel = (effort) => (efforts[effort] ? t(efforts[effort]) : effort);
+// Copy for a server code, read from the `error.<code>` catalog key. Undefined when the key is missing,
+// so callers keep their own fallback (the generic sentence, or the English server message).
+function userError(code) {
+  const key = "error." + code;
+  const text = HarnessI18n.t(key);
+  return text === key ? undefined : text;
+}
 async function api(path, options = {}) {
   const { temporarySession: scope = temporarySession, ...requestOptions } =
     options;
@@ -1894,7 +1264,7 @@ async function api(path, options = {}) {
       e = { code: "HTTP " + r.status };
     }
     let message =
-      userErrors[e.code] ||
+      userError(e.code) ||
       attachmentError(e.code) ||
       (r.status === 429
         ? "The server applied a temporary limit to this request."
@@ -2053,16 +1423,14 @@ async function refreshProjectPermissions(timeout = 30000) {
     if (policyError) {
       const showingPolicyError = $("status").textContent === policyError;
       policyError = "";
-      if (showingPolicyError) status("Ready to chat");
+      if (showingPolicyError) status(t("composer.status.ready"));
     }
     updateEfforts();
     if ([...$("effort").options].some((o) => o.value === effort))
       $("effort").value = effort;
   } catch (e) {
     if (sequence !== policySequence) return;
-    policyError =
-      "Couldn't load this project's permissions. Select it again to retry: " +
-      e.message;
+    policyError = t("composer.permissions.load_error", { detail: e.message });
     status(policyError);
     return false;
   } finally {
@@ -2100,30 +1468,25 @@ function updateModelPermissions() {
     m?.backend === "deepseek" ||
     (executionMode !== "native" && m?.backend !== "local");
   const imageHelp = textOnly
-    ? "Images unavailable in this integration"
-    : "Images depending on model support";
+    ? t("composer.attachments.images_unavailable")
+    : t("composer.attachments.images_depend");
   const videoHelp = canAttachVideo()
-    ? "MP4: sampled frames" +
-      (m.capabilities.video_transcription
-        ? " and local speech transcription"
-        : " · audio-only videos only: local transcription unavailable")
-    : "MP4 unavailable for this model or mode";
-  const attachmentHelp =
-    "Up to 100 MiB per file · audio: up to 4h, transcribed locally · " +
-    imageHelp +
-    " · " +
-    videoHelp;
+    ? m.capabilities.video_transcription
+      ? t("composer.attachments.video_transcribed")
+      : t("composer.attachments.video_audio_only")
+    : t("composer.attachments.video_unavailable");
+  const attachmentHelp = t("composer.attachments.help", {
+    images: imageHelp,
+    video: videoHelp,
+  });
   $("attach").title = full
-    ? MAX_ATTACHMENTS +
-      " of " +
-      MAX_ATTACHMENTS +
-      " files attached. Remove one to add another."
+    ? t("composer.attachments.limit_reached", { max: MAX_ATTACHMENTS })
     : allowed
-      ? "Attach file. " + attachmentHelp
-      : "Attachments not allowed for this model";
+      ? t("composer.attachments.title", { help: attachmentHelp })
+      : t("composer.attachments.not_allowed");
   $("attachment-help").textContent = allowed
     ? attachmentHelp
-    : "Attachments disabled for this model. Review your permissions in the admin panel.";
+    : t("composer.attachments.disabled");
   let panel = $("model-permissions");
   if (!panel) {
     panel = document.createElement("p");
@@ -2134,15 +1497,19 @@ function updateModelPermissions() {
   panel.hidden = !m?.permissions;
   if (m?.permissions)
     panel.textContent =
-      (m.permissions.upload ? "Attachments allowed" : "No attachments") +
+      (m.permissions.upload
+        ? t("composer.permissions.upload_allowed")
+        : t("composer.permissions.upload_none")) +
       " · " +
       (m.permissions.internet
         ? m.backend === "local"
-          ? "Internet allowed for local tools"
-          : "Internet allowed"
-        : "Internet disabled") +
+          ? t("composer.permissions.internet_local")
+          : t("composer.permissions.internet_allowed")
+        : t("composer.permissions.internet_disabled")) +
       " · " +
-      (m.permissions.shell ? "Terminal allowed" : "Terminal disabled");
+      (m.permissions.shell
+        ? t("composer.permissions.shell_allowed")
+        : t("composer.permissions.shell_disabled"));
 }
 function updateEfforts() {
   syncAccessMode();
@@ -2157,7 +1524,7 @@ function updateEfforts() {
     ...m.efforts.map((e) => {
       const o = document.createElement("option");
       o.value = e;
-      o.textContent = efforts[e] || e;
+      o.textContent = effortLabel(e);
       return o;
     }),
   );
@@ -2166,14 +1533,14 @@ function updateEfforts() {
   if (preferred) $("effort").value = preferred;
   $("model-note").textContent =
     m.backend === "local"
-      ? "Local model runs on the server through the Codex CLI · no OpenAI quota · check the sources"
+      ? t("composer.model_note.local")
       : m.backend === "deepseek"
-        ? "DeepSeek API · uses your DeepSeek credits · runs through the Codex CLI"
+        ? t("composer.model_note.deepseek")
         : m.backend === "gemini"
-          ? "Gemini CLI · Google account · subscription quota"
+          ? t("composer.model_note.gemini")
           : m.backend === "claude"
-            ? "Claude Code on the server · Anthropic inference · quota not available"
-            : "Codex CLI on the server · OpenAI inference · uses ChatGPT quota";
+            ? t("composer.model_note.claude")
+            : t("composer.model_note.codex");
 }
 function quotaWindows(q, backend = selected()?.backend) {
   const buckets = q?.rateLimitsByLimitId || { codex: q?.rateLimits },
@@ -2529,16 +1896,19 @@ function conversationSummary(c = {}) {
   if (c.live_wait_reason || c.wait_reason)
     return waitReasonLabel(c.live_wait_reason || c.wait_reason);
   const state = conversationState(c);
-  if (state === "needs-you") return "Waiting for your approval";
+  if (state === "needs-you")
+    return t("conversation.summary.waiting_for_approval");
   if (state === "running")
-    return c.live_activity || c.activity || "Run in progress";
-  if (state === "queued") return "Waiting in the queue";
+    return c.live_activity || c.activity || t("run_status.activity.in_progress");
+  if (state === "queued") return t("run_status.activity.queued");
   return (
-    { failed: "Failed", cancelled: "Cancelled", interrupted: "Interrupted" }[
-      c.state
-    ] ||
+    {
+      failed: t("conversation.summary.failed"),
+      cancelled: t("conversation.summary.cancelled"),
+      interrupted: t("conversation.summary.interrupted"),
+    }[c.state] ||
     c.summary ||
-    "Completed"
+    t("conversation.summary.completed")
   );
 }
 // QA-R1-2: "Worked for" counts the time the run was active; time in the queue is shown apart.
@@ -2558,28 +1928,32 @@ function runTiming(result = {}) {
 }
 function executionModeLabel() {
   return executionMode === "scoped"
-    ? "Isolated conversation"
+    ? t("composer.execution_mode.isolated")
     : executionMode === "native"
-      ? "Native conversation"
-      : "Execution mode unavailable";
+      ? t("composer.execution_mode.native")
+      : t("composer.execution_mode.unavailable");
 }
 function renderConversationHeader(c = null) {
   const state = c ? conversationState(c) : "draft";
   const states = {
-    "needs-you": "Awaiting approval",
-    running: "Running",
-    queued: "Queued",
-    done: "Completed",
-    draft: "Draft",
+    "needs-you": t("conversation.header.awaiting_approval"),
+    running: t("conversation.header.running"),
+    queued: t("conversation.header.queued"),
+    done: t("conversation.header.completed"),
+    draft: t("conversation.header.draft"),
   };
   $("conversation-state-pill").textContent =
-    { failed: "Failed", cancelled: "Cancelled", interrupted: "Interrupted" }[
-      c?.state
-    ] || states[state];
+    {
+      failed: t("conversation.header.failed"),
+      cancelled: t("conversation.header.cancelled"),
+      interrupted: t("conversation.header.interrupted"),
+    }[c?.state] || states[state];
   $("conversation-state-pill").dataset.state = state;
   $("header-execution-mode").textContent = executionModeLabel();
   $("header-access").textContent = accessLabel();
 }
+// index.html ships the draft pill in English; the runtime rewrites it at load so the header matches the language.
+$("conversation-state-pill").textContent = t("conversation.header.draft");
 // WP8 (D-032): one meter per provider in a fixed order. A reading shows a bar, DeepSeek shows its
 // prepaid balance and a provider without a reading shows "n/a" with the reason.
 const QUOTA_RAIL_ORDER = ["codex", "claude", "gemini", "deepseek", "local"];
@@ -2745,8 +2119,12 @@ function jobAlert(job, before) {
     before === undefined &&
     Date.now() / 1000 - (job.created || 0) < RECENT_JOB_SECONDS;
   if (!known && !recent) return "";
-  const prefix = { failed: "Failed: ", completed: "Finished: " }[job.state];
-  return prefix ? prefix + (job.title || "a run") : "";
+  const title = job.title || t("run_status.notice.untitled_run");
+  const notice = {
+    failed: t("run_status.notice.failed", { title }),
+    completed: t("run_status.notice.finished", { title }),
+  }[job.state];
+  return notice || "";
 }
 function notifyAttention(data = {}) {
   const needs = data.needs_you || [];
@@ -2805,7 +2183,12 @@ window.applyActivitySnapshot = function applyActivitySnapshot(data = {}) {
     const nextNeeds = pending.has(item.id);
     const nextWait = job?.wait_reason || "";
     const nextActivity = job
-      ? [job.state === "running" ? "Run in progress" : "Waiting", job.work_item]
+      ? [
+          job.state === "running"
+            ? t("run_status.activity.in_progress")
+            : t("run_status.activity.waiting"),
+          job.work_item,
+        ]
           .filter(Boolean)
           .join(": ")
       : "";
@@ -2877,12 +2260,12 @@ const history = async (timeout = 30000, background = false) => {
       }
     }
     $("history-note").textContent = legacyHistory
-      ? "Compatible history: previous runs. Update the service to group turns."
+      ? t("sidebar.history.compatible_note")
       : "";
     return true;
   } catch (e) {
     if (request === historyRequest)
-      status("Couldn't load conversations: " + e.message);
+      status(t("sidebar.history.load_failed", { detail: e.message }));
     return false;
   }
 };
@@ -2891,7 +2274,7 @@ function conversationRow(c) {
   row.className = "conversation-row";
   const open = document.createElement("button");
   open.setAttribute("aria-current", c.id === conversation ? "true" : "false");
-  open.textContent = c.title || "Conversation";
+  open.textContent = c.title || t("sidebar.conversation.untitled");
   open.title = open.textContent;
   open.className = c.id === conversation ? "active" : "";
   open.dataset.conversationId = c.id;
@@ -2902,29 +2285,29 @@ function conversationRow(c) {
   actions.hidden = !!c.legacy;
   const trigger = document.createElement("summary");
   trigger.textContent = "⋯";
-  trigger.setAttribute("aria-label", "Actions for " + open.textContent);
-  trigger.title = "Conversation actions";
+  trigger.setAttribute("aria-label", t("sidebar.conversation.actions_for", { title: open.textContent }));
+  trigger.title = t("sidebar.conversation.actions");
   const menu = document.createElement("div");
   menu.className = "conversation-actions-menu";
-  const rename = menuAction("pencil", "Rename conversation");
+  const rename = menuAction("pencil", t("sidebar.menu.rename"));
   rename.onclick = () => {
     actions.open = false;
     if (busy || loading || uploads) return;
     openRenameConversation(c, trigger);
   };
-  const handoff = menuAction("message-plus", "Continue in another app…");
+  const handoff = menuAction("message-plus", t("sidebar.menu.continue_other_app"));
   handoff.onclick = () => {
     actions.open = false;
     if (busy || loading || uploads) return;
     openContinuation(c, trigger);
   };
-  const archive = menuAction("archive", "Archive conversation");
+  const archive = menuAction("archive", t("sidebar.menu.archive"));
   archive.onclick = () => {
     actions.open = false;
     if (busy || loading || uploads) return;
     void archiveConversation(c, true);
   };
-  const remove = menuAction("trash", "Delete permanently");
+  const remove = menuAction("trash", t("sidebar.menu.delete_permanently"));
   remove.onclick = () => {
     actions.open = false;
     if (busy || loading || uploads) return;
@@ -2972,7 +2355,7 @@ function conversationRow(c) {
   icon.setAttribute("aria-hidden", "true");
   const title = document.createElement("span");
   title.className = "conversation-title";
-  title.textContent = c.title || "Conversation";
+  title.textContent = c.title || t("sidebar.conversation.untitled");
   title.dir = "auto";
   open.replaceChildren(icon, title);
   const indicator = conversationIndicator(c);
@@ -3000,23 +2383,23 @@ function conversationRow(c) {
   const project = document.createElement("span");
   project.className = "conversation-project";
   project.textContent =
-    projectDetails[c.project]?.label || c.project || "No project";
+    projectDetails[c.project]?.label || c.project || t("sidebar.project.none");
   meta.append(summary, age, backend, project);
   // Runs started by a scheduled task say so, with the task's title.
   if (c.schedule_title) {
     const scheduled = document.createElement("span");
     scheduled.className = "conversation-scheduled";
-    scheduled.textContent = "Scheduled";
-    scheduled.title = "Scheduled task: " + c.schedule_title;
+    scheduled.textContent = t("sidebar.conversation.scheduled");
+    scheduled.title = t("sidebar.conversation.scheduled_title", { title: c.schedule_title });
     meta.prepend(scheduled);
-    open.title += "\nScheduled task: " + c.schedule_title;
+    open.title += "\n" + t("sidebar.conversation.scheduled_title", { title: c.schedule_title });
   }
   open.append(meta);
   if (conversationState(c) === "needs-you") {
     const peek = document.createElement("button");
     peek.type = "button";
     peek.className = "conversation-peek";
-    peek.textContent = "Peek";
+    peek.textContent = t("sidebar.conversation.peek");
     peek.onclick = (event) => {
       event.stopPropagation();
       void navigate({ kind: "conversation", id: c.id, legacy: c.legacy });
@@ -3035,21 +2418,21 @@ function openRenameConversation(c, trigger) {
     cancel = $("rename-conversation-cancel"),
     error = $("rename-conversation-error");
   let saving = false;
-  input.value = c.title || "Conversation";
+  input.value = c.title || t("sidebar.conversation.untitled");
   input.disabled = false;
   cancel.disabled = false;
-  save.textContent = "Save";
+  save.textContent = t("sidebar.rename.save");
   const validate = () => {
     const length = Array.from(input.value.trim()).length;
     const message = !length
-      ? "Enter a name; spaces only are not allowed."
+      ? t("sidebar.rename.empty")
       : length > 100
-        ? "Use at most 100 characters."
+        ? t("sidebar.rename.too_long")
         : "";
     error.textContent = message;
     input.setAttribute("aria-invalid", String(!!message));
     save.disabled = saving || !!message;
-    $("rename-conversation-count").textContent = length + " / 100 characters";
+    $("rename-conversation-count").textContent = t("sidebar.rename.count", { count: length });
     return !message;
   };
   input.oninput = validate;
@@ -3068,7 +2451,7 @@ function openRenameConversation(c, trigger) {
     input.disabled = true;
     save.disabled = true;
     cancel.disabled = true;
-    save.textContent = "Saving…";
+    save.textContent = t("sidebar.rename.saving");
     try {
       await json("/v1/conversations/" + encodeURIComponent(c.id), {
         method: "PATCH",
@@ -3078,13 +2461,13 @@ function openRenameConversation(c, trigger) {
       await history();
       dialog.close();
     } catch (e) {
-      error.textContent = "Couldn't rename: " + e.message;
+      error.textContent = t("sidebar.rename.failed", { detail: e.message });
     } finally {
       saving = false;
       input.disabled = false;
       save.disabled = false;
       cancel.disabled = false;
-      save.textContent = "Save";
+      save.textContent = t("sidebar.rename.save");
     }
   };
   validate();
@@ -3093,7 +2476,7 @@ function openRenameConversation(c, trigger) {
   input.select();
 }
 const HANDOFF_APP_NAMES = { chatgpt: "ChatGPT", claude: "Claude" };
-// Codes of the desktop bridge (desktop/main.cjs). Not backend codes, so they stay out of userErrors.
+// Codes of the desktop bridge (desktop/main.cjs). Not backend codes, so they stay out of the error.<code> catalog keys.
 const handoffErrors = {
   handoff_forbidden: () =>
     "KeepHarness can only open other apps from its own window.",
@@ -3296,14 +2679,16 @@ async function archiveConversation(c, archived) {
     if (archived && conversation === c.id) newConversation();
     status(
       archived
-        ? "Conversation archived. Find it in Settings › Archived chats."
-        : "Conversation restored.",
+        ? t("sidebar.archive.archived")
+        : t("sidebar.archive.restored"),
     );
     await history();
     if (!$("settings-archived").hidden) await loadArchived();
   } catch (e) {
     const message =
-      (archived ? "Couldn't archive: " : "Couldn't unarchive: ") + e.message;
+      archived
+        ? t("sidebar.archive.archive_failed", { detail: e.message })
+        : t("sidebar.archive.unarchive_failed", { detail: e.message });
     if ($("settings-archived").hidden) status(message);
     else $("archived-error").textContent = message;
   }
@@ -3350,16 +2735,16 @@ async function loadArchived() {
           restore = document.createElement("button"),
           remove = document.createElement("button");
         row.className = "archived-chat";
-        title.textContent = c.title || "Conversation";
+        title.textContent = c.title || t("sidebar.conversation.untitled");
         title.dir = "auto";
         restore.type = remove.type = "button";
         restore.className = remove.className = "btn";
-        restore.textContent = "Unarchive";
-        remove.textContent = "Delete permanently";
-        restore.setAttribute("aria-label", "Unarchive " + title.textContent);
+        restore.textContent = t("sidebar.archive.restore");
+        remove.textContent = t("sidebar.menu.delete_permanently");
+        restore.setAttribute("aria-label", t("sidebar.archive.unarchive_label", { title: title.textContent }));
         remove.setAttribute(
           "aria-label",
-          "Delete permanently " + title.textContent,
+          t("sidebar.archive.delete_label", { title: title.textContent }),
         );
         restore.onclick = () => void archiveConversation(c, false);
         remove.onclick = () => openDeleteConversation(c, remove);
@@ -3370,7 +2755,7 @@ async function loadArchived() {
     $("archived-empty").hidden = archived.conversations.length > 0;
   } catch (e) {
     $("archived-error").textContent =
-      "Couldn't load archived chats: " + e.message;
+      t("sidebar.archive.load_failed", { detail: e.message });
   }
 }
 function openDeleteConversation(c, trigger) {
@@ -3378,7 +2763,7 @@ function openDeleteConversation(c, trigger) {
     confirm = $("delete-conversation-confirm"),
     cancel = $("delete-conversation-cancel"),
     error = $("delete-conversation-error");
-  $("delete-conversation-name").textContent = c.title || "Conversation";
+  $("delete-conversation-name").textContent = c.title || t("sidebar.conversation.untitled");
   error.textContent = "";
   let deleting = false;
   cancel.onclick = () => dialog.close();
@@ -3395,7 +2780,7 @@ function openDeleteConversation(c, trigger) {
     // disabling the focused element makes Chromium drop focus to <body>.
     confirm.setAttribute("aria-disabled", "true");
     cancel.disabled = true;
-    confirm.textContent = "Deleting…";
+    confirm.textContent = t("sidebar.delete.deleting");
     error.textContent = "";
     try {
       await json("/v1/conversations/" + encodeURIComponent(c.id), {
@@ -3406,12 +2791,12 @@ function openDeleteConversation(c, trigger) {
       await history();
       if (!$("settings-archived").hidden) await loadArchived();
     } catch (e) {
-      error.textContent = "Couldn't delete: " + e.message;
+      error.textContent = t("sidebar.delete.failed", { detail: e.message });
     } finally {
       deleting = false;
       confirm.removeAttribute("aria-disabled");
       cancel.disabled = false;
-      confirm.textContent = "Delete permanently";
+      confirm.textContent = t("sidebar.menu.delete_permanently");
     }
   };
   dialog.showModal();
@@ -3487,7 +2872,7 @@ function syncExecutionMode() {
   $("header-execution-mode").textContent = executionModeLabel();
 }
 function newConversation(
-  title = "New Conversation",
+  title = t("sidebar.conversation.new_title"),
   projectId = $("project").value,
   {
     resetExecutionMode = false,
@@ -3503,7 +2888,7 @@ function newConversation(
     uploads
   ) {
     status(
-      "Wait for the current send to finish before starting another conversation.",
+      t("sidebar.new.busy"),
     );
     return;
   }
@@ -3577,7 +2962,7 @@ function newConversation(
     });
   updateComposer();
   saveView();
-  $("context-meter").textContent = "New conversation · independent context";
+  $("context-meter").textContent = t("composer.context_meter.independent");
   setBusy(false);
   status("");
   // The mobile drawer makes the editor inert until it closes.
@@ -3594,7 +2979,7 @@ function newConversation(
 }
 function chooseProject(id) {
   if (busy || loading || uploads) return;
-  if (newConversation("New Conversation", id) === false) return;
+  if (newConversation(t("sidebar.conversation.new_title"), id) === false) return;
   renderProjects();
   history();
   closeSidebar();
@@ -3626,7 +3011,7 @@ function setProjectPreference(id, key, value) {
     [id]: { ...projectPreferences[id], [key]: value },
   };
   if (!prefs.set("project_list_preferences", next)) {
-    status("Couldn't save the project list in this browser. Try again.");
+    status(t("sidebar.project.save_failed"));
     return;
   }
   projectPreferences = next;
@@ -3643,11 +3028,11 @@ function setProjectPreference(id, key, value) {
   status(
     key === "hidden"
       ? value
-        ? "Project removed from the list. Folders and conversations preserved."
-        : "Project restored to the list."
+        ? t("sidebar.project.removed")
+        : t("sidebar.project.restored")
       : value
-        ? "Project added to favorites."
-        : "Project removed from favorites.",
+        ? t("sidebar.project.favorited")
+        : t("sidebar.project.unfavorited"),
   );
 }
 function openDeleteProjectFolder(project, label, trigger) {
@@ -3661,17 +3046,17 @@ function openDeleteProjectFolder(project, label, trigger) {
   const request = new AbortController();
   const messages = {
     project_folder_busy:
-      "There is a pending run or a deletion in progress for this project.",
+      t("sidebar.project_folder.busy"),
     project_directory_shared:
-      "This folder overlaps with another registered project's folder.",
+      t("sidebar.project_folder.shared"),
     project_directory_forbidden:
-      "This folder is protected and cannot be deleted.",
-    project_directory_required: "This project has no main folder.",
-    project_root_unavailable: "The main folder is not available.",
+      t("sidebar.project_folder.forbidden"),
+    project_directory_required: t("sidebar.project_folder.no_main_folder"),
+    project_root_unavailable: t("sidebar.project_folder.root_unavailable"),
     project_folder_changed:
-      "The folder changed since the confirmation. Close and reopen this window.",
+      t("sidebar.project_folder.changed"),
     project_folder_delete_failed:
-      "Couldn't finish the deletion. Part of the contents may have been deleted. Check the folder before trying again.",
+      t("sidebar.project_folder.delete_failed"),
   };
   let preview = null,
     deleting = false;
@@ -3682,7 +3067,7 @@ function openDeleteProjectFolder(project, label, trigger) {
   check.disabled = true;
   confirm.disabled = true;
   cancel.disabled = false;
-  $("delete-project-folder-status").textContent = "Loading path…";
+  $("delete-project-folder-status").textContent = t("sidebar.project_folder.loading_path");
   check.onchange = () => {
     confirm.disabled = !preview || !check.checked || deleting;
   };
@@ -3705,7 +3090,9 @@ function openDeleteProjectFolder(project, label, trigger) {
     confirm.disabled = true;
     cancel.disabled = true;
     error.textContent = "";
-    $("delete-project-folder-status").textContent = "Deleting folder…";
+    $("delete-project-folder-status").textContent = t(
+      "sidebar.project_folder.deleting",
+    );
     try {
       const result = await json(url, {
         method: "DELETE",
@@ -3724,11 +3111,13 @@ function openDeleteProjectFolder(project, label, trigger) {
       $("delete-project-folder-result").showModal();
     } catch (e) {
       error.textContent =
-        messages[e.code] || "Couldn't delete the folder: " + e.message;
+        messages[e.code] ||
+        t("sidebar.project_folder.delete_error", { detail: e.message });
       preview = null;
       check.checked = false;
-      $("delete-project-folder-status").textContent =
-        "Close and reopen to check the path before trying again.";
+      $("delete-project-folder-status").textContent = t(
+        "sidebar.project_folder.check_again",
+      );
     } finally {
       deleting = false;
       cancel.disabled = false;
@@ -3748,11 +3137,11 @@ function openDeleteProjectFolder(project, label, trigger) {
         }),
       );
       $("delete-project-folder-status").textContent = data.missing
-        ? "The folder no longer exists. Confirming will remove the entries from the list."
+        ? t("sidebar.project_folder.missing_folder")
         : data.project_ids?.length > 1
-          ? "This folder has " +
-            data.project_ids.length +
-            " duplicate entries. All of them will be removed from the list."
+          ? t("sidebar.project_folder.duplicate_entries", {
+              count: data.project_ids.length,
+            })
           : "";
       check.disabled = false;
     })
@@ -3762,8 +3151,8 @@ function openDeleteProjectFolder(project, label, trigger) {
         error.textContent =
           messages[e.code] ||
           (e.code === "HTTP 404"
-            ? "The running service does not offer the folder deletion lookup. Restart the service from the admin panel and try again. This does not mean the project has no folder."
-            : "Couldn't load the folder: " + e.message);
+            ? t("sidebar.project_folder.lookup_unsupported")
+            : t("sidebar.project_folder.load_error", { detail: e.message }));
       }
     });
 }
@@ -3808,7 +3197,7 @@ function renderProjects() {
           star.textContent = "★ ";
           star.setAttribute("aria-hidden", "true");
           button.prepend(star);
-          button.setAttribute("aria-label", o.textContent + " · Favorite");
+          button.setAttribute("aria-label", t("sidebar.project.favorite_label", { name: o.textContent }));
         }
         const projectIcon = projectIcons[o.value],
           showIcon = !!projectIcon && !projectPreferences[o.value]?.hide_icon;
@@ -3817,7 +3206,7 @@ function renderProjects() {
           img.className = "project-logo";
           img.src = projectIcon.src;
           img.alt = "";
-          img.title = "Detected icon: " + projectIcon.path;
+          img.title = t("sidebar.project.icon_detected", { path: projectIcon.path });
           img.onerror = () => img.remove();
           button.prepend(img);
         }
@@ -3833,7 +3222,7 @@ function renderProjects() {
         trigger.textContent = "⋯";
         trigger.setAttribute(
           "aria-label",
-          "Actions for project " + o.textContent,
+          t("sidebar.project.actions_for", { name: o.textContent }),
         );
         trigger.setAttribute("aria-expanded", "false");
         const menu = document.createElement("div");
@@ -3843,7 +3232,7 @@ function renderProjects() {
         navigate.type = "button";
         navigate.append(
           HarnessUI.icon("folder"),
-          document.createTextNode("Go to project folder"),
+          document.createTextNode(t("sidebar.project.go_to_folder")),
         );
         navigate.onclick = () => {
           menu.hidePopover();
@@ -3854,7 +3243,7 @@ function renderProjects() {
         pin.append(
           HarnessUI.icon("star"),
           document.createTextNode(
-            favorite ? "Remove from favorites" : "Add to favorites",
+            favorite ? t("sidebar.project.remove_favorite") : t("sidebar.project.add_favorite"),
           ),
         );
         pin.onclick = () => {
@@ -3865,9 +3254,9 @@ function renderProjects() {
         remove.type = "button";
         remove.append(
           HarnessUI.icon("x"),
-          document.createTextNode("Remove from list"),
+          document.createTextNode(t("sidebar.project.remove_from_list")),
         );
-        remove.title = "Preserves the project's folders and conversations";
+        remove.title = t("sidebar.project.remove_hint");
         remove.onclick = () => {
           menu.hidePopover();
           setProjectPreference(o.value, "hidden", true);
@@ -3877,7 +3266,7 @@ function renderProjects() {
         deleteFolder.className = "project-delete-folder";
         deleteFolder.append(
           HarnessUI.icon("trash"),
-          document.createTextNode("Delete folder"),
+          document.createTextNode(t("sidebar.project.delete_folder")),
         );
         deleteFolder.onclick = () => {
           menu.hidePopover();
@@ -3918,34 +3307,34 @@ function renderProjects() {
         iconToggle.append(
           HarnessUI.icon("scan"),
           document.createTextNode(
-            showIcon ? "Hide project icon" : "Show project icon",
+            showIcon ? t("sidebar.project.hide_icon") : t("sidebar.project.show_icon"),
           ),
         );
         iconToggle.title = projectIcon
-          ? "Detected icon: " + projectIcon.path
-          : "No icon found in the project";
+          ? t("sidebar.project.icon_detected", { path: projectIcon.path })
+          : t("sidebar.project.icon_none");
         iconToggle.onclick = () => {
           menu.hidePopover();
           setProjectPreference(o.value, "hide_icon", showIcon);
         };
         const edit = document.createElement("button");
         edit.type = "button";
-        edit.title = "Change the name, add folders, and choose the main folder";
+        edit.title = t("sidebar.project.edit_hint");
         edit.append(
           HarnessUI.icon("pencil"),
-          document.createTextNode("Edit project"),
+          document.createTextNode(t("sidebar.project.edit")),
         );
         edit.onclick = () => {
           menu.hidePopover();
           openProjectDialog(o.value);
         };
-        navigate.title = "Open the main folder in the file explorer";
+        navigate.title = t("sidebar.project.open_folder_hint");
         pin.title = favorite
-          ? "Remove this project from favorites"
-          : "Show this project among favorites";
+          ? t("sidebar.project.unfavorite_hint")
+          : t("sidebar.project.favorite_hint");
         deleteFolder.title =
-          "Review deleting the project's main folder from the computer";
-        trigger.title = "Open project actions";
+          t("sidebar.project.delete_folder_hint");
+        trigger.title = t("sidebar.project.actions");
         trigger.replaceChildren(HarnessUI.icon("settings"));
         menu.append(edit, navigate, pin, iconToggle, remove, deleteFolder);
         actions.append(trigger, menu);
@@ -3973,21 +3362,21 @@ function renderProjects() {
         create.type = "button";
         create.className = "project-new";
         create.append(HarnessUI.icon("message-plus"));
-        create.setAttribute(
-          "aria-label",
-          "New Conversation in " + o.textContent,
-        );
-        create.title = "New Conversation in " + o.textContent;
+        const newChatLabel = t("sidebar.project.new_chat_label", {
+          project: o.textContent,
+        });
+        create.setAttribute("aria-label", newChatLabel);
+        create.title = newChatLabel;
         create.onclick = (event) => {
           event.preventDefault();
           if (submitting || cancelling || loading || uploads) {
             status(
-              "Wait for the current send to finish before starting another chat.",
+              t("sidebar.new.busy_chat"),
             );
             return;
           }
           newConversation(
-            "New Conversation in project " + o.textContent,
+            t("sidebar.project.new_conversation_in", { project: o.textContent }),
             o.value,
             { resetExecutionMode: true },
           );
@@ -3999,7 +3388,7 @@ function renderProjects() {
         if (!items.length) {
           const empty = document.createElement("p");
           empty.className = "empty-history";
-          empty.textContent = "No conversations";
+          empty.textContent = t("sidebar.project.no_conversations");
           children.append(empty);
         }
         group.append(heading, children);
@@ -4014,7 +3403,9 @@ function renderProjects() {
     const heading = document.createElement("summary");
     heading.append(
       HarnessUI.icon("archive"),
-      document.createTextNode("Removed projects (" + removed.length + ")"),
+      document.createTextNode(
+        t("sidebar.project.removed_group", { count: removed.length }),
+      ),
     );
     section.append(heading);
     for (const option of removed) {
@@ -4022,7 +3413,9 @@ function renderProjects() {
       restore.type = "button";
       restore.append(
         HarnessUI.icon("refresh"),
-        document.createTextNode("Restore " + option.textContent),
+        document.createTextNode(
+          t("sidebar.project.restore", { name: option.textContent }),
+        ),
       );
       restore.onclick = () =>
         setProjectPreference(option.value, "hidden", false);
@@ -4053,13 +3446,13 @@ function renderProjects() {
   const heading = document.createElement("h2");
   const count = document.createElement("span");
   count.textContent = String(chats.length);
-  heading.append(document.createTextNode("Chats"), count);
+  heading.append(document.createTextNode(t("sidebar.history.chats")), count);
   section.append(heading, ...chats.map(conversationRow));
   $("history").replaceChildren(section);
   if (!matches.length) {
     const empty = document.createElement("p");
     empty.className = "empty-history";
-    empty.textContent = "Your conversations will appear here.";
+    empty.textContent = t("sidebar.history.empty");
     $("history").append(empty);
   }
   if (focusedConversation) {
@@ -4166,7 +3559,7 @@ function setAnswer(answer, value, notice = "", code = "") {
 function showSkippedHookNotice(data) {
   if (!active) return;
   const text =
-    userErrors[data.reason] ||
+    userError(data.reason) ||
     "A catalog hook was skipped and the turn went on without it.";
   const shown = active.el.querySelectorAll(
     '[data-testid="catalog-hook-notice"]',
@@ -5259,15 +4652,18 @@ function showTurnRetry(run) {
       (m) => m.id === (req.backend === "qwen" ? "qwen-local" : req.model),
     )?.capabilities?.images === false;
   if (unreadable) {
-    note.textContent =
-      modelName(req.model) +
-      " can't read the image of this turn, so Retry would drop it again.";
+    note.textContent = t("conversation.turn.unreadable_image", {
+      model: modelName(req.model),
+    });
     button.dataset.testid = "turn-choose-model";
-    button.textContent = "Choose another model";
+    button.textContent = t("conversation.turn.choose_model");
     button.onclick = () => $("model-trigger").click();
   } else {
     button.dataset.testid = "turn-retry";
-    button.append(HarnessUI.icon("refresh"), document.createTextNode("Retry"));
+    button.append(
+      HarnessUI.icon("refresh"),
+      document.createTextNode(t("conversation.turn.retry")),
+    );
     button.onclick = async () => {
       if (button.disabled) return;
       const turnConversation = conversation;
@@ -5284,7 +4680,7 @@ function showTurnRetry(run) {
           saveView();
         }
       } catch (e) {
-        failure = userErrors[e.code] || e.message;
+        failure = userError(e.code) || e.message;
       }
       if (conversation !== turnConversation) return;
       await load(turnConversation);
@@ -5433,7 +4829,7 @@ function event(e) {
     });
     status("Receiving response…");
   } else if (e.type === "reasoning_delta" || e.type === "reasoning_summary") {
-    if (active) setActivitySummary(active, "Thinking…");
+    if (active) setActivitySummary(active, t("conversation.turn.thinking"));
     status("Reasoning…");
   } else if (e.type === "quota_before" || e.type === "quota_after") {
     if (selected()?.backend === "codex")
@@ -5562,7 +4958,7 @@ function executionError(error, detail) {
     return "Couldn't prepare or process the context for this attempt. The history and files were preserved. You can continue this conversation; if the limit persists, use a model with reading tools or reduce the content sent at once.";
   const reason = providerMessage(detail || error);
   return (
-    (userErrors[code] ||
+    (userError(code) ||
       attachmentError(code) ||
       "The run did not finish. Check the activity and try again.") +
     (reason ? " Provider message: " + reason : "")
@@ -5611,12 +5007,11 @@ async function result(
     else if (["cancelled", "failed", "interrupted"].includes(r.state))
       // F-57: partial usage events of an unfinished run are not the run's totals.
       $("context-meter").textContent =
-        (r.state === "cancelled"
-          ? "Last run cancelled"
-          : "Last run did not finish") + " · token usage not reported";
+        r.state === "cancelled"
+          ? t("run_status.meter.cancelled")
+          : t("run_status.meter.did_not_finish");
     else if (r.state === "completed")
-      $("context-meter").textContent =
-        "Last run completed · token usage not reported";
+      $("context-meter").textContent = t("run_status.meter.completed");
     if (data.answer !== undefined) setAnswer(active, data.answer);
     // On reload, nothing has streamed into this fresh bubble yet: fall back
     // to the server's persisted partial_answer (WP-F contract) so a failed,
@@ -5631,7 +5026,7 @@ async function result(
         : "";
     if (notice) setAnswer(active, active.body.rawAnswer, notice, data.error);
     if (r.state === "cancelled" && !active.body.rawAnswer && !notice)
-      setAnswer(active, "Run cancelled.");
+      setAnswer(active, t("run_status.answer.cancelled"));
     // The notice asks to send again: put the prompt back in an empty composer.
     if (
       (notice || condition) &&
@@ -5714,8 +5109,8 @@ function showHeldTurn(response, held) {
   run.type = discard.type = "button";
   run.className = "btn btn-primary";
   discard.className = "btn";
-  run.textContent = "Run queued message";
-  discard.textContent = "Discard";
+  run.textContent = t("conversation.held.run");
+  discard.textContent = t("conversation.held.discard");
   const choose = async (path, done) => {
     run.disabled = discard.disabled = true;
     try {
@@ -5727,8 +5122,9 @@ function showHeldTurn(response, held) {
       status("Couldn't update the queued message: " + e.message);
     }
   };
-  run.onclick = () => choose("/run-queued", "Queued message released.");
-  discard.onclick = () => choose("/cancel", "Queued message discarded.");
+  run.onclick = () => choose("/run-queued", t("run_status.queued.released"));
+  discard.onclick = () =>
+    choose("/cancel", t("run_status.queued.discarded"));
   actions.append(run, discard);
   response.heldActions = actions;
   response.el.insertBefore(actions, response.body);
@@ -6086,7 +5482,7 @@ function rememberUpload(entry) {
 async function upload(list) {
   if (temporaryStarting) return;
   if (!canUpload()) {
-    status("Couldn't attach: attachments are disabled in the admin panel.");
+    status(t("composer.attachments.disabled_admin"));
     return;
   }
   if (busy || loading || uploads) return;
@@ -6101,15 +5497,13 @@ async function upload(list) {
         // F-71: say how many of the selection were dropped, and which ones.
         const dropped = picked.slice(index).map((file) => file.name);
         status(
-          "Limit of 20 attachments reached. " +
-            (dropped.length === picked.length
-              ? "Remove one before adding another."
-              : dropped.length +
-                " of the " +
-                picked.length +
-                " selected files " +
-                (dropped.length === 1 ? "was" : "were") +
-                " not attached."),
+          dropped.length === picked.length
+            ? t("composer.attachments.limit_remove", { max: MAX_ATTACHMENTS })
+            : t("composer.attachments.limit_partial", {
+                max: MAX_ATTACHMENTS,
+                count: dropped.length,
+                total: picked.length,
+              }),
         );
         attachmentNotice(dropped, "file_limit");
         break;
@@ -6187,7 +5581,11 @@ async function upload(list) {
         if (imageRefusalCodes.has(e.code))
           imageRefusedModel = selected()?.id || "";
         attachmentNotice(f.name, e.code);
-        status("Couldn't upload: " + (attachmentError(e.code) || e.message));
+        status(
+          t("composer.attachments.upload_failed", {
+            detail: attachmentError(e.code) || e.message,
+          }),
+        );
       }
     }
   } finally {
@@ -6416,9 +5814,9 @@ async function send() {
     await watch();
   } catch (e) {
     status(
-      "Couldn't run: " +
-        e.message +
-        (e.status === 429 && submitting ? " Your draft was preserved." : ""),
+      e.status === 429 && submitting
+        ? t("composer.send.failed_draft_kept", { detail: e.message })
+        : t("composer.send.failed", { detail: e.message }),
     );
     if (e.status === 429) startSendCooldown(e.retryAfter || 5000);
   } finally {
@@ -6684,9 +6082,7 @@ function renderProjectFileEntries(list, entries, tree = fileTree) {
 function selectProjectFileEntry(item, entry, event = {}) {
   if (!canUpload() || uploads > 0) return;
   if (files.length >= MAX_ATTACHMENTS) {
-    status(
-      "Limit of 20 attachments reached. Remove one before adding another.",
-    );
+    status(t("composer.attachments.limit_remove", { max: MAX_ATTACHMENTS }));
     return;
   }
   const multi = event.ctrlKey || event.metaKey;
@@ -8258,7 +7654,7 @@ function attachRecentUpload(entry) {
   if (files.some((item) => item.id === entry.id)) return;
   if (files.length >= MAX_ATTACHMENTS)
     return void status(
-      "Limit of 20 attachments reached. Remove one before adding another.",
+      t("composer.attachments.limit_remove", { max: MAX_ATTACHMENTS }),
     );
   files.push(entry);
   renderFiles();
@@ -8532,8 +7928,8 @@ function modelAvailability(
   const panel = $("model-availability");
   panel.hidden = models.length > 0 && !error;
   $("model-availability-title").textContent = error
-    ? "Couldn't check the models"
-    : "No model available";
+    ? t("composer.availability.title_error")
+    : t("composer.availability.title_none");
   $("model-availability-detail").textContent =
     error ||
     "Add and enable a provider in this server's admin panel. Then start or restart the harness to apply it.";
@@ -8571,9 +7967,13 @@ function modelAvailability(
   $("model-note").hidden = !models.length;
   updateModelPermissions();
   if (!models.length) {
-    $("model").replaceChildren(new Option("No model available", ""));
-    $("effort").replaceChildren(new Option("Effort unavailable", ""));
-    $("quota-short").textContent = "No model selected";
+    $("model").replaceChildren(
+      new Option(t("composer.availability.title_none"), ""),
+    );
+    $("effort").replaceChildren(
+      new Option(t("composer.effort.unavailable"), ""),
+    );
+    $("quota-short").textContent = t("composer.model.none_selected");
   }
   if ($("welcome")) $("welcome").hidden = !models.length;
   updateComposer();
@@ -9777,7 +9177,7 @@ let pendingSelectionNotice = "";
 // Registered here, after interfaceReady and pendingSelectionNotice exist: queued notices fire at once, and
 // initialize() would otherwise overwrite the status line with "Ready to chat."
 prefs.onNotice((code) => {
-  const text = userErrors[code];
+  const text = userError(code);
   if (interfaceReady) setTimeout(() => status(text));
   else
     pendingSelectionNotice = pendingSelectionNotice
@@ -9960,7 +9360,7 @@ async function refreshCatalog() {
             deepseek: "DeepSeek model; runs through the Codex CLI. ",
           }[m.backend] || "Model via Codex. ") +
           "Efforts: " +
-          m.efforts.map((e) => efforts[e] || e).join(", "),
+          m.efforts.map((e) => effortLabel(e)).join(", "),
         status: "Configured model",
         source: "/v1/models",
       }),
@@ -11612,7 +11012,7 @@ function renderConversationSearch() {
         "run:" + (c.id || "") + ":" + (c.runId || "");
       const title = document.createElement("strong"),
         detail = document.createElement("small");
-      title.textContent = c.title || "Conversation";
+      title.textContent = c.title || t("sidebar.conversation.untitled");
       const project =
         [...$("project").options].find((o) => o.value === c.project)
           ?.textContent || "No project";
@@ -11968,8 +11368,8 @@ function updateComposer() {
   $("send").setAttribute(
     "aria-label",
     cooldown
-      ? "Send message (available in " + cooldown + " seconds)"
-      : "Send message",
+      ? t("composer.send.label_cooldown", { seconds: cooldown })
+      : t("composer.send.label"),
   );
   $("send").disabled =
     temporaryStarting ||
@@ -12698,7 +12098,7 @@ function expireApproval(id) {
     .forEach((node) => (node.disabled = true));
   const progress = box.querySelector('[role="status"]');
   progress.hidden = false;
-  progress.textContent = userErrors.approval_expired;
+  progress.textContent = userError("approval_expired");
   status("Approval expired");
 }
 
@@ -12906,131 +12306,103 @@ for (const button of document.querySelectorAll("[data-settings]")) {
 
 function attachmentNotice(filename, code) {
   const reasons = {
-    model_video_unavailable:
-      "the selected model or mode does not support detected MP4",
-    video_processing_unavailable: "local video processing is unavailable",
-    invalid_video: "the video is invalid or contains no decodable frames",
-    video_frame_failed: "could not extract frames from the video",
-    video_duration_limit: "the video exceeds four hours",
-    audio_transcription_unavailable:
-      "local speech transcription is not installed",
-    audio_transcription_failed: "speech transcription failed",
-    attachment_source_unavailable:
-      "the file changed, disappeared, or stopped being a regular file after selection",
-    file_limit: "the limit of 20 attachments per message was reached",
-    upload_limit: "the file size or the project's storage exceeded the limit",
-    sensitive_file: "folder import excludes hidden or sensitive files",
-    symlink_denied: "symbolic links are not imported as attachments",
-    invalid_image: "the image is incomplete or corrupted",
-    image_validation_unavailable: "the local image validator is unavailable",
-    image_validation_timeout: "image validation exceeded the allowed time",
-    invalid_document:
-      "the document could not be parsed by the available reader",
-    unsafe_document_xml: "the XML contains declarations that are not allowed",
-    document_expansion_limit:
-      "the decompressed document exceeds the safety limits",
-    model_images_unavailable:
-      "the selected model does not support reading images",
-    local_vision_not_enabled:
-      "the local model has no image support enabled on this server",
-    images_require_native_service:
-      "the selected execution mode does not support reading images",
-    unsupported_binary_format: "this format has no reader available in the app",
-    binary_denied: "this binary format has no reader available in the app",
-    invalid_pdf: "the PDF is invalid or damaged",
-    document_tools_unavailable:
-      "PDF extraction requires bwrap (bubblewrap) on the server",
-    pdf_extraction_failed: "its text could not be extracted from the PDF",
-    document_text_unavailable: "the document contains no readable text",
-    document_text_limit: "the document's text exceeds the size limit",
-    audio_decode_failed: "the audio could not be decoded",
-    audio_no_speech: "no speech was recognized in the audio",
-    audio_duration_limit: "the audio exceeds four hours",
-    invalid_audio: "the audio format was not recognized",
-    video_decode_failed: "the video frames could not be decoded",
-    video_processing_timeout: "video processing exceeded the allowed time",
-    image_size_limit: "the image exceeds 100 MiB",
-    file_too_large: "it exceeds the 100 MiB per-file limit",
-    tool_output_limit: "reading it produced more text than allowed",
-    xml_entities_denied: "the XML contains entities that are not allowed",
-    selection_scan_limit: "the folder has too many files to scan",
-    path_not_authorized: "the path is not authorized for this project",
-    invalid_filename:
-      "the filename contains a path or control characters, or is too long",
+    model_video_unavailable: t("composer.attachment_reason.model_video_unavailable"),
+    video_processing_unavailable: t("composer.attachment_reason.video_processing_unavailable"),
+    invalid_video: t("composer.attachment_reason.invalid_video"),
+    video_frame_failed: t("composer.attachment_reason.video_frame_failed"),
+    video_duration_limit: t("composer.attachment_reason.video_duration_limit"),
+    audio_transcription_unavailable: t("composer.attachment_reason.audio_transcription_unavailable"),
+    audio_transcription_failed: t("composer.attachment_reason.audio_transcription_failed"),
+    attachment_source_unavailable: t("composer.attachment_reason.attachment_source_unavailable"),
+    file_limit: t("composer.attachment_reason.file_limit"),
+    upload_limit: t("composer.attachment_reason.upload_limit"),
+    sensitive_file: t("composer.attachment_reason.sensitive_file"),
+    symlink_denied: t("composer.attachment_reason.symlink_denied"),
+    invalid_image: t("composer.attachment_reason.invalid_image"),
+    image_validation_unavailable: t("composer.attachment_reason.image_validation_unavailable"),
+    image_validation_timeout: t("composer.attachment_reason.image_validation_timeout"),
+    invalid_document: t("composer.attachment_reason.invalid_document"),
+    unsafe_document_xml: t("composer.attachment_reason.unsafe_document_xml"),
+    document_expansion_limit: t("composer.attachment_reason.document_expansion_limit"),
+    model_images_unavailable: t("composer.attachment_reason.model_images_unavailable"),
+    local_vision_not_enabled: t("composer.attachment_reason.local_vision_not_enabled"),
+    images_require_native_service: t("composer.attachment_reason.images_require_native_service"),
+    unsupported_binary_format: t("composer.attachment_reason.unsupported_binary_format"),
+    binary_denied: t("composer.attachment_reason.binary_denied"),
+    invalid_pdf: t("composer.attachment_reason.invalid_pdf"),
+    document_tools_unavailable: t("composer.attachment_reason.document_tools_unavailable"),
+    pdf_extraction_failed: t("composer.attachment_reason.pdf_extraction_failed"),
+    document_text_unavailable: t("composer.attachment_reason.document_text_unavailable"),
+    document_text_limit: t("composer.attachment_reason.document_text_limit"),
+    audio_decode_failed: t("composer.attachment_reason.audio_decode_failed"),
+    audio_no_speech: t("composer.attachment_reason.audio_no_speech"),
+    audio_duration_limit: t("composer.attachment_reason.audio_duration_limit"),
+    invalid_audio: t("composer.attachment_reason.invalid_audio"),
+    video_decode_failed: t("composer.attachment_reason.video_decode_failed"),
+    video_processing_timeout: t("composer.attachment_reason.video_processing_timeout"),
+    image_size_limit: t("composer.attachment_reason.image_size_limit"),
+    file_too_large: t("composer.attachment_reason.file_too_large"),
+    tool_output_limit: t("composer.attachment_reason.tool_output_limit"),
+    xml_entities_denied: t("composer.attachment_reason.xml_entities_denied"),
+    selection_scan_limit: t("composer.attachment_reason.selection_scan_limit"),
+    path_not_authorized: t("composer.attachment_reason.path_not_authorized"),
+    invalid_filename: t("composer.attachment_reason.invalid_filename"),
   };
   if (!Object.hasOwn(reasons, code)) return;
   $("welcome")?.remove();
   const notice = assistant("", selected()?.id),
     names = [].concat(filename);
-  notice.chip.textContent = "File skipped";
+  notice.chip.textContent = t("composer.attachments.skipped_chip");
   notice.body.textContent =
     names.length === 1
-      ? `File “${names[0]}” was skipped because ${reasons[code]}.`
-      : `${names.length} files were skipped because ${reasons[code]}: ${names.map((name) => `“${name}”`).join(", ")}.`;
+      ? t("composer.attachments.skipped_one", { name: names[0], reason: reasons[code] })
+      : t("composer.attachments.skipped_many", { count: names.length, reason: reasons[code], names: names.map((name) => `“${name}”`).join(", ") });
   $("messages").scrollTop = $("messages").scrollHeight;
 }
 function attachmentError(code) {
   if (imageRefusalCodes.has(code))
-    return imageUnreadableCopy() + " The image was not attached.";
+    return imageUnreadableCopy() + " " + t("composer.attachments.image_not_attached");
   return {
-    video_capability_unavailable:
-      "Couldn't check the model's MP4 support. Try again once the integration is available.",
-    model_video_unavailable:
-      "MP4 unavailable for this model or mode. Choose a model with detected support.",
-    video_processing_unavailable:
-      "Local video processing is unavailable on this server.",
-    invalid_video: "The video is invalid or contains no decodable frames.",
-    video_duration_limit: "Upload a video of up to 4 hours.",
-    video_decode_failed: "Couldn't decode the video frames.",
-    video_frame_failed: "Couldn't extract the video frames.",
-    video_processing_timeout: "Video processing exceeded the allowed time.",
-    invalid_image: "The image is incomplete or corrupted. It was not attached.",
-    image_validation_unavailable:
-      "The local image validator is unavailable. The image was not attached.",
-    image_validation_timeout:
-      "Image validation took too long. Try a smaller image.",
-    invalid_filename:
-      "The filename contains a path, control characters, or exceeds 160 characters.",
-    upload_limit:
-      "The file or the project's storage exceeded the allowed limit. Settings › Archived chats shows the storage used.",
-    audio_transcription_unavailable:
-      "Local audio transcription is not installed on this server.",
-    audio_duration_limit: "Upload audio of up to 4 hours.",
-    invalid_audio:
-      "Couldn't recognize the audio. Try WAV, MP3, M4A, OGG, or FLAC.",
-    audio_transcription_failed:
-      "Local transcription failed; the audio was not attached.",
-    image_capability_unavailable:
-      "Couldn't check this server's vision support. Try again once it's available.",
-    select_model_for_image:
-      "Choose a model that reads images before attaching one.",
-    image_size_limit: "Images can be up to 100 MiB.",
-    unsupported_binary_format:
-      "This binary format doesn't have a reader available yet. Upload a compatible image, a PDF with text, an Office/OpenDocument document, or a text file.",
-    binary_denied: "This file contains binary data with no reader available.",
-    invalid_document: "The document is invalid or corrupted.",
-    document_expansion_limit:
-      "The document exceeds the safe decompression limit.",
-    invalid_pdf: "The PDF is invalid or damaged.",
-    document_tools_unavailable:
-      "PDF extraction is unavailable. Install bwrap (bubblewrap) on the server.",
-    pdf_extraction_failed: "Couldn't extract the text from the PDF.",
-    unsafe_document_xml:
-      "The document contains XML declarations that are not allowed.",
-    xml_entities_denied: "The file contains XML entities that are not allowed.",
-    document_text_unavailable: "The document contains no readable text.",
-    document_text_limit: "The document's text exceeds the size limit.",
-    audio_decode_failed: "Couldn't decode the audio.",
-    audio_no_speech: "No speech was recognized in the audio.",
-    file_too_large: "The file exceeds the 100 MiB per-file limit.",
-    tool_output_limit: "Reading the file produced more text than allowed.",
-    attachment_source_unavailable:
-      "The file changed or disappeared after it was selected. Select it again.",
-    file_limit: "The limit of 20 attachments per message was reached.",
-    sensitive_file: "Hidden or sensitive files can't be attached.",
-    symlink_denied: "Symbolic links can't be attached.",
-    selection_scan_limit:
-      "The folder has too many files to scan. Select a smaller folder.",
+    video_capability_unavailable: t("composer.attachment_error.video_capability_unavailable"),
+    model_video_unavailable: t("composer.attachment_error.model_video_unavailable"),
+    video_processing_unavailable: t("composer.attachment_error.video_processing_unavailable"),
+    invalid_video: t("composer.attachment_error.invalid_video"),
+    video_duration_limit: t("composer.attachment_error.video_duration_limit"),
+    video_decode_failed: t("composer.attachment_error.video_decode_failed"),
+    video_frame_failed: t("composer.attachment_error.video_frame_failed"),
+    video_processing_timeout: t("composer.attachment_error.video_processing_timeout"),
+    invalid_image: t("composer.attachment_error.invalid_image"),
+    image_validation_unavailable: t("composer.attachment_error.image_validation_unavailable"),
+    image_validation_timeout: t("composer.attachment_error.image_validation_timeout"),
+    invalid_filename: t("composer.attachment_error.invalid_filename"),
+    upload_limit: t("composer.attachment_error.upload_limit"),
+    audio_transcription_unavailable: t("composer.attachment_error.audio_transcription_unavailable"),
+    audio_duration_limit: t("composer.attachment_error.audio_duration_limit"),
+    invalid_audio: t("composer.attachment_error.invalid_audio"),
+    audio_transcription_failed: t("composer.attachment_error.audio_transcription_failed"),
+    image_capability_unavailable: t("composer.attachment_error.image_capability_unavailable"),
+    select_model_for_image: t("composer.attachment_error.select_model_for_image"),
+    image_size_limit: t("composer.attachment_error.image_size_limit"),
+    unsupported_binary_format: t("composer.attachment_error.unsupported_binary_format"),
+    binary_denied: t("composer.attachment_error.binary_denied"),
+    invalid_document: t("composer.attachment_error.invalid_document"),
+    document_expansion_limit: t("composer.attachment_error.document_expansion_limit"),
+    invalid_pdf: t("composer.attachment_error.invalid_pdf"),
+    document_tools_unavailable: t("composer.attachment_error.document_tools_unavailable"),
+    pdf_extraction_failed: t("composer.attachment_error.pdf_extraction_failed"),
+    unsafe_document_xml: t("composer.attachment_error.unsafe_document_xml"),
+    xml_entities_denied: t("composer.attachment_error.xml_entities_denied"),
+    document_text_unavailable: t("composer.attachment_error.document_text_unavailable"),
+    document_text_limit: t("composer.attachment_error.document_text_limit"),
+    audio_decode_failed: t("composer.attachment_error.audio_decode_failed"),
+    audio_no_speech: t("composer.attachment_error.audio_no_speech"),
+    file_too_large: t("composer.attachment_error.file_too_large"),
+    tool_output_limit: t("composer.attachment_error.tool_output_limit"),
+    attachment_source_unavailable: t("composer.attachment_error.attachment_source_unavailable"),
+    file_limit: t("composer.attachment_error.file_limit"),
+    sensitive_file: t("composer.attachment_error.sensitive_file"),
+    symlink_denied: t("composer.attachment_error.symlink_denied"),
+    selection_scan_limit: t("composer.attachment_error.selection_scan_limit"),
   }[code];
 }
 
@@ -13103,24 +12475,26 @@ function syncComposerPickers() {
       trigger = $(id + "-trigger");
     $(id + "-label").textContent =
       select.selectedOptions[0]?.textContent ||
-      (id === "model" ? "No model" : "Effort unavailable");
+      (id === "model"
+        ? t("composer.model.none")
+        : t("composer.effort.unavailable"));
     if (id === "model")
       $("model-trigger-icon").textContent = modelIcon(select.value);
     if (id === "model") {
       const identity = selectedIdentity();
       $("model-trigger-icon").title = identity?.model || "";
       trigger.title = identity
-        ? "Choose model · " + identity.provider + " · " + identity.model
-        : "Choose model";
+        ? t("composer.picker.choose_model_identity", { provider: identity.provider, model: identity.model })
+        : t("composer.picker.choose_model");
     }
     if (id !== "model")
-      trigger.title = "Choose effort · " + $(id + "-label").textContent;
+      trigger.title = t("composer.picker.choose_effort", { label: $(id + "-label").textContent });
     select.disabled =
       !models.length || submitting || loading || uploads > 0 || policyPending;
     trigger.disabled = select.disabled || !select.options.length;
     if (busy)
       trigger.title +=
-        " · Applies to the next message; the current response keeps its model and effort.";
+        " · " + t("composer.picker.applies_next_detail");
     if (trigger.disabled && $(id + "-menu").matches(":popover-open"))
       $(id + "-menu").hidePopover();
   }
@@ -13132,7 +12506,7 @@ function moreModels(group) {
   more.className = "model-more";
   const summary = document.createElement("summary"),
     list = document.createElement("div");
-  summary.textContent = "More models";
+  summary.textContent = t("composer.picker.more_models");
   list.className = "model-more-options";
   more.append(summary, list);
   group.querySelector(".model-provider-options").append(more);
@@ -13155,14 +12529,14 @@ function renderPicker(id) {
     return;
   }
   const descriptions = {
-    none: "No reasoning step.",
-    configured: "Use the provider's configured default.",
-    low: "Brief reasoning for simple tasks.",
-    medium: "Intermediate reasoning effort.",
-    high: "More reasoning for complex tasks.",
-    xhigh: "Very high reasoning effort.",
-    max: "Maximum effort offered by the model.",
-    ultra: "The most intense reasoning level offered by the model.",
+    none: t("composer.effort_description.none"),
+    configured: t("composer.effort_description.configured"),
+    low: t("composer.effort_description.low"),
+    medium: t("composer.effort_description.medium"),
+    high: t("composer.effort_description.high"),
+    xhigh: t("composer.effort_description.xhigh"),
+    max: t("composer.effort_description.max"),
+    ultra: t("composer.effort_description.ultra"),
   };
   const providers = {
     ...HarnessUI.providerNames,
@@ -13220,15 +12594,15 @@ function renderPicker(id) {
         id === "model"
           ? providers[model?.backend] ||
             model?.backend ||
-            "Model configured on the server"
+            t("composer.picker.model_default")
           : descriptions[option.value] ||
-            "Level offered by the selected model.";
+            t("composer.picker.effort_default");
       button.title =
-        "Select " +
-        option.textContent +
-        " · " +
-        detail.textContent +
-        (busy ? " · Applies to the next message." : "");
+        t("composer.picker.select", {
+          option: option.textContent,
+          detail: detail.textContent,
+        }) +
+        (busy ? " · " + t("composer.picker.applies_next") : "");
       text.append(title);
       if (id !== "model") text.append(detail);
       const check = document.createElement("span");
@@ -13251,7 +12625,7 @@ function renderPicker(id) {
           heading.setAttribute("aria-controls", list.id);
           heading.append(providerModelIcon(backend));
           const label =
-            HarnessUI.providerNames[backend] || model?.backend || "Others";
+            HarnessUI.providerNames[backend] || model?.backend || t("composer.provider.others");
           group.setAttribute("role", "group");
           group.setAttribute("aria-label", label);
           heading.className = "model-provider-heading";
@@ -13557,10 +12931,15 @@ function renderSelectedProjectDirectories() {
       renderSelectedProjectDirectories();
     };
     remove.type = "button";
-    remove.append(HarnessUI.icon("x"), document.createTextNode("Remove"));
-    remove.title =
-      "Remove the folder from the project without deleting its files";
-    remove.setAttribute("aria-label", "Remove folder " + name);
+    remove.append(
+      HarnessUI.icon("x"),
+      document.createTextNode(t("sidebar.project.folder_remove")),
+    );
+    remove.title = t("sidebar.project.folder_remove_title");
+    remove.setAttribute(
+      "aria-label",
+      t("sidebar.project.folder_remove_label", { name }),
+    );
     remove.onclick = () => {
       projectDirectory.selected.delete(path);
       renderSelectedProjectDirectories();
@@ -13587,15 +12966,17 @@ function openProjectDialog(projectId = null) {
       );
   }
   $("project-dialog-title").textContent = projectId
-    ? "Edit project"
-    : "Create project";
+    ? t("sidebar.project.edit")
+    : t("sidebar.project.create");
   $("project-create").replaceChildren(
     HarnessUI.icon(projectId ? "pencil" : "folder-plus"),
-    document.createTextNode(projectId ? "Save changes" : "Create project"),
+    document.createTextNode(
+      projectId ? t("sidebar.project.save_changes") : t("sidebar.project.create"),
+    ),
   );
   $("project-create").title = projectId
-    ? "Save the name and folders while keeping the conversations"
-    : "Create the project; folders are optional";
+    ? t("sidebar.project.save_hint")
+    : t("sidebar.project.create_hint");
   renderSelectedProjectDirectories();
   resetProjectFolderBrowser();
   $("project-create-note").textContent = "";
@@ -13606,10 +12987,10 @@ for (const [id, icon, title] of [
   [
     "project-directory-add-current",
     "folder-plus",
-    "Add the selected folder to the project",
+    t("sidebar.project.add_folder_hint"),
   ],
-  ["project-dialog-cancel", "x", "Discard changes and close"],
-  ["project-dialog-close", "x", "Close without saving changes"],
+  ["project-dialog-cancel", "x", t("sidebar.project.cancel_hint")],
+  ["project-dialog-close", "x", t("sidebar.project.close_hint")],
 ]) {
   const button = $(id);
   button.title = title;
@@ -13628,7 +13009,7 @@ $("project-directory-add-current").onclick = () => {
   const entry = projectDirectory.candidate;
   if (!entry || projectDirectory.selected.has(entry.absolute_path)) return;
   if (projectDirectory.selected.size >= 20) {
-    $("project-create-note").textContent = "Add up to 20 folders per project.";
+    $("project-create-note").textContent = t("sidebar.project.folder_limit");
     return;
   }
   projectDirectory.selected.set(entry.absolute_path, entry.name);

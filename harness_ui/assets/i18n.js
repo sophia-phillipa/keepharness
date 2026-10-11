@@ -1,6 +1,6 @@
 /* Interface language runtime. Loads the catalogs synchronously, like ui-prefs.js, so the first paint is
  * already translated. Lookup order: active catalog, then English, then the key itself. A missing or
- * non-JSON catalog leaves English active. Not wired into any page yet; `t` is the only API the UI uses. */
+ * non-JSON catalog leaves English active. Pages load it right after ui-prefs.js; `t` is the API the UI uses. */
 (() => {
   "use strict";
   const BASE = "/assets/locales/";

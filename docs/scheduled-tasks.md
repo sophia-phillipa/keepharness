@@ -329,4 +329,4 @@ an empty list.
   schedule started.
 - **Run now** moves the stored revision (it rewrites `last_run`): read the schedule again and keep
   the form's unsaved fields, or the next Save or Delete is `schedule_changed`.
-- Error copy for every code above lives in `userErrors` in `agent_service/ui.js`.
+- Error copy for every code above lives under `error.<code>` in `harness_ui/assets/locales/en.json` (and `pt-br.json`), read by `userError()` in `agent_service/ui.js`.
