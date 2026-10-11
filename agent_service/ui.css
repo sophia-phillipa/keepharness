@@ -9239,9 +9239,15 @@ main > #run-console {
     display: flex;
   }
 }
-/* Phone top bar: runs stay on the status strip and agents in Settings. */
+/* Phone top bar: runs stay on the status strip and agents in Settings; wide layout, editor and terminal
+   toggles are dropped here and stay on their Settings switches. */
 @media (max-width: 620px) {
   #app-topbar :is(#rail-runs, #rail-agents) {
+    display: none;
+  }
+  #wide-toggle,
+  #editor-toggle,
+  #terminal-toggle {
     display: none;
   }
 }

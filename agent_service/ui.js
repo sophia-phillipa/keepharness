@@ -6623,6 +6623,7 @@ function renderProjectFileEntries(list, entries, tree = fileTree) {
       } else if (e.key === "Enter") {
         e.preventDefault();
         if (entry.type === "directory") void toggleProjectDirectory(entry);
+        else if (!editorPane.hidden) openEditorFromTree(entry.path);
         else {
           const paths = tree.selected.has(entry.path)
             ? Array.from(tree.selected)
@@ -6633,7 +6634,7 @@ function renderProjectFileEntries(list, entries, tree = fileTree) {
     };
     if (entry.type !== "directory") {
       item.setAttribute("aria-keyshortcuts", "Enter Space");
-      item.title = "Enter to attach; Space to select.";
+      item.title = "Enter to attach (opens in the file editor when it is open); Space to select.";
     }
     item.draggable =
       canUpload() && !busy && !uploads && files.length < MAX_ATTACHMENTS;
@@ -12171,16 +12172,25 @@ function closeEditor(afterClose) {
     afterClose?.();
   });
 }
+// The Settings switch and the header toggle show the pane's real state after a cancelled or failed close.
+function syncEditorToggles() {
+  const on = !editorPane.hidden;
+  $("editor-settings-toggle").checked = on;
+  $("editor-toggle").setAttribute("aria-pressed", String(on));
+}
 async function resolveEditorDirty(choice) {
   const then = editorPending;
   editorPending = null;
   $("editor-dirty-dialog").close();
   if (choice === "cancel") {
-    $("editor-settings-toggle").checked = !editorPane.hidden;
+    syncEditorToggles();
     return;
   }
   if (choice === "discard") editorText.value = editor.saved;
-  else if (!(await saveEditor())) return;
+  else if (!(await saveEditor())) {
+    syncEditorToggles();
+    return;
+  }
   updateEditorStatus();
   then?.();
 }

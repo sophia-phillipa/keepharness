@@ -21,7 +21,8 @@
 // Shortcut: Control+Shift+E (Cmd+Shift+E on macOS). Escape closes the overlay and returns focus to
 // editor-toggle. Settings help text (.shortcut-help) includes "+Shift+E: file editor".
 // Existing hooks reused: #files-toggle, #files-view, .file-root[data-root-id], [role="treeitem"][data-path]
-// (a double-click on a file row opens it in the editor; single click still only selects).
+// (with the editor open, a double-click or Enter on a file row opens it in the editor; single click still
+// only selects, and Enter attaches while the editor is closed).
 //
 // Runs against the shared harness started by scripts/test-ui.sh (HARNESS_URL). Preferences go through
 // the real /v1/ui-state. The project file endpoints are answered by an in-page fake, because the
@@ -430,7 +431,42 @@ const contrastOf = (page, selector) =>
       () => document.activeElement?.getAttribute("data-testid"),
     );
     assert.equal(focusedAfterClose, "editor-toggle", "focus returns to the toggle");
+
+    // Phone width (≤ 620 px): the header toggle is dropped (the Settings switch stays).
+    await page.setViewportSize({ width: 600, height: 800 });
+    assert.equal(await railToggle.count(), 1);
+    assert.equal(await railToggle.isVisible(), false, "editor header toggle is hidden at 600 px");
     await page.setViewportSize({ width: 1440, height: 900 });
+
+    // With the editor open, Enter on a file row opens that file in the editor.
+    await railToggle.click();
+    await pane.waitFor({ state: "visible" });
+    await showFiles(page);
+    await page.locator('[role="treeitem"][data-path="notes.txt"]').focus();
+    await page.keyboard.press("Enter");
+    await page.waitForFunction(() =>
+      document.querySelector('[data-testid="editor-path"]')?.textContent.includes("notes.txt"),
+    );
+    await railToggle.click();
+    await pane.waitFor({ state: "hidden" });
+
+    // A failed Save from the dirty prompt keeps the pane open; the Settings switch and header toggle follow it.
+    await openFromFiles(page, "notes.txt");
+    files["notes.txt"].etag = "etag-changed-before-close";
+    await textarea.fill("stale edit\n");
+    await openSettingsWorkspace(page);
+    await settingsSwitch.uncheck();
+    await dirtyDialog.waitFor({ state: "visible" });
+    await page.getByTestId("editor-dirty-save").click();
+    await page.getByTestId("editor-conflict").waitFor({ state: "visible" });
+    assert.equal(await pane.isVisible(), true, "a failed save keeps the pane open");
+    assert.equal(await settingsSwitch.isChecked(), true, "Settings switch matches the open pane");
+    assert.equal(await railToggle.getAttribute("aria-pressed"), "true", "header toggle matches the open pane");
+    await page.keyboard.press("Escape");
+    await railToggle.click();
+    await dirtyDialog.waitFor({ state: "visible" });
+    await page.getByTestId("editor-dirty-discard").click();
+    await pane.waitFor({ state: "hidden" });
 
     // 9. Contrast in the light (paper) and dark (graphite) palettes.
     await railToggle.click();

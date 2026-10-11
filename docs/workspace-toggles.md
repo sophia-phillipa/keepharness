@@ -90,9 +90,9 @@ None of the three options depends on the provider. Coding tools stay the same in
 | --- | --- |
 | Editor + side panel | Order follows `panel_order`: chat · editor · side panel (or the mirror). Both resizable; the editor's width in the flat `editor_width` key. |
 | Editor + wide layout | Wide removes the chat cap; the editor keeps its width; the chat takes the rest. |
-| Terminal + run console | Both can be open; terminal above, run console below. On windows ≤ 700 px wide or ≤ 500 px high (where the run console becomes an overlay), opening one closes the other, like `closeForPanel`. |
+| Terminal + run console | Both can be open; terminal above, run console below. Below 1000 px wide, the terminal and the editor are overlay-exclusive: opening one closes the other. Opening the terminal also calls the run console's `closeForPanel`, which closes the run console only at 700 px wide or less, or 500 px high or less (its existing rule). |
 | Any + window < 1000 px | Editor becomes an overlay dialog like the side panel (`role="dialog"`, `aria-modal`, focus trapped); opening it closes the side panel overlay and vice versa. Wide layout is a no-op (the column already fills). |
-| Phone top bar (≤ 620 px) | Header buttons for terminal and editor are dropped like Runs and Plugins; the Settings switches and shortcuts still work. |
+| Phone top bar (≤ 620 px) | Header buttons for wide layout, terminal and editor are dropped like Runs and Plugins; the Settings switches and shortcuts still work. |
 | Temporary chat (D-047) | Same behavior; nothing of the terminal or editor is stored with the chat. |
 
 ### Contracts
@@ -149,7 +149,7 @@ None of the three options depends on the provider. Coding tools stay the same in
 - CRLF file saved unchanged → would turn into LF and produce a whole-file diff → `eol` restore on the client; a test saves a CRLF file unchanged and expects an empty diff. A `mixed` file cannot round-trip and opens read-only.
 - A path component swapped for a symlink between the check and the write → write lands outside the root → the `dir_fd`/`O_NOFOLLOW` chain and `O_EXCL` temp creation refuse it.
 - Credential files (`.git-credentials`, `.npmrc`, `id_ed25519`) pass `project_path` alone → they would open and save → the `credential_path` check refuses them on `GET` and `PUT`.
-- Harness restarts → terminal processes die with it (children of the harness); the pane shows "Session ended" and a Start button. Preferences survive (store on disk).
+- Harness restarts → terminal processes die with it (children of the harness); the pane shows the notice "Session ended. Close and reopen the terminal to start a new one." Closing and opening the pane starts a new session (there is no Start button). Preferences survive (store on disk).
 - Shell never exits / runaway output → ring buffer of 5,000 lines and an output rate cap of 256 KiB/s per session (excess dropped with a marker); idle timeout per the idle definition above.
 - Two windows toggle different options → per-key merge keeps both; the same option in both → last write wins (existing rule).
 - A new key without a `CONVERSIONS` entry → the client drops it on read and the toggle never restores → one entry per key (P1, P5, P7 checklists).
