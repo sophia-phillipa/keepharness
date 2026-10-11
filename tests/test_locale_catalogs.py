@@ -214,8 +214,10 @@ def test_every_t_key_used_by_the_ui_exists_in_english():
     english = load(LOCALES / "en.json")
     used = {
         key
-        for path in ASSETS.glob("*.js")
+        for folder in (ASSETS, ASSETS.parents[1] / "agent_service", ASSETS.parents[1] / "control")
+        for path in folder.glob("*.js")
         for key in USED_KEY_RE.findall(path.read_text(encoding="utf-8"))
     }
     assert "settings_search.status.found" in used  # the scan sees the pilot keys
+    assert "run_console.toggle.summary" in used  # and the run console in agent_service/
     assert sorted(used - set(english)) == []
