@@ -1842,6 +1842,22 @@ const userErrors = {
     "You have reached the limit of 50 schedules. Delete one to add another.",
   schedule_storage_unsafe:
     "The schedules folder cannot be used safely. Check the harness state folder.",
+  editor_local_only: "Files can be edited only from this computer.",
+  file_changed: "This file changed since you opened it. Reload it and try again.",
+  file_not_text: "This file is not a text file, so it can't be edited here.",
+  file_not_writable: "This file is read-only. Check its permissions and try again.",
+  file_unavailable: "The file could not be read from disk. Try again.",
+  invalid_input: "The terminal input is not valid. Type it again.",
+  invalid_size: "The terminal size is not valid. Resize the window and try again.",
+  invalid_text: "The file contents could not be read. Reload the file and try again.",
+  precondition_required: "Reload the file before saving it, so the save checks its latest version.",
+  project_not_found: "That project no longer exists. Choose another project.",
+  storage_full: "The disk is full. Free some space and try again.",
+  terminal_local_only: "Terminals can be opened only from this computer.",
+  terminal_unavailable: "The terminal is not available right now. Try again shortly.",
+  terminal_limit: "Four terminals are already busy. End one and try again.",
+  terminal_not_found: "That terminal session has ended. Reopen the terminal to start a new one.",
+  terminal_exited: "The shell has exited. Reopen the terminal to start a new one.",
 };
 async function api(path, options = {}) {
   const { temporarySession: scope = temporarySession, ...requestOptions } =

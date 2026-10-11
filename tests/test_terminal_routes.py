@@ -193,7 +193,7 @@ def no_spawn(monkeypatch):
         ("other", True, "terminal_local_only"),
         ("local", False, "approval_session_required"),
     ],
-    ids=["guest-with-session", "owner-without-session"],
+    ids=["non-local-with-session", "owner-without-session"],
 )
 def test_start_is_refused_before_any_process_starts(
     terminal_app, no_spawn, owner, with_session, code

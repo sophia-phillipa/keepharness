@@ -11,9 +11,20 @@ if (!harness)
 
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+// The owner's ui-state read can answer 429 while the suite runs in parallel. Wait out Retry-After
+// (seconds, 1 s by default) and read again; a wait is not a failed poll, so a deadline bounds it.
+async function getUiState(page) {
+  const deadline = Date.now() + 30000;
+  for (;;) {
+    const response = await page.request.get(harness + "/v1/ui-state");
+    if (response.status() !== 429 || Date.now() > deadline) return response;
+    await delay((Number(response.headers()["retry-after"]) || 1) * 1000);
+  }
+}
+
 // /v1/ui-state answers the owner's session with { values }; a missing key reads as its default.
 async function savedWideLayout(page) {
-  const response = await page.request.get(harness + "/v1/ui-state");
+  const response = await getUiState(page);
   assert.equal(response.status(), 200, "GET /v1/ui-state");
   return (await response.json()).values.wide_layout ?? false;
 }

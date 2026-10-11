@@ -83,7 +83,7 @@ def owner(owner_cfg):
 
 
 @pytest.fixture
-def guest(tmp_path, root):
+def remote(tmp_path, root):
     cfg = config(tmp_path)
     cfg["projects"]["p"]["root"] = str(root)
     with TestClient(create_app(cfg), headers={"Authorization": "Bearer b"}) as client:
@@ -179,21 +179,21 @@ def test_get_unknown_root_is_refused(owner, owner_cfg, root):
     assert_error(response, 403, "project_root_denied")
 
 
-# Local owner gate and guest refusal
+# Local owner gate and non-local request refusal
 
 
 @pytest.mark.parametrize("path", ["notes.md", "missing.md"])
-def test_guest_get_is_refused_before_any_read(guest, root, path):
+def test_non_local_get_is_refused_before_any_read(remote, root, path):
     (root / "notes.md").write_bytes(b"private draft\n")
-    response = get(guest, path)
+    response = get(remote, path)
     assert_error(response, 403, "editor_local_only")
     assert b"private draft" not in response.content
 
 
 @pytest.mark.parametrize("path", ["notes.md", "missing.md"])
-def test_guest_put_is_refused_before_precondition_and_write(guest, root, path):
+def test_non_local_put_is_refused_before_precondition_and_write(remote, root, path):
     (root / "notes.md").write_bytes(b"private draft\n")
-    response = put(guest, "guest edit\n", path=path)
+    response = put(remote, "remote edit\n", path=path)
     assert_error(response, 403, "editor_local_only")
     assert (root / "notes.md").read_bytes() == b"private draft\n"
     assert not (root / "missing.md").exists()
@@ -427,7 +427,7 @@ def test_symlinked_parent_swapped_before_write_is_refused(owner, owner_cfg, root
 def test_identity_revalidated_as_non_local_is_refused_before_any_read(owner, root):
     original = b"v1\n"
     (root / "notes.md").write_bytes(original)
-    with patch("agent_service.routes.files.require_current_read", return_value=("guest", "g")):
+    with patch("agent_service.routes.files.require_current_read", return_value=("remote", "g")):
         assert_error(get(owner), 403, "editor_local_only")
         assert_error(put(owner, "v2\n", etag=sha_etag(original)), 403, "editor_local_only")
     assert (root / "notes.md").read_bytes() == original
