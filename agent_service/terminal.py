@@ -38,7 +38,7 @@ IDLE_TIMEOUT_SECONDS: Final = 1800.0
 RING_LINES: Final = 5000
 EVENT_LIMIT: Final = 10_000
 EVENT_BYTES_LIMIT: Final = 4 * 1024 * 1024
-SCREEN_LINE_LIMIT: Final = 64 * 1024
+SCREEN_LINE_LIMIT: Final = 4 * 1024
 HANGUP_SECONDS: Final = 0.5
 READ_BYTES: Final = 65536
 POLL_MILLISECONDS: Final = 50
@@ -154,8 +154,8 @@ def _session_groups(session_id: int) -> set[int]:
     return groups
 
 
-def _signal_group(group: int, sig: int, shell_pid: int) -> None:
-    """Signal a process group; when the kernel refuses it, signal the shell pid alone."""
+def _signal_group(group: int, sig: int, shell_pid: int | None) -> None:
+    """Signal a process group; when the kernel refuses it, signal the shell pid alone if one is given."""
     try:
         os.killpg(group, sig)
     except ProcessLookupError:
@@ -166,7 +166,7 @@ def _signal_group(group: int, sig: int, shell_pid: int) -> None:
             type(error).__name__,
             error.errno,
         )
-        if isinstance(error, PermissionError):
+        if shell_pid is not None and isinstance(error, PermissionError):
             with contextlib.suppress(OSError):
                 os.kill(shell_pid, sig)
 
@@ -294,11 +294,15 @@ class TerminalSession:
                 return None
             return self._last_activity
 
-    def end(self, reason: str) -> None:
+    def mark_ended(self) -> bool:
+        """Refuse further input and reattach; returns True when the shell still runs and must be signalled."""
         with self._lock:
             self._ended = True
-            if not self._exited:
-                self._kill_groups()
+            return not self._exited
+
+    def end(self, reason: str) -> None:
+        if self.mark_ended():
+            self._kill_groups()
         self._stop.set()
         # Wait for the reader to close the master, so the session is gone when this returns.
         self.join()
@@ -330,21 +334,26 @@ class TerminalSession:
             return False
 
     def _kill_groups(self) -> None:
-        """End the shell's jobs: SIGHUP their groups, then SIGKILL whatever still runs in the shell's session."""
-        groups = {self._pid}
-        try:
-            groups.add(os.tcgetpgrp(self._master_fd))
-        except OSError:
-            pass
-        groups = {group for group in groups if group > 0}
-        for group in groups:
-            _signal_group(group, signal.SIGHUP, self._pid)
+        """End the shell's jobs: SIGHUP their groups, then SIGKILL whatever still runs in the shell's session.
+
+        Takes no lock: the wait below must not block other callers.
+        """
+        self._signal_session(signal.SIGHUP)
         deadline = time.monotonic() + HANGUP_SECONDS
         while _session_groups(self._pid) and time.monotonic() < deadline:
             time.sleep(POLL_MILLISECONDS / 1000)
-        groups |= _session_groups(self._pid)
-        for group in groups:
-            _signal_group(group, signal.SIGKILL, self._pid)
+        self._signal_session(signal.SIGKILL)
+
+    def _signal_session(self, sig: int) -> None:
+        """Signal the shell's pid while it is unreaped (a reaped pid may be reused) and each scanned group still in the session."""
+        shell_alive = self._returncode is None
+        candidates = _session_groups(self._pid)
+        if shell_alive:
+            candidates.add(self._pid)
+        for group in candidates:
+            # Re-read /proc right before each signal; a group that has left the session is skipped.
+            if (shell_alive and group == self._pid) or group in _session_groups(self._pid):
+                _signal_group(group, sig, self._pid if shell_alive else None)
 
     def _record(self, text: str, *, echo: bool) -> None:
         """Feed the screen and append an output event; the caller holds ``_lock``."""
@@ -409,8 +418,7 @@ class TerminalSession:
 
     def _finish(self, decoder: codecs.IncrementalDecoder, poller: select.poll) -> None:
         try:
-            with self._lock:
-                self._kill_groups()
+            self._kill_groups()
             if self._returncode is None:
                 self._reap(block=True)
             while poller.poll(0) and self._read(decoder):
@@ -493,22 +501,19 @@ class TerminalManager:
 
     def reap_idle(self) -> list[str]:
         now = self._clock()
-        ended: list[str] = []
         with self._lock:
             stale = [s for s in self._sessions.values() if _is_stale(s, now, self._idle_timeout)]
             for session in stale:
-                if _end_quietly(session, "idle"):
-                    ended.append(session.id)
-        return ended
+                session.mark_ended()
+        # Ending blocks (reader join, hangup wait), so it runs outside the manager lock.
+        return [session.id for session in stale if _end_quietly(session, "idle")]
 
     def close_all(self) -> None:
         with self._lock:
             sessions = list(self._sessions.values())
             self._sessions.clear()
-            for session in sessions:
-                _end_quietly(session, "closed")
         for session in sessions:
-            session.join()
+            _end_quietly(session, "closed")
 
     def _live_session(self, project_id: str) -> TerminalSession | None:
         for session in self._sessions.values():
