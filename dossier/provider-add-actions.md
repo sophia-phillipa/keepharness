@@ -68,7 +68,7 @@ Dialog submit ──POST /api/integration {provider, action:"marketplace_add", s
 - Passes `cwd` to `asyncio.create_subprocess_exec`; default `None` keeps today's behavior for every caller.
 
 **C7 `routes.change_integration(request, manager, data)`** (changed)
-- For `action == "marketplace_add"`: if `"marketplace_add" not in (capability_cached(provider, binary) or ())`, raise `UserMessageError("Adding a marketplace is not available for this provider. Refresh Plugins and try again.")`. Otherwise launch with `cwd=manager.state / "operations-cwd"`, created with `mkdir(mode=0o700, exist_ok=True)` and expected empty (it is never written by KeepHarness).
+- For `action == "marketplace_add"`: if `"marketplace_add" not in (capability_cached(provider, binary) or ())`, raise `UserMessageError("Adding a marketplace is not available for this provider. Refresh Plugins and try again.")`. Otherwise launch with `cwd=manager.state / "operations-cwd"`, created with `mkdir(mode=0o700, exist_ok=True)`, refused when it is a symlink, not a directory or not 0700, and emptied before each run without following links (D-056 answers, 2026-10-11); a folder that cannot be emptied is refused.
 - Audit stays `integration:<action>`, written after `operation()` validated the action; never the source or name.
 - Response: the job dict only (`id`, `state`, `output`, `accepts_input`), as today.
 - Owner-only by `admin_guard` (loopback host, same origin, admin cookie); counted in `LIMITED_OPERATIONS`.
@@ -146,7 +146,7 @@ Score: 6+ files (+3), new behavior (+1), crosses the catalog/operations/routes/U
 | Source check and argv | `control/operations.py` (`marketplace_source`, `operation`, `Operations.launch(cwd=)`) |
 | Route | `control/routes.py::change_integration` (`POST /api/integration`, action `marketplace_add`, field `source`) |
 | Catalog field | `POST /api/integration-catalog` → `actions: list[str]` |
-| Empty working directory | `<state>/operations-cwd`, mode 0700 |
+| Empty working directory | `<state>/operations-cwd`, mode 0700, emptied before each run |
 | UI | `control/customize.js` (`#plugins-add`, `#plugins-add-dialog`), `control/admin.css` |
 | Env vars | none new |
 

@@ -19,8 +19,11 @@ MARKETPLACE_UNAVAILABLE = (
     "Adding a marketplace is not available for this provider. Refresh Plugins and try again."
 )
 OPERATIONS_FOLDER_UNSAFE = (
-    "The operations folder must be an empty directory readable only by you. "
+    "The operations folder must be a real directory readable only by you. "
     "Remove it and try again."
+)
+OPERATIONS_FOLDER_NOT_EMPTIED = (
+    "The operations folder could not be emptied. Remove it and try again."
 )
 
 
@@ -336,6 +339,9 @@ class AdminSecurityTest(unittest.IsolatedAsyncioTestCase):
         (folder / "acme" / "plugins").mkdir(parents=True)
         (folder / "acme" / "plugins" / "marketplace.json").write_text("{}", encoding="utf-8")
         (folder / "link").symlink_to(outside, target_is_directory=True)
+        (folder / "acme" / "inner-link").symlink_to(outside, target_is_directory=True)
+        (folder / "file-link").symlink_to(outside / "keep.txt")
+        (folder / "dangling").symlink_to(outside / "missing")
         body = {"provider": "codex", "action": "marketplace_add", "source": "acme/plugins"}
         with patch.dict(CAPABILITY_MEMO, {}, clear=True):
             await capabilities("codex", str(FAKE_CODEX))
@@ -345,8 +351,30 @@ class AdminSecurityTest(unittest.IsolatedAsyncioTestCase):
                 )
         self.assertEqual(response.status_code, 200)
         launch.assert_called_once()
+        self.assertEqual(launch.call_args.kwargs["cwd"], folder)
         self.assertEqual(list(folder.iterdir()), [])
         self.assertEqual((outside / "keep.txt").read_text(encoding="utf-8"), "keep")
+
+    async def test_marketplace_add_refuses_a_folder_it_cannot_empty(self):
+        manager = self.app.state.manager
+        manager.inventory = {"binaries": {"codex": str(FAKE_CODEX)}}
+        folder = manager.state / "operations-cwd"
+        (folder / "locked").mkdir(parents=True)
+        folder.chmod(0o700)
+        body = {"provider": "codex", "action": "marketplace_add", "source": "acme/plugins"}
+        with patch.dict(CAPABILITY_MEMO, {}, clear=True):
+            await capabilities("codex", str(FAKE_CODEX))
+            with (
+                patch("control.routes.shutil.rmtree", side_effect=PermissionError(13, "denied")),
+                patch.object(manager.operations, "launch", return_value={"id": "job"}) as launch,
+            ):
+                response = await self.client.post(
+                    "/api/integration", json=body, headers=self.headers
+                )
+        self.assertEqual(response.status_code, 400)
+        self.assertIn(OPERATIONS_FOLDER_NOT_EMPTIED, response.text)
+        self.assertNotIn(str(folder), response.text)
+        launch.assert_not_called()
 
     async def test_marketplace_add_refuses_an_operations_path_that_is_a_file(self):
         manager = self.app.state.manager

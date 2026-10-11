@@ -472,8 +472,10 @@ async def read_integration_catalog(request, manager, data):
 
 
 OPERATIONS_FOLDER_UNSAFE = (
-    "The operations folder must be an empty directory readable only by you. "
-    "Remove it and try again."
+    "The operations folder must be a real directory readable only by you. Remove it and try again."
+)
+OPERATIONS_FOLDER_NOT_EMPTIED = (
+    "The operations folder could not be emptied. Remove it and try again."
 )
 
 
@@ -489,11 +491,19 @@ def operations_folder(state: Path) -> Path:
     if stat.S_ISLNK(st.st_mode) or not stat.S_ISDIR(st.st_mode) or st.st_mode & 0o077:
         raise UserMessageError(OPERATIONS_FOLDER_UNSAFE)
     # A CLI may leave files behind; remove them without following links.
-    for entry in os.scandir(folder):
-        if entry.is_dir(follow_symlinks=False):
-            shutil.rmtree(entry.path)
-        else:
-            os.unlink(entry.path)
+    try:
+        with os.scandir(folder) as listing:
+            entries = list(listing)
+        for entry in entries:
+            if entry.is_dir(follow_symlinks=False):
+                shutil.rmtree(entry.path)
+            else:
+                os.unlink(entry.path)
+        emptied = not any(folder.iterdir())
+    except OSError:
+        emptied = False
+    if not emptied:
+        raise UserMessageError(OPERATIONS_FOLDER_NOT_EMPTIED)
     return folder
 
 
