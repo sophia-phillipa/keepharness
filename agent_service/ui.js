@@ -11917,14 +11917,21 @@ function pendingGateStatus() {
   if (!gate) return;
   const text =
     gate.dataset.publish === "true"
-      ? "Waiting for publication approval"
-      : "Waiting for your choice";
-  status(text);
+      ? t("approval.waiting_publication")
+      : t("approval.waiting_choice");
+  status(text, "neutral");
   $("activity-state").textContent = text;
   if (active) {
     active.chip.textContent = text;
     setActivitySummary(active, text);
   }
+}
+// Outcome of a resolved gate: a publication names its decision, a question only says "Answered".
+function resolvedOutcome(box, data) {
+  if (box.dataset.publish !== "true") return t("approval.answered");
+  if (data.choice === "deny") return t("approval.publication_denied");
+  if (data.choice === "approve") return t("approval.publication_approved");
+  return t("approval.publication_recorded");
 }
 function finishGate(id, state, data = {}) {
   retireDraft(gateChoiceKey(id));
@@ -11959,47 +11966,36 @@ function finishGate(id, state, data = {}) {
   if (title)
     title.textContent =
       state === "resolved"
-        ? box.dataset.publish === "true"
-          ? data.choice === "deny"
-            ? "Publication denied"
-            : data.choice === "approve"
-              ? "Publication approved"
-              : "Publication decision recorded"
-          : "Answered"
+        ? resolvedOutcome(box, data)
         : box.dataset.publish === "true"
           ? state === "invalidated"
-            ? "Publication approval closed"
-            : "Publication approval expired"
+            ? t("approval.publication_closed")
+            : t("approval.publication_expired")
           : state === "invalidated"
-            ? "Question closed"
-            : "Question expired";
+            ? t("approval.question_closed")
+            : t("approval.question_expired");
   const note = box.querySelector('[role="status"]');
   if (
     state === "resolved" &&
     data.choice === undefined &&
     box.dataset.publish !== "true"
   ) {
-    title.textContent = "Answered in another session";
+    title.textContent = t("approval.answered_elsewhere");
     note.textContent =
-      "The recorded answer is not available yet. Reload to see it.";
+      t("approval.answer_unavailable");
     return;
   }
   note.textContent =
     state === "resolved"
-      ? (box.dataset.publish === "true"
-          ? data.choice === "deny"
-            ? "Publication denied"
-            : data.choice === "approve"
-              ? "Publication approved"
-              : "Publication decision recorded"
-          : "Answered") +
-        (data.resolved_by ? " by " + data.resolved_by : "") +
-        "."
+      ? t(data.resolved_by ? "approval.resolved_by_note" : "approval.resolved_note", {
+          status: resolvedOutcome(box, data),
+          name: data.resolved_by,
+        })
       : box.dataset.publish === "true"
-        ? "This publication approval is no longer active; ask again for a fresh approval before publishing."
+        ? t("approval.publication_inactive")
         : state === "invalidated"
-          ? "This question is no longer active. Send a message to ask again."
-          : "This question expired. Send a message to ask again.";
+          ? t("approval.question_inactive")
+          : t("approval.question_expired_note");
 }
 function restoreGates(gates = []) {
   for (const gate of Array.isArray(gates) ? gates : []) {
@@ -12029,7 +12025,7 @@ function showGate(data) {
   box.className = "approval-card gate-card";
   box.dataset.publish = String(!!data.publish);
   box.dataset.state = "pending";
-  title.textContent = "Your choice is needed";
+  title.textContent = t("approval.choice_needed");
   legend.textContent = data.question;
   fields.append(legend);
   for (const option of data.options || []) {
@@ -12050,7 +12046,7 @@ function showGate(data) {
   }
   note.setAttribute("role", "status");
   submit.className = "btn";
-  submit.textContent = "Confirm choice";
+  submit.textContent = t("approval.confirm_choice");
   submit.disabled = !fields.querySelector("input:checked");
   fields.onchange = () => {
     const choices = [...fields.querySelectorAll("input:checked")].map(
@@ -12076,7 +12072,7 @@ function showGate(data) {
     box.querySelectorAll("button,input").forEach((node) => {
       node.disabled = true;
     });
-    note.textContent = "Sending your choice…";
+    note.textContent = t("approval.sending_choice");
     try {
       const result = await post("/v1/approvals/" + data.gate_id, {
         choice: data.multi_select ? choices : choices[0],
@@ -12092,7 +12088,7 @@ function showGate(data) {
         finishGate(data.gate_id, error.code.slice(5));
       else if (box.dataset.state === "submitting") {
         box.dataset.state = "pending";
-        note.textContent = "Couldn't send your choice. " + error.message;
+        note.textContent = t("approval.choice_send_failed", { message: error.message });
         box.querySelectorAll("button,input").forEach((node) => {
           node.disabled = false;
         });
@@ -12112,15 +12108,15 @@ function showGate(data) {
 // OP-R1-21: "mediated" and "unenforced" are protocol words; say what they mean for the user.
 function publicationLabel(enforcement) {
   return enforcement === "mediated"
-    ? "Sent through KeepHarness"
-    : "Not controlled by KeepHarness";
+    ? t("approval.publication_mediated")
+    : t("approval.publication_unmanaged");
 }
 function appendPublishEvidence(container, data) {
   const evidence = document.createElement("div");
   evidence.className = "publish-evidence";
   evidence.tabIndex = 0;
   evidence.setAttribute("role", "region");
-  evidence.setAttribute("aria-label", "Publication evidence");
+  evidence.setAttribute("aria-label", t("approval.evidence_label"));
   const add = (label, value, pre = false) => {
     if (value == null) return;
     const node = document.createElement(pre ? "pre" : "p");
@@ -12130,21 +12126,18 @@ function appendPublishEvidence(container, data) {
       (typeof value === "string" ? value : JSON.stringify(value, null, 2));
     evidence.append(node);
   };
-  add("Operation", data.operation);
-  add("Destination", data.destination);
-  add("Publication", publicationLabel(data.enforcement));
-  add("Risk", data.risk);
-  add("Integration", data.integration);
-  add("Jira site", data.endpoint);
-  add("Evidence", data.evidence, true);
-  add("Arguments", data.arguments, true);
-  add("Arguments digest", data.arguments_digest);
-  add("Artifact preview", data.artifact_preview, true);
-  add("Artifact digest", data.artifact_digest);
-  add(
-    "Approval",
-    "An enrolled human session is required. This decision applies once to this exact request and artifact.",
-  );
+  add(t("run_console.effect.label_operation"), data.operation);
+  add(t("run_console.effect.label_destination"), data.destination);
+  add(t("approval.field.publication"), publicationLabel(data.enforcement));
+  add(t("approval.field.risk"), data.risk);
+  add(t("run_console.effect.label_integration"), data.integration);
+  add(t("run_console.effect.label_jira_site"), data.endpoint);
+  add(t("approval.field.evidence"), data.evidence, true);
+  add(t("approval.field.arguments"), data.arguments, true);
+  add(t("run_console.effect.label_arguments_digest"), data.arguments_digest);
+  add(t("approval.field.artifact_preview"), data.artifact_preview, true);
+  add(t("run_console.effect.label_artifact_digest"), data.artifact_digest);
+  add(t("run_console.effect.label_approval"), t("approval.enrollment_required"));
   container.append(evidence);
 }
 
@@ -12157,13 +12150,13 @@ function showPublishGate(data) {
   box.dataset.tour = "publish-gate";
   box.dataset.state = "pending";
   box.dataset.publish = "true";
-  title.textContent = "Publish approval";
+  title.textContent = t("approval.publish_title");
   box.append(title);
   appendPublishEvidence(box, data);
   note.setAttribute("role", "status");
   for (const [choice, label] of [
-    ["approve", "Approve"],
-    ["deny", "Deny"],
+    ["approve", t("run_console.request.approve")],
+    ["deny", t("run_console.request.deny")],
   ]) {
     const action = document.createElement("button");
     action.className = "btn";
@@ -12176,7 +12169,7 @@ function showPublishGate(data) {
       box.querySelectorAll("button").forEach((node) => {
         node.disabled = true;
       });
-      note.textContent = "Sending your decision…";
+      note.textContent = t("run_console.request.sending");
       try {
         const result = await post(
           "/v1/approvals/" + encodeURIComponent(data.gate_id),
@@ -12192,7 +12185,7 @@ function showPublishGate(data) {
           finishGate(data.gate_id, error.code.slice(5));
         else if (box.dataset.state === "submitting") {
           box.dataset.state = "pending";
-          note.textContent = "Couldn't send your decision. " + error.message;
+          note.textContent = t("approval.decision_send_failed", { message: error.message });
           box.querySelectorAll("button").forEach((node) => {
             node.disabled = false;
           });
@@ -12206,7 +12199,7 @@ function showPublishGate(data) {
   }
   box.append(note);
   $("messages").append(box);
-  status("Waiting for publication approval");
+  status(t("approval.waiting_publication"), "neutral");
   box.scrollIntoView({ block: "nearest" });
 }
 
@@ -12221,14 +12214,14 @@ function expireApproval(id) {
     $("prompt").focus({ preventScroll: true });
   }
   box.dataset.state = "expired";
-  box.querySelector("h3").textContent = "Approval expired";
+  box.querySelector("h3").textContent = t("approval.expired_title");
   box
     .querySelectorAll("button,input")
     .forEach((node) => (node.disabled = true));
   const progress = box.querySelector('[role="status"]');
   progress.hidden = false;
   progress.textContent = userError("approval_expired");
-  status("Approval expired");
+  status(t("approval.expired_title"), "neutral");
 }
 
 function showApproval(data) {
@@ -12237,7 +12230,7 @@ function showApproval(data) {
   box.id = "approval-" + data.approval_id;
   box.className = "approval-card";
   const title = document.createElement("h3");
-  title.textContent = "Authorize this action?";
+  title.textContent = t("approval.authorize_title");
   // Codex file changes carry the started patch (path and diff) in `changes`.
   const changes = Array.isArray(data.request.changes)
     ? data.request.changes
@@ -12247,14 +12240,12 @@ function showApproval(data) {
     data.request.reason ||
     data.request.message ||
     (changes.length
-      ? "The executor wants to change these files."
-      : "The executor requested additional authorization.");
+      ? t("approval.changes_reason")
+      : t("approval.additional_reason"));
   const explanation = document.createElement("p");
-  explanation.textContent =
-    "The administrator's permissions still apply." +
-    (data.can_remember
-      ? " Always allow only remembers this command and this folder, for this conversation."
-      : "");
+  explanation.textContent = t("approval.permissions_note", {
+    remember: data.can_remember ? t("approval.remember_note") : "",
+  });
   const command = document.createElement("pre");
   const toolInput = data.request.input || {};
   command.textContent =
@@ -12273,7 +12264,7 @@ function showApproval(data) {
   diff.hidden = !diff.textContent;
   const details = document.createElement("details");
   const summary = document.createElement("summary");
-  summary.textContent = "Technical details";
+  summary.textContent = t("approval.details");
   const pre = document.createElement("pre");
   pre.textContent = JSON.stringify(data.request, null, 2);
   details.append(summary, pre);
@@ -12294,11 +12285,11 @@ function showApproval(data) {
   progress.hidden = true;
   box.append(progress);
   for (const [text, approved, scope] of [
-    ["Allow once", true, "once"],
+    [t("run_console.request.allow_once"), true, "once"],
     ...(data.can_remember
-      ? [["Always allow for this conversation", true, "conversation"]]
+      ? [[t("approval.always_allow"), true, "conversation"]]
       : []),
-    ["Deny", false, "once"],
+    [t("run_console.request.deny"), false, "once"],
   ]) {
     const button = document.createElement("button");
     button.className = "btn";
@@ -12313,7 +12304,7 @@ function showApproval(data) {
         .querySelectorAll("button,input")
         .forEach((node) => (node.disabled = true));
       progress.hidden = false;
-      progress.textContent = "Sending your decision…";
+      progress.textContent = t("run_console.request.sending");
       try {
         const answers = approved
           ? Object.fromEntries(
@@ -12343,7 +12334,7 @@ function showApproval(data) {
           box.dataset.enrollment = "required";
           status(e.message);
         } else if (box.dataset.state !== "expired")
-          progress.textContent = "Couldn't confirm your decision. " + e.message;
+          progress.textContent = t("approval.decision_confirm_failed", { message: e.message });
       } finally {
         deciding = false;
         if (box.dataset.state !== "expired") {
@@ -12358,7 +12349,7 @@ function showApproval(data) {
     box.append(button);
   }
   $("messages").append(box);
-  status("Waiting for your approval");
+  status(t("conversation.summary.waiting_for_approval"), "neutral");
   box.scrollIntoView({ block: "nearest" });
 }
 
@@ -12377,11 +12368,11 @@ for (const [id, name] of [
   if (["menu", "attach", "send", "cancel"].includes(id))
     b.classList.add("btn-icon");
   const label = {
-    "add-project": "Add project",
-    new: "New Conversation",
-    send: "Send",
-    cancel: "Stop",
-    reload: "Reload screen",
+    "add-project": t("projects.add_label"),
+    new: t("sidebar.conversation.new_title"),
+    send: t("composer.send.button"),
+    cancel: t("composer.stop.button"),
+    reload: t("common.reload_screen"),
   }[id];
   b.replaceChildren(HarnessUI.icon(name));
   if (label) {
@@ -12397,7 +12388,7 @@ for (const [id, name, label] of [
   ["settings-close", "x", ""],
   ["setup-close", "x", ""],
   ["search-clear", "x", ""],
-  ["catalog-refresh", "refresh", "Refresh project catalog"],
+  ["catalog-refresh", "refresh", t("projects.catalog_refresh")],
 ]) {
   const button = $(id);
   button.classList.add("btn");
@@ -12546,7 +12537,7 @@ document.addEventListener("click", (event) => {
 // Shared native popovers for the three concrete composer controls.
 // OP-R2-2: one label per access mode, the same in the composer menu and the header chip.
 const accessLabel = () =>
-  $("access-mode").selectedOptions[0]?.textContent || "Ask for approval";
+  $("access-mode").selectedOptions[0]?.textContent || t("static.access.ask_title");
 // D11: the menu offers Full access only to the owner, once turned on in the admin.
 function offerFullAccess(offered) {
   fullAccessOffered = offered;
@@ -12573,8 +12564,9 @@ function syncAccessMode() {
     label.hidden = !label.textContent;
   }
   $("access-label").textContent = accessLabel();
-  $("access-mode-notice").textContent =
-    "Access: " + $("access-label").textContent;
+  $("access-mode-notice").textContent = t("composer.access.notice", {
+    label: $("access-label").textContent,
+  });
   $("access-trigger").dataset.mode = mode;
   $("header-access").textContent = accessLabel();
   const option = $("access-menu").querySelector('[data-access="' + mode + '"]'),
@@ -12961,7 +12953,7 @@ async function loadProjectDirectories(
         {
           name:
             (data.roots || []).find((root) => root.id === data.root_id)
-              ?.label || "Personal folder",
+              ?.label || t("projects.folder.personal"),
           path: "",
           absolute_path: data.absolute_path,
           type: "directory",
@@ -12976,7 +12968,7 @@ async function loadProjectDirectories(
             HarnessUI.icon("folder"),
             document.createTextNode(root.label),
           );
-          button.title = "Browse " + root.label;
+          button.title = t("projects.folder.browse", { name: root.label });
           button.setAttribute("aria-pressed", String(root.id === data.root_id));
           button.onclick = () => {
             resetProjectFolderBrowser(root.id);
@@ -12995,7 +12987,7 @@ async function loadProjectDirectories(
       projectDirectory.expanded.delete(path);
       renderProjectFolders();
       $("project-directory-error").textContent =
-        "Couldn't list folders: " + error.message;
+        t("projects.folder.list_error", { message: error.message });
     }
   }
 }
@@ -13008,10 +13000,10 @@ function resetProjectFolderBrowser(rootId = "home") {
   projectDirectory.expanded.clear();
   projectFolderTree.selected.clear();
   projectDirectory.candidate = null;
-  $("project-directory-selection").textContent = "Select a folder";
+  $("project-directory-selection").textContent = t("projects.folder.select");
   $("project-directory-error").textContent = "";
   $("project-directory-add-current").disabled = true;
-  $("project-directory-list").textContent = "Loading folders…";
+  $("project-directory-list").textContent = t("projects.folder.loading");
 }
 async function toggleProjectFolder(entry) {
   if (projectDirectory.expanded.has(entry.path)) {
@@ -13040,15 +13032,15 @@ function renderSelectedProjectDirectories() {
     primary.type = "button";
     primary.append(
       HarnessUI.icon("home"),
-      document.createTextNode(isPrimary ? "Main" : "Make main"),
+      document.createTextNode(isPrimary ? t("projects.folder.main") : t("projects.folder.make_main")),
     );
     primary.title = isPrimary
-      ? "This project's task starting directory"
-      : "Use this folder as the task starting directory";
+      ? t("projects.folder.main_hint")
+      : t("projects.folder.make_main_hint");
     primary.setAttribute("aria-pressed", String(isPrimary));
     primary.setAttribute(
       "aria-label",
-      (isPrimary ? "Main folder: " : "Make main: ") + name,
+      isPrimary ? t("projects.folder.main_label", { name }) : t("projects.folder.make_main_label", { name }),
     );
     primary.onclick = () => {
       projectDirectory.selected = new Map([
@@ -13154,11 +13146,11 @@ $("project-form").onsubmit = async (event) => {
     editing = projectDirectory.editing,
     current = $("project").value;
   if (Array.from(name.matchAll(/\p{L}/gu)).length < 3) {
-    note.textContent = "The name needs at least 3 letters.";
+    note.textContent = t("projects.name_too_short");
     return;
   }
   if (projectDirectory.selected.size > 20) {
-    note.textContent = "Add up to 20 folders per project.";
+    note.textContent = t("sidebar.project.folder_limit");
     return;
   }
   const payload = {
@@ -13171,7 +13163,7 @@ $("project-form").onsubmit = async (event) => {
     $("project-form").querySelectorAll("button,input"),
   ).map((node) => [node, node.disabled]);
   controls.forEach(([node]) => (node.disabled = true));
-  note.textContent = "Saving project…";
+  note.textContent = t("projects.saving");
   try {
     const result = await json("/v1/projects", {
       method: editing ? "PATCH" : "POST",
@@ -13208,14 +13200,14 @@ $("project-form").onsubmit = async (event) => {
   } catch (e) {
     const reason =
       {
-        project_busy: "Wait for this project's tasks to finish before editing.",
-        project_name_exists: "A project with that name already exists.",
+        project_busy: t("projects.error.busy"),
+        project_name_exists: t("projects.error.name_exists"),
         project_directory_required:
-          "One of the folders no longer exists. Choose an available folder.",
+          t("projects.error.folder_missing"),
         project_directory_forbidden:
-          "That folder is protected and cannot be added.",
+          t("projects.error.folder_protected"),
       }[e.code] || e.message;
-    note.textContent = "Couldn't save: " + reason;
+    note.textContent = t("projects.save_failed", { reason });
   } finally {
     projectDirectory.saving = false;
     controls.forEach(([node, disabled]) => (node.disabled = disabled));
@@ -13230,11 +13222,11 @@ async function refreshWorkspaceResources() {
   const request = ++workspaceResourceRequest,
     engine = resourceEngine();
   const project = $("project").value;
-  target.textContent = "Loading resources…";
+  target.textContent = t("projects.resources.loading");
   $("workspace-resources-count").textContent = "0";
   workspaceCatalog.clear();
   if (!engine.backend) {
-    target.textContent = "Select a model to see resources.";
+    target.textContent = t("projects.resources.select_model");
     refreshVisualMarkers();
     return;
   }
@@ -13286,7 +13278,7 @@ async function refreshWorkspaceResources() {
     if (pendingResourceFocus) focusResourceRow(pendingResourceFocus);
     pendingResourceFocus = "";
     if (!items.length)
-      target.textContent = "No resources for this project and model.";
+      target.textContent = t("projects.resources.empty");
     for (const warning of data.warnings || []) {
       const note = document.createElement("p");
       note.textContent = warning;
@@ -13295,7 +13287,7 @@ async function refreshWorkspaceResources() {
   } catch {
     if (request !== workspaceResourceRequest) return;
     target.textContent =
-      "Couldn't load resources. Change the model or reopen the panel to retry.";
+      t("projects.resources.load_failed");
     refreshVisualMarkers();
   }
 }
@@ -13334,7 +13326,7 @@ function renderWorkspaceTasks(jobs) {
     );
     target.append(row);
   }
-  if (!active.length) target.textContent = "No background tasks.";
+  if (!active.length) target.textContent = t("static.activity.no_background_tasks");
 }
 for (const names of ACCORDION_GROUPS) {
   const heads = names.map((name) => $("workspace-" + name + "-head"));
