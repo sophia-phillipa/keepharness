@@ -25,6 +25,8 @@ Errors: `ui_state_local_only` (403, any client but the local owner), `ui_state_u
 - `wide_layout` (boolean) is the wide chat layout preference; a missing key reads as `false`.
 - `editor_open` (boolean) shows the file editor pane beside the chat; a missing key reads as `false`.
 - `editor_width` (pixels, 0 to 20000) is the editor pane width; a missing key reads as the CSS default.
+- `terminal_open` (boolean) shows the terminal pane docked at the bottom of the main column; a missing key reads as `false`.
+- `terminal_height` (pixels, 0 to 20000) is the terminal pane height; a missing key reads as the CSS default.
 - Nothing here is conversation content, a draft, a secret or a path.
 
 A GET may repair the store as a side effect: an unparsable file is moved aside as `.bak` (the client did not ask for it; it is an internal repair). Keys a newer build wrote are kept on write and never served. `<state_dir>` is the harness run state folder (`state/runs`).

@@ -49,6 +49,8 @@ SAMPLES = {
     "wide_layout": [True, False],
     "editor_open": [True, False],
     "editor_width": [0, 320, 390.5, 20000],
+    "terminal_open": [True, False],
+    "terminal_height": [0, 240, 390.5, 20000],
 }
 OVER = {
     "theme": "x" * 41,
@@ -60,6 +62,8 @@ OVER = {
     "wide_layout": "yes",
     "editor_open": "yes",
     "editor_width": 20001,
+    "terminal_open": "yes",
+    "terminal_height": 20001,
     "chat_selection": {"model": "m" * 201},
     "project_expanded": {f"p{i}": True for i in range(201)},
     "project_list_preferences": {f"p{i}": {} for i in range(201)},
@@ -292,6 +296,52 @@ def test_an_older_build_keeps_raw_editor_keys_it_does_not_know(api, cfg, monkeyp
 
 @pytest.mark.parametrize("key", ["editor_open", "editor_width"])
 def test_editor_keys_have_their_client_conversion(key):
+    prefs = (Path(ui_state.__file__).parent / "ui-prefs.js").read_text(encoding="utf-8")
+    entry = f"{key}: {{ old: () => [], read: () => undefined, write: () => [] }},"
+    assert re.search(rf"^\s+{re.escape(entry)}$", prefs, re.M)
+
+
+def test_terminal_open_write_rejects_every_non_boolean(api):
+    for value in ("yes", 1, 0, [True]):
+        body = patch(api, terminal_open=value).json()
+        assert (body["code"], body["field"]) == ("ui_state_invalid_value", "terminal_open"), value
+    assert "terminal_open" not in api.get("/v1/ui-state").json()["values"]
+
+
+@pytest.mark.parametrize("value", ["wide", True, -1, 20001])
+def test_terminal_height_write_rejects_non_numbers_and_out_of_range(api, value):
+    body = patch(api, terminal_height=value).json()
+    assert (body["code"], body["field"]) == ("ui_state_invalid_value", "terminal_height"), value
+    assert "terminal_height" not in api.get("/v1/ui-state").json()["values"]
+
+
+def test_stored_terminal_keys_of_the_wrong_type_read_as_default_and_a_write_keeps_them(api, cfg):
+    patch(api, theme="paper")
+    document = json.loads(stored_file(cfg).read_text())
+    document["values"].update(terminal_open="yes", terminal_height=-1)
+    stored_file(cfg).write_text(json.dumps(document))
+    values = api.get("/v1/ui-state").json()["values"]
+    assert "terminal_open" not in values and "terminal_height" not in values
+    patch(api, theme="graphite")
+    stored = json.loads(stored_file(cfg).read_text())["values"]
+    assert (stored["terminal_open"], stored["terminal_height"]) == ("yes", -1)
+
+
+def test_an_older_build_keeps_raw_terminal_keys_it_does_not_know(api, cfg, monkeypatch):
+    patch(api, theme="paper")
+    document = json.loads(stored_file(cfg).read_text())
+    document["values"].update(terminal_open=True, terminal_height=240)
+    stored_file(cfg).write_text(json.dumps(document))
+    monkeypatch.delitem(ui_state.SCHEMA, "terminal_open")
+    monkeypatch.delitem(ui_state.SCHEMA, "terminal_height")
+    patch(api, reading_size="17")
+    stored = json.loads(stored_file(cfg).read_text())["values"]
+    assert (stored["terminal_open"], stored["terminal_height"]) == (True, 240)
+    assert "terminal_open" not in api.get("/v1/ui-state").json()["values"]
+
+
+@pytest.mark.parametrize("key", ["terminal_open", "terminal_height"])
+def test_terminal_keys_have_their_client_conversion(key):
     prefs = (Path(ui_state.__file__).parent / "ui-prefs.js").read_text(encoding="utf-8")
     entry = f"{key}: {{ old: () => [], read: () => undefined, write: () => [] }},"
     assert re.search(rf"^\s+{re.escape(entry)}$", prefs, re.M)

@@ -185,6 +185,8 @@ SCHEMA: dict[str, Check] = {
     "wide_layout": flag,
     "editor_open": flag,
     "editor_width": _width,
+    "terminal_open": flag,
+    "terminal_height": _width,
 }
 
 
