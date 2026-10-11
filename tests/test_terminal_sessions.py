@@ -43,14 +43,17 @@
 #     foreground child, it raises terminal_limit and starts nothing.
 #   - Environment: child_environment(environ) plus TERM=dumb; no KEEPHARNESS_* names reach the shell.
 
+import errno
 import os
+import sys
 import threading
 import time
 
 import pytest
-from agent_service.terminal import TerminalError, TerminalManager
 
+from agent_service import terminal
 from agent_service.errors import HarnessError
+from agent_service.terminal import TerminalError, TerminalManager, _Screen
 
 # /bin/sh is dash on this host and has no `read -s`. The echo tests use `stty -echo` and `stty echo`,
 # which are the calls `read -s` makes internally, so the ECHO flag is switched the same way.
@@ -430,3 +433,141 @@ def test_child_environment_has_no_keepharness_names(make_manager, tmp_path):
     wait_for(lambda: "TERM=dumb" in session.lines())
     assert [line for line in session.lines() if line.startswith("KEEPHARNESS_")] == []
     assert [line for line in session.lines() if "tok-value-xyz" in line] == []
+
+
+HOST_SECRETS = {
+    "ANTHROPIC_API_KEY": "sk-ant-canary-111",
+    "OPENAI_API_KEY": "sk-openai-canary-222",
+    "ADMIN_TOKEN": "admin-canary-333",
+    "TAIL_HARNESS_X": "tail-canary-444",
+    "HARNESS_X": "harness-canary-555",
+}
+
+
+def test_shell_environment_keeps_host_secrets_out_and_keeps_path_and_home(make_manager, tmp_path):
+    manager = make_manager(environ={"PATH": "/usr/bin:/bin", "HOME": str(tmp_path), **HOST_SECRETS})
+    session = open_session(manager, "p1", tmp_path)
+    session.write("env; echo END-OF-ENV\n")
+    wait_for(lambda: "END-OF-ENV" in session.lines())
+    lines = session.lines()
+    for name, value in HOST_SECRETS.items():
+        assert not any(line.startswith(name + "=") for line in lines), name
+        assert not any(value in line for line in lines), name
+    assert "PATH=/usr/bin:/bin" in lines
+    assert f"HOME={tmp_path}" in lines
+    assert "TERM=dumb" in lines
+
+
+def process_gone(pid):
+    """True once the pid no longer runs: reaped, or a zombie that only waits for its parent."""
+    try:
+        with open(f"/proc/{pid}/stat", "rb") as stat:
+            return stat.read().rsplit(b")", 1)[1].split()[0] == b"Z"
+    except FileNotFoundError:
+        return True
+
+
+def test_permission_error_while_signalling_still_ends_the_session(
+    make_manager, tmp_path, monkeypatch
+):
+    manager = make_manager()
+    session = busy_session(manager, "p1", tmp_path)
+    master_fd = session._master_fd
+
+    def refuse(group, sig):
+        raise PermissionError(errno.EPERM, "Operation not permitted")
+
+    monkeypatch.setattr(os, "killpg", refuse)
+    session.end("deleted")
+    wait_for(lambda: not session.is_alive())
+    monkeypatch.undo()
+    with pytest.raises(OSError):
+        os.fstat(master_fd)
+
+
+def test_reap_idle_still_ends_the_other_stale_sessions_when_one_end_raises(
+    make_manager, tmp_path, clock, monkeypatch
+):
+    manager = make_manager()
+    failing = open_session(manager, "p1", tmp_path)
+    other = open_session(manager, "p2", tmp_path)
+    clock.advance(1800.0)
+
+    def refuse(reason):
+        raise RuntimeError("end failed")
+
+    monkeypatch.setattr(failing, "end", refuse)
+    assert manager.reap_idle() == [other.id]
+    wait_for(lambda: not other.is_alive())
+    monkeypatch.undo()
+    failing.end("cleanup")
+
+
+def test_close_all_still_ends_the_other_sessions_when_one_end_raises(
+    make_manager, tmp_path, monkeypatch
+):
+    manager = make_manager()
+    failing = open_session(manager, "p1", tmp_path)
+    other = open_session(manager, "p2", tmp_path)
+
+    def refuse(reason):
+        raise RuntimeError("end failed")
+
+    monkeypatch.setattr(failing, "end", refuse)
+    manager.close_all()
+    assert not other.is_alive()
+    monkeypatch.undo()
+    failing.end("cleanup")
+
+
+def test_ending_a_session_kills_background_jobs_of_the_shell(make_manager, tmp_path):
+    manager = make_manager()
+    session = open_session(manager, "p1", tmp_path)
+    session.write("sleep 300 & echo BG=$!\n")
+    wait_for(lambda: any(line.startswith("BG=") for line in session.lines()))
+    job_line = next(line for line in session.lines() if line.startswith("BG="))
+    pid = int(job_line.removeprefix("BG="))
+    assert not process_gone(pid)
+    session.end("deleted")
+    wait_for(lambda: process_gone(pid), timeout=2.0)
+
+
+def test_event_log_drops_the_oldest_events_past_the_byte_limit(make_manager, tmp_path, monkeypatch):
+    monkeypatch.setattr(terminal, "EVENT_BYTES_LIMIT", 20_000)
+    manager = make_manager()
+    session = open_session(manager, "p1", tmp_path)
+    session.write(
+        "yes 0123456789012345678901234567890123456789 | head -n 1000; echo END-OF-OUTPUT\n"
+    )
+    wait_for(lambda: "END-OF-OUTPUT" in session.lines())
+    events = output_events(session)
+    assert sum(len(event.payload["text"].encode()) for event in events) <= 20_000
+    assert events[0].seq > 1
+    assert "END-OF-OUTPUT" in "".join(event.payload["text"] for event in events)
+
+
+def test_event_byte_limit_is_four_mebibytes():
+    assert terminal.EVENT_BYTES_LIMIT == 4 * 1024 * 1024
+
+
+def test_screen_caps_the_current_line_at_64_kib_and_drops_the_excess():
+    screen = _Screen(ring_lines=10)
+    screen.feed("x" * (64 * 1024 + 1000))
+    screen.feed("\n")
+    assert screen.lines() == ["x" * (64 * 1024)]
+
+
+@pytest.mark.parametrize("configured", ["bash", "relative/sh", "/nonexistent/sh", "/"])
+def test_default_shell_falls_back_to_bin_sh_unless_shell_is_an_absolute_executable(configured):
+    assert terminal._default_shell({"SHELL": configured}) == "/bin/sh"
+
+
+def test_default_shell_falls_back_for_a_non_executable_file(tmp_path):
+    plain = tmp_path / "not-executable"
+    plain.write_text("#!/bin/sh\n")
+    plain.chmod(0o644)
+    assert terminal._default_shell({"SHELL": str(plain)}) == "/bin/sh"
+
+
+def test_default_shell_uses_an_absolute_executable_from_shell_variable():
+    assert terminal._default_shell({"SHELL": sys.executable}) == sys.executable

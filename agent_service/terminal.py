@@ -7,6 +7,7 @@ output chunk to a bounded event log. Idle and cap decisions read only the inject
 """
 
 import codecs
+import contextlib
 import fcntl
 import logging
 import os
@@ -15,6 +16,7 @@ import signal
 import struct
 import termios
 import threading
+import time
 import uuid
 from collections import deque
 from collections.abc import Callable, Mapping
@@ -22,6 +24,7 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Final, NoReturn
 
+from adapters.shared.process import child_environment
 from agent_service.errors import HarnessError
 
 logger = logging.getLogger(__name__)
@@ -34,6 +37,9 @@ MAX_SESSIONS: Final = 4
 IDLE_TIMEOUT_SECONDS: Final = 1800.0
 RING_LINES: Final = 5000
 EVENT_LIMIT: Final = 10_000
+EVENT_BYTES_LIMIT: Final = 4 * 1024 * 1024
+SCREEN_LINE_LIMIT: Final = 64 * 1024
+HANGUP_SECONDS: Final = 0.5
 READ_BYTES: Final = 65536
 POLL_MILLISECONDS: Final = 50
 JOIN_SECONDS: Final = 5.0
@@ -54,11 +60,12 @@ class TerminalEvent:
     payload: dict[str, object]
 
 
-def child_environment(environ: Mapping[str, str]) -> dict[str, str]:
-    """Return the host environment without KEEPHARNESS_* names, with TERM set to dumb."""
-    env = {name: value for name, value in environ.items() if not name.startswith("KEEPHARNESS_")}
-    env["TERM"] = "dumb"
-    return env
+def _default_shell(environ: Mapping[str, str]) -> str:
+    """$SHELL when it is an absolute path to an executable file, else /bin/sh."""
+    candidate = environ.get("SHELL", "")
+    if os.path.isabs(candidate) and os.path.isfile(candidate) and os.access(candidate, os.X_OK):
+        return candidate
+    return DEFAULT_SHELL
 
 
 class _Mode(Enum):
@@ -105,8 +112,9 @@ class _Screen:
     def _put(self, char: str) -> None:
         if self._cursor < len(self._line):
             self._line[self._cursor] = char
-        else:
+        elif len(self._line) < SCREEN_LINE_LIMIT:
             self._line.append(char)
+        # Past the limit the excess is dropped; a later bare CR can still rewrite the kept part.
         self._cursor += 1
 
     def _sequence(self, char: str) -> None:
@@ -125,11 +133,47 @@ class _Screen:
             self._mode = _Mode.ESCAPE
 
 
-def _signal_group(group: int, sig: int) -> None:
+def _session_groups(session_id: int) -> set[int]:
+    """Process groups of the live processes in a session; vanished or unreadable /proc entries are skipped."""
+    groups: set[int] = set()
+    try:
+        entries = os.listdir("/proc")
+    except OSError:
+        return groups
+    for entry in entries:
+        if not entry.isdigit():
+            continue
+        try:
+            with open(f"/proc/{entry}/stat", "rb") as stat:
+                fields = stat.read().rsplit(b")", 1)[1].split()
+            # After the command name: state, ppid, pgrp, session.
+            if fields[0] != b"Z" and int(fields[3]) == session_id:
+                groups.add(int(fields[2]))
+        except (OSError, IndexError, ValueError):
+            continue
+    return groups
+
+
+def _signal_group(group: int, sig: int, shell_pid: int) -> None:
+    """Signal a process group; when the kernel refuses it, signal the shell pid alone."""
     try:
         os.killpg(group, sig)
     except ProcessLookupError:
         return
+    except OSError as error:
+        logger.warning(
+            "terminal group signal failed error=%s errno=%s",
+            type(error).__name__,
+            error.errno,
+        )
+        if isinstance(error, PermissionError):
+            with contextlib.suppress(OSError):
+                os.kill(shell_pid, sig)
+
+
+def _event_size(event: TerminalEvent) -> int:
+    text = event.payload.get("text")
+    return len(text.encode()) if isinstance(text, str) else 0
 
 
 def _exec_shell(shell: str, workdir: str, env: dict[str, str]) -> NoReturn:
@@ -168,7 +212,8 @@ class TerminalSession:
         self._fd_lock = threading.Lock()
         self._fd_open = True
         self._screen = _Screen(ring_lines)
-        self._events: deque[TerminalEvent] = deque(maxlen=EVENT_LIMIT)
+        self._events: deque[TerminalEvent] = deque()
+        self._event_bytes = 0
         self._seq = 0
         self._last_activity = clock()
         self._attached = 0
@@ -255,6 +300,8 @@ class TerminalSession:
             if not self._exited:
                 self._kill_groups()
         self._stop.set()
+        # Wait for the reader to close the master, so the session is gone when this returns.
+        self.join()
         logger.info("terminal session ended reason=%s", reason)
 
     def join(self) -> None:
@@ -283,23 +330,38 @@ class TerminalSession:
             return False
 
     def _kill_groups(self) -> None:
-        """SIGKILL the shell's group and the foreground job's group; the descriptor must be open."""
+        """End the shell's jobs: SIGHUP their groups, then SIGKILL whatever still runs in the shell's session."""
         groups = {self._pid}
         try:
             groups.add(os.tcgetpgrp(self._master_fd))
         except OSError:
             pass
+        groups = {group for group in groups if group > 0}
         for group in groups:
-            if group > 0:
-                _signal_group(group, signal.SIGKILL)
+            _signal_group(group, signal.SIGHUP, self._pid)
+        deadline = time.monotonic() + HANGUP_SECONDS
+        while _session_groups(self._pid) and time.monotonic() < deadline:
+            time.sleep(POLL_MILLISECONDS / 1000)
+        groups |= _session_groups(self._pid)
+        for group in groups:
+            _signal_group(group, signal.SIGKILL, self._pid)
 
     def _record(self, text: str, *, echo: bool) -> None:
         """Feed the screen and append an output event; the caller holds ``_lock``."""
         self._screen.feed(text)
         self._seq += 1
-        self._events.append(
+        self._append(
             TerminalEvent(self._seq, "output", {"seq": self._seq, "text": text, "echo": echo})
         )
+
+    def _append(self, event: TerminalEvent) -> None:
+        """Append an event, dropping the oldest past the count or byte cap; holds ``_lock``."""
+        self._events.append(event)
+        self._event_bytes += _event_size(event)
+        while len(self._events) > 1 and (
+            len(self._events) > EVENT_LIMIT or self._event_bytes > EVENT_BYTES_LIMIT
+        ):
+            self._event_bytes -= _event_size(self._events.popleft())
 
     def _run(self) -> None:
         decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
@@ -346,19 +408,22 @@ class TerminalSession:
         return True
 
     def _finish(self, decoder: codecs.IncrementalDecoder, poller: select.poll) -> None:
-        with self._lock:
-            self._kill_groups()
-        if self._returncode is None:
-            self._reap(block=True)
-        while poller.poll(0) and self._read(decoder):
-            pass
-        code = self._returncode if self._returncode is not None else UNKNOWN_EXIT_CODE
-        with self._lock:
-            self._seq += 1
-            self._events.append(TerminalEvent(self._seq, "exit", {"code": code}))
-            self._exited = True
-        self._printed.set()
-        self._close_master()
+        try:
+            with self._lock:
+                self._kill_groups()
+            if self._returncode is None:
+                self._reap(block=True)
+            while poller.poll(0) and self._read(decoder):
+                pass
+            code = self._returncode if self._returncode is not None else UNKNOWN_EXIT_CODE
+            with self._lock:
+                self._seq += 1
+                self._append(TerminalEvent(self._seq, "exit", {"code": code}))
+        finally:
+            with self._lock:
+                self._exited = True
+            self._printed.set()
+            self._close_master()
         logger.info("terminal shell exited code=%s", code)
 
     def _close_master(self) -> None:
@@ -370,6 +435,21 @@ class TerminalSession:
 def _is_stale(session: TerminalSession, now: float, idle_timeout: float) -> bool:
     since = session.idle_since()
     return since is not None and now - since >= idle_timeout
+
+
+def _end_quietly(session: TerminalSession, reason: str) -> bool:
+    """End one session so its failure cannot stop a sweep; log only the error type and errno."""
+    try:
+        session.end(reason)
+    except Exception as error:
+        logger.warning(
+            "terminal session end failed reason=%s error=%s errno=%s",
+            reason,
+            type(error).__name__,
+            getattr(error, "errno", None),
+        )
+        return False
+    return True
 
 
 class TerminalManager:
@@ -386,8 +466,8 @@ class TerminalManager:
         ring_lines: int = RING_LINES,
     ) -> None:
         self._clock = clock
-        self._shell = shell or os.environ.get("SHELL") or DEFAULT_SHELL
         self._environ: Mapping[str, str] = os.environ if environ is None else environ
+        self._shell = shell or _default_shell(self._environ)
         self._max_sessions = max_sessions
         self._idle_timeout = idle_timeout
         self._ring_lines = ring_lines
@@ -413,18 +493,20 @@ class TerminalManager:
 
     def reap_idle(self) -> list[str]:
         now = self._clock()
+        ended: list[str] = []
         with self._lock:
             stale = [s for s in self._sessions.values() if _is_stale(s, now, self._idle_timeout)]
             for session in stale:
-                session.end("idle")
-        return [session.id for session in stale]
+                if _end_quietly(session, "idle"):
+                    ended.append(session.id)
+        return ended
 
     def close_all(self) -> None:
         with self._lock:
             sessions = list(self._sessions.values())
             self._sessions.clear()
             for session in sessions:
-                session.end("closed")
+                _end_quietly(session, "closed")
         for session in sessions:
             session.join()
 
@@ -448,6 +530,7 @@ class TerminalManager:
     def _spawn(self, project_id: str, cwd: str) -> TerminalSession:
         workdir = os.path.realpath(cwd)
         env = child_environment(self._environ)
+        env["TERM"] = "dumb"
         pid, master_fd = os.forkpty()
         if pid == 0:
             _exec_shell(self._shell, workdir, env)
