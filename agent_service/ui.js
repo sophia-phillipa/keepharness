@@ -105,12 +105,23 @@ function observeConversation(c) {
       (previous.token !== token || previous.state !== c.state));
   conversationActivity[c.id] = { token, state: c.state, unread };
 }
+// Labels are read through t() on every access, so a language switch shows at once.
 const STATUS_DOTS = {
-  "needs-you": "Needs your answer",
-  running: "In progress",
-  queued: "Queued",
-  failed: "Failed",
-  unread: "Unread response",
+  get "needs-you"() {
+    return t("sidebar.status.needs_answer");
+  },
+  get running() {
+    return t("admin.operations.state_running");
+  },
+  get queued() {
+    return t("conversation.header.queued");
+  },
+  get failed() {
+    return t("conversation.header.failed");
+  },
+  get unread() {
+    return t("sidebar.status.unread");
+  },
 };
 function conversationStatusKind(c = {}) {
   const state = conversationState(c);
@@ -159,8 +170,8 @@ let fileTree = {
 };
 function setConversationTitle(value) {
   const full = temporarySession
-      ? "Temporary chat"
-      : String(value || "New Conversation").trim() || "New Conversation",
+      ? t("static.composer.temporary_title")
+      : String(value || t("sidebar.conversation.new_title")).trim() || t("sidebar.conversation.new_title"),
     el = $("conversation-title");
   el.textContent = full.length > 80 ? truncateTitle(full, 79) + "…" : full;
   el.title = full;
@@ -319,7 +330,7 @@ function renderResourceChips() {
     chips = document.createElement("div");
     chips.id = "resource-chips";
     chips.className = "resource-chips";
-    chips.setAttribute("aria-label", "Selected resources");
+    chips.setAttribute("aria-label", t("composer.resource.chips_label"));
     $("prompt").closest(".prompt-editor").before(chips);
   }
   chips.replaceChildren();
@@ -328,7 +339,7 @@ function renderResourceChips() {
     const chip = document.createElement("button");
     chip.type = "button";
     chip.className = "resource-chip";
-    chip.setAttribute("aria-label", "Remove " + selection.token);
+    chip.setAttribute("aria-label", t("composer.resource.remove", { token: selection.token }));
     chip.textContent = selection.token + " ×";
     chip.onclick = () => {
       const input = $("prompt"),
@@ -348,9 +359,11 @@ function renderResourceChips() {
   if (ordered.length > 1) {
     const chain = document.createElement("span");
     chain.className = "resource-chain-preview";
-    chain.textContent =
-      "Runs in order: " +
-      ordered.map(({ ref }, index) => index + 1 + " " + ref.token).join(" → ");
+    chain.textContent = t("composer.resource.chain", {
+      chain: ordered
+        .map(({ ref }, index) => index + 1 + " " + ref.token)
+        .join(" → "),
+    });
     chips.append(chain);
   }
   chips.hidden = resourceSelections.length === 0;
@@ -366,7 +379,7 @@ function renderPersonaControl() {
     label.className = "persona-label";
     end.type = "button";
     end.className = "persona-end";
-    end.textContent = "End agent conversation";
+    end.textContent = t("composer.persona.end");
     end.onclick = () => {
       if (!activePersona) return;
       releasePersonaPending = true;
@@ -379,15 +392,14 @@ function renderPersonaControl() {
   }
   control.hidden = !activePersona;
   if (!activePersona) return;
-  control.querySelector(".persona-label").textContent =
-    (releasePersonaPending
-      ? "Ending after your next message: "
-      : "Agent conversation: ") + activePersona.name;
+  control.querySelector(".persona-label").textContent = releasePersonaPending
+    ? t("composer.persona.ending_next", { name: activePersona.name })
+    : t("composer.persona.active", { name: activePersona.name });
   const end = control.querySelector(".persona-end");
   end.disabled = releasePersonaPending;
   end.textContent = releasePersonaPending
-    ? "Ending…"
-    : "End agent conversation";
+    ? t("composer.persona.ending")
+    : t("composer.persona.end");
 }
 function setActivePersona(value, preservePending = false) {
   const keepPending =
@@ -570,25 +582,37 @@ function catalogResourceMeta(item) {
   if (item.scope !== "catalog") return null;
   const commit = String(item.catalog_commit || "").trim(),
     revision = commit ? commit.slice(0, 12) : "",
-    state = item.catalog_pinned ? "Pinned" : "Source",
+    state = item.catalog_pinned
+      ? t("composer.catalog.pinned")
+      : t("customize.detail.source"),
     short = [state, revision].filter(Boolean).join(" · "),
     full = commit
-      ? (item.catalog_pinned ? "pinned commit " : "source commit ") + commit
-      : item.catalog_pinned
-        ? "pinned commit"
-        : "source catalog";
+      ? t(
+          item.catalog_pinned
+            ? "composer.catalog.commit_pinned"
+            : "composer.catalog.commit_source",
+          { commit },
+        )
+      : t(
+          item.catalog_pinned
+            ? "composer.catalog.pinned_bare"
+            : "composer.catalog.source_bare",
+        ),
+    dirty = item.catalog_dirty ? " · " + t("composer.catalog.dirty_tree") : "";
   return {
-    short: short + (item.catalog_dirty ? " · Modified" : ""),
+    short: short + (item.catalog_dirty ? " · " + t("composer.catalog.modified") : ""),
     preview:
-      (item.catalog_pinned ? "Pinned commit " : "Source commit ") +
-      (revision || "unknown") +
-      (item.catalog_dirty ? " · modified working tree" : ""),
+      t(
+        item.catalog_pinned
+          ? "composer.catalog.revision_pinned"
+          : "composer.catalog.revision_source",
+        { revision: revision || t("catalogs.drift.unknown") },
+      ) + dirty,
     title:
-      "Catalog " +
-      (item.origin || "resource") +
-      " · " +
-      full +
-      (item.catalog_dirty ? " · modified working tree" : ""),
+      t("composer.catalog.title", {
+        origin: item.origin || t("composer.resource.origin_fallback"),
+        full,
+      }) + dirty,
   };
 }
 function builtinResources() {
@@ -598,10 +622,10 @@ function builtinResources() {
       revision: "ui",
       kind: "builtin",
       name: "model",
-      description: "Choose the model for this conversation",
+      description: t("composer.resource.desc_model"),
       scope: "builtin",
       origin: "Harness",
-      group: "Built-ins",
+      group: t("composer.resource.group_builtins"),
       selectable: true,
       action: "model-trigger",
     },
@@ -610,10 +634,10 @@ function builtinResources() {
       revision: "ui",
       kind: "builtin",
       name: "effort",
-      description: "Choose the reasoning effort",
+      description: t("composer.resource.desc_effort"),
       scope: "builtin",
       origin: "Harness",
-      group: "Built-ins",
+      group: t("composer.resource.group_builtins"),
       selectable: true,
       action: "effort-trigger",
     },
@@ -622,10 +646,10 @@ function builtinResources() {
       revision: "ui",
       kind: "builtin",
       name: "access",
-      description: "Choose the access mode",
+      description: t("composer.resource.desc_access"),
       scope: "builtin",
       origin: "Harness",
-      group: "Built-ins",
+      group: t("composer.resource.group_builtins"),
       selectable: true,
       action: "access-trigger",
     },
@@ -642,12 +666,12 @@ function renderResourceMenu(trigger, items, loading = false, warnings = []) {
   heading.className = "access-menu-heading";
   heading.textContent =
     trigger.prefix === "@@"
-      ? "KeepHarness agents"
+      ? t("composer.resource.heading_harness_agents")
       : trigger.prefix === "//"
-        ? "KeepHarness skills and commands"
+        ? t("composer.resource.heading_harness_commands")
         : trigger.prefix === "@"
-          ? "Available agents"
-          : "Agents, skills and commands";
+          ? t("composer.resource.heading_agents")
+          : t("composer.resource.heading_all");
   options.append(heading);
   for (const warning of warnings) {
     const note = document.createElement("p");
@@ -659,37 +683,37 @@ function renderResourceMenu(trigger, items, loading = false, warnings = []) {
   if (trigger.prefix === "//") {
     const empty = document.createElement("p");
     empty.className = "resource-empty";
-    empty.textContent = "KeepHarness resources are not available yet.";
+    empty.textContent = t("composer.resource.not_available");
     options.append(empty);
   } else if (loading) {
     const row = document.createElement("p");
     row.className = "resource-empty";
-    row.textContent = "Refreshing resources…";
+    row.textContent = t("composer.resource.refreshing");
     options.append(row);
   } else {
     let optionIndex = 0;
     for (const item of items) {
       const scope =
           item.scope === "project"
-            ? "Project"
+            ? t("customize.scope.project")
             : item.scope === "harness"
-              ? "Yours"
+              ? t("composer.resource.scope_yours")
               : item.scope === "catalog"
-                ? "Catalog"
+                ? t("composer.resource.scope_catalog")
                 : item.scope === "builtin"
-                  ? "Built-in"
-                  : "User",
+                  ? t("composer.resource.builtin")
+                  : t("customize.scope.user"),
         category =
           item.group ||
           (item.kind === "agent"
-            ? "Agents"
+            ? t("run_console.tab.agents")
             : item.kind === "skill"
-              ? "Skills"
+              ? t("customize.chip.skills")
               : item.kind === "workflow"
-                ? "Workflows"
+                ? t("composer.resource.group_workflows")
                 : item.kind === "builtin"
-                  ? "Built-ins"
-                  : "Commands"),
+                  ? t("composer.resource.group_builtins")
+                  : t("composer.resource.group_commands")),
         groupKey = category + "\0" + scope + "\0" + item.origin;
       if (!groups.has(groupKey)) {
         const section = document.createElement("section"),
@@ -730,14 +754,14 @@ function renderResourceMenu(trigger, items, loading = false, warnings = []) {
       name.textContent = item.name;
       description.textContent =
         (item.kind === "agent"
-          ? "Agent"
+          ? t("composer.resource.kind_agent")
           : item.kind === "skill"
-            ? "Skill"
+            ? t("composer.resource.kind_skill")
             : item.kind === "workflow"
-              ? "Workflow"
+              ? t("composer.resource.kind_workflow")
               : item.kind === "builtin"
-                ? "Built-in"
-                : "Command") +
+                ? t("composer.resource.builtin")
+                : t("composer.resource.kind_command")) +
         (item.description ? " · " + item.description : "") +
         (catalog?.short ? " · " + catalog.short : "") +
         (item.unavailable_reason ? " · " + item.unavailable_reason : "");
@@ -760,7 +784,7 @@ function renderResourceMenu(trigger, items, loading = false, warnings = []) {
     create.className = "resource-create";
     create.append(
       HarnessUI.icon("plus"),
-      document.createTextNode("Create agent…"),
+      document.createTextNode(t("composer.resource.create_agent")),
     );
     create.onclick = () => {
       closeResourceMenu();
@@ -778,8 +802,8 @@ function renderResourceMenu(trigger, items, loading = false, warnings = []) {
     empty.textContent = loading
       ? ""
       : trigger.prefix[0] === "@"
-        ? "No agents for this model yet."
-        : "No skills or commands for this model yet.";
+        ? t("composer.resource.empty_agents")
+        : t("composer.resource.empty_commands");
     options.append(empty);
   }
   const preview = document.createElement("div");
@@ -796,7 +820,7 @@ function renderResourceMenu(trigger, items, loading = false, warnings = []) {
       menu.querySelector("[role=option]"),
   );
   $("resource-status").textContent = loading
-    ? "Refreshing resources…"
+    ? t("composer.resource.refreshing")
     : menu.querySelector(".resource-empty")?.textContent || "";
   const rect = $("prompt").getBoundingClientRect();
   const availableHeight = Math.max(24, rect.top - 20);
@@ -817,11 +841,11 @@ function renderResourcePreview(item) {
   const title = document.createElement("strong"),
     description = document.createElement("p"),
     details = document.createElement("small");
-  title.textContent = (item.kind || "Resource") + " · " + item.name;
-  description.textContent = item.description || "No description provided.";
+  title.textContent = (item.kind || t("composer.resource.kind_resource")) + " · " + item.name;
+  description.textContent = item.description || t("composer.resource.no_description");
   const catalog = catalogResourceMeta(item);
   details.textContent = [
-    item.argument_hint ? "Arguments " + item.argument_hint : "",
+    item.argument_hint ? t("composer.resource.arguments", { hint: item.argument_hint }) : "",
     catalog?.preview || "",
     item.source || "",
     item.preflight_hint || item.unavailable_reason || "",
@@ -954,7 +978,7 @@ async function refreshResources(trigger) {
     clearResourceItems();
     renderResourceMenu(trigger, [], false);
     const note = $("resource-menu").querySelector(".resource-empty");
-    if (note) note.textContent = "Couldn't refresh resources.";
+    if (note) note.textContent = t("composer.resource.refresh_failed");
   }
 }
 function resourceMatchScore(item, query) {
@@ -1283,8 +1307,8 @@ async function api(path, options = {}) {
     if (e.name === "AbortError") throw e;
     throw Error(
       e.name === "TimeoutError"
-        ? "The server took too long to respond. Check the activity before repeating the request."
-        : "Couldn't connect to the server. Check your connection and try again.",
+        ? t("common.request.timeout")
+        : t("common.request.unreachable"),
     );
   }
   if (!r.ok) {
@@ -1298,8 +1322,8 @@ async function api(path, options = {}) {
       userError(e.code) ||
       attachmentError(e.code) ||
       (r.status === 429
-        ? "The server applied a temporary limit to this request."
-        : "The server did not complete the request. Check the data or try again.");
+        ? t("common.request.rate_limited")
+        : t("common.request.failed"));
     if (r.status === 429) {
       const after = r.headers.get("Retry-After");
       const seconds =
@@ -1309,8 +1333,8 @@ async function api(path, options = {}) {
             ? Number(after)
             : Math.max(0, (Date.parse(after) - Date.now()) / 1000);
       message += Number.isFinite(seconds)
-        ? " Try again in " + Math.max(1, Math.ceil(seconds)) + " seconds."
-        : " Wait a moment before trying again.";
+        ? " " + t("common.request.retry_in", { count: Math.max(1, Math.ceil(seconds)) })
+        : " " + t("common.request.wait");
     }
     const providerState = path.startsWith("/v1/provider-state/");
     if (providerState && typeof e.message === "string") message = e.message;
