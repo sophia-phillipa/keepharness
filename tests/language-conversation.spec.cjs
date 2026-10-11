@@ -118,6 +118,33 @@ async function rowSummary(page, title) {
     .textContent();
 }
 
+// Fails the next job submission and returns how the status line shows the failure (role and error class).
+async function sendFailureTone(page) {
+  await page.route(
+    (url) => url.pathname === "/v1/jobs",
+    (route) =>
+      route.request().method() === "POST"
+        ? route.fulfill({ status: 500, json: { error: "send refused" } })
+        : route.fallback(),
+  );
+  await page.locator("#prompt").fill("Tone probe");
+  const rejected = page.waitForResponse(
+    (response) =>
+      new URL(response.url()).pathname === "/v1/jobs" &&
+      response.request().method() === "POST",
+  );
+  await page.locator("#send").click();
+  await rejected;
+  await page.waitForFunction(() => {
+    const text = document.getElementById("status")?.textContent || "";
+    return text !== "" && !/^(Sending request|Checking quota)/.test(text);
+  });
+  return page.locator("#status").evaluate((el) => ({
+    role: el.getAttribute("role"),
+    error: el.classList.contains("error"),
+  }));
+}
+
 // Reads the strings this spec covers; the same reads run for both languages.
 async function conversationText(page) {
   await page.waitForFunction(
@@ -145,6 +172,17 @@ async function conversationText(page) {
         failed: "Failed",
         queued: "Waiting in the queue",
       });
+      assert.deepEqual(await sendFailureTone(english.page), {
+        role: "alert",
+        error: true,
+      });
+      assert.deepEqual(
+        await english.page.evaluate(() => [
+          runLabel("queue_wait"),
+          runLabelTone("interrupted"),
+        ]),
+        ["Waiting in the queue", "error"],
+      );
     } finally {
       await english.context.close();
     }
@@ -168,12 +206,25 @@ async function conversationText(page) {
         failed: PT_BR["conversation.summary.failed"],
         queued: PT_BR["run_status.activity.queued"],
       });
+      // A translated send failure is an error notice too: same role and class as the English one.
+      assert.deepEqual(await sendFailureTone(pt.page), {
+        role: "alert",
+        error: true,
+      });
+      // Run labels follow the active catalog; the tone comes from the run state, not the text.
+      assert.deepEqual(
+        await pt.page.evaluate(() => [
+          runLabel("running"),
+          runLabelTone("running"),
+        ]),
+        [PT_BR["run_status.label.running"], "progress"],
+      );
     } finally {
       await setLanguage(null);
       await pt.context.close();
     }
     console.log(
-      "PASS language-conversation: English header and run-status summaries, pt-BR header and run-status summaries",
+      "PASS language-conversation: English header and run-status summaries, pt-BR header and run-status summaries, send-failure tone in both",
     );
   } finally {
     await browser.close();

@@ -1047,40 +1047,74 @@ for (const [id, open] of Object.entries(prefs.get("project_expanded", {})))
 const rememberExpandedProjects = () =>
   prefs.set("project_expanded", Object.fromEntries(expandedProjects));
 let preferredSelection = prefs.get("chat_selection", {});
-const labels = {
-  maestro_planning: "Planning",
-  maestro_planning_completed: "Plan ready",
-  maestro_plan: "Agents selected",
-  maestro_step: "Running workflow step",
-  answer_delta: "Responding",
-  reasoning_delta: "Thinking",
-  reasoning_summary: "Reasoning summary",
-  interrupted: "Interrupted",
-  queued: "Queued",
-  queue_wait: "Waiting in the queue",
-  queue_released: "Queued message released",
-  running: "Running",
-  thinking: "Thinking",
-  planning: "Preparing the run",
-  tool_start: "Using tool",
-  tool_end: "Tool finished",
-  session_resumed: "Conversation context resumed",
-  context_compacting: "Optimizing conversation context…",
-  context_compacted: "Context optimized; conversation preserved",
-  validating_changes: "Validating changes",
-  changes_applied: "Changes applied to the project",
-  deployment_failed: "Changes not applied; check the error",
-  reload_scheduled: "Refreshing the panel",
-  completed: "Completed",
-  cancelled: "Cancelled",
-  failed: "Failed",
-  loading: "Preparing model",
+// Run states with a label; the text is run_status.label.<state> in the catalog.
+const runStates = [
+  "maestro_planning",
+  "maestro_planning_completed",
+  "maestro_plan",
+  "maestro_step",
+  "answer_delta",
+  "reasoning_delta",
+  "reasoning_summary",
+  "interrupted",
+  "queued",
+  "queue_wait",
+  "queue_released",
+  "running",
+  "thinking",
+  "planning",
+  "tool_start",
+  "tool_end",
+  "session_resumed",
+  "context_compacting",
+  "context_compacted",
+  "validating_changes",
+  "changes_applied",
+  "deployment_failed",
+  "reload_scheduled",
+  "completed",
+  "cancelled",
+  "failed",
+  "loading",
+];
+// queue_wait shares its English text with run_status.activity.queued.
+const runLabelKeys = { queue_wait: "run_status.activity.queued" };
+const runLabel = (state) =>
+  runStates.includes(state)
+    ? t(runLabelKeys[state] || "run_status.label." + state)
+    : undefined;
+const isRunLabel = (text) =>
+  runStates.some((state) => runLabel(state) === text);
+const runLabelTone = (state) => {
+  if (!runStates.includes(state)) return undefined;
+  return ["failed", "interrupted", "deployment_failed"].includes(state)
+    ? "error"
+    : "progress";
 };
-const status = (text) => {
+// English fallback tone for callers that pass no tone (untranslated text only).
+const englishTone = (text) => {
+  if (
+    /^(Couldn't|Connection lost|Failed|Error|Connect Tailscale|Incomplete response|Run interrupted|Run cancelled|Interrupted|Changes not applied)/.test(
+      text,
+    )
+  )
+    return "error";
+  if (
+    isRunLabel(text) ||
+    /^(Completed|Copied|Failed run|Cancelled|Running|Thinking|Reasoning|Receiving response|Preparing|Using tool|Tool finished|Plan updated|Run steps|Working|Checking quota|Sending request|Loading|Connected|Cancelling|Reconnecting|Ready to chat)/i.test(
+      text,
+    )
+  )
+    return "progress";
+  return "neutral";
+};
+// Tone of the last status() call: "error", "progress" or "neutral".
+let statusTone = "neutral";
+const status = (text, tone) => {
   if (
     policyPending &&
     policyError &&
-    (Object.values(labels).includes(text) ||
+    (isRunLabel(text) ||
       ["Failed run", "Run cancelled", "Run interrupted"].includes(text))
   )
     text = policyError;
@@ -1091,20 +1125,11 @@ const status = (text) => {
   target.hidden = false;
   target.className = "";
   target.textContent = text;
-  if (/^Ready to chat/.test(text)) {
-    target.className = "visually-hidden";
-  } else if (
-    /^(Couldn't|Connection lost|Failed|Error|Connect Tailscale|Incomplete response|Run interrupted|Run cancelled|Interrupted|Changes not applied)/.test(
-      text,
-    )
-  ) {
+  // An explicit tone (translated callers) wins over the English fallback.
+  statusTone = tone || englishTone(text);
+  if (statusTone === "error") {
     HarnessUI.notice(target, text, { error: true });
-  } else if (
-    Object.values(labels).includes(text) ||
-    /^(Completed|Copied|Failed run|Cancelled|Running|Thinking|Reasoning|Receiving response|Preparing|Using tool|Tool finished|Plan updated|Run steps|Working|Checking quota|Sending request|Loading|Connected|Cancelling|Reconnecting|Ready to chat)/i.test(
-      text,
-    )
-  ) {
+  } else if (statusTone === "progress") {
     // F-62: progress stays off screen but announced by this live region.
     target.className = "visually-hidden";
   }
@@ -1425,7 +1450,7 @@ async function refreshProjectPermissions(timeout = 30000) {
     if (policyError) {
       const showingPolicyError = $("status").textContent === policyError;
       policyError = "";
-      if (showingPolicyError) status(t("composer.status.ready"));
+      if (showingPolicyError) status(t("composer.status.ready"), "progress");
     }
     updateEfforts();
     if ([...$("effort").options].some((o) => o.value === effort))
@@ -1433,7 +1458,7 @@ async function refreshProjectPermissions(timeout = 30000) {
   } catch (e) {
     if (sequence !== policySequence) return;
     policyError = t("composer.permissions.load_error", { detail: e.message });
-    status(policyError);
+    status(policyError, "error");
     return false;
   } finally {
     if (sequence === policySequence) {
@@ -2267,7 +2292,10 @@ const history = async (timeout = 30000, background = false) => {
     return true;
   } catch (e) {
     if (request === historyRequest)
-      status(t("sidebar.history.load_failed", { detail: e.message }));
+      status(
+        t("sidebar.history.load_failed", { detail: e.message }),
+        "error",
+      );
     return false;
   }
 };
@@ -2594,7 +2622,7 @@ function openContinuation(c, trigger) {
     try {
       await writeClipboard(text);
     } catch {
-      message = "Couldn't copy the handoff, so " + name + " was not opened.";
+      message = t("run_status.handoff.copy_failed", { app: name });
     }
     if (!message)
       try {
@@ -2683,6 +2711,7 @@ async function archiveConversation(c, archived) {
       archived
         ? t("sidebar.archive.archived")
         : t("sidebar.archive.restored"),
+      "neutral",
     );
     await history();
     if (!$("settings-archived").hidden) await loadArchived();
@@ -2691,7 +2720,7 @@ async function archiveConversation(c, archived) {
       archived
         ? t("sidebar.archive.archive_failed", { detail: e.message })
         : t("sidebar.archive.unarchive_failed", { detail: e.message });
-    if ($("settings-archived").hidden) status(message);
+    if ($("settings-archived").hidden) status(message, "error");
     else $("archived-error").textContent = message;
   }
 }
@@ -2891,6 +2920,7 @@ function newConversation(
   ) {
     status(
       t("sidebar.new.busy"),
+      "neutral",
     );
     return;
   }
@@ -3013,7 +3043,7 @@ function setProjectPreference(id, key, value) {
     [id]: { ...projectPreferences[id], [key]: value },
   };
   if (!prefs.set("project_list_preferences", next)) {
-    status(t("sidebar.project.save_failed"));
+    status(t("sidebar.project.save_failed"), "error");
     return;
   }
   projectPreferences = next;
@@ -3035,6 +3065,7 @@ function setProjectPreference(id, key, value) {
       : value
         ? t("sidebar.project.favorited")
         : t("sidebar.project.unfavorited"),
+    "neutral",
   );
 }
 function openDeleteProjectFolder(project, label, trigger) {
@@ -3374,6 +3405,7 @@ function renderProjects() {
           if (submitting || cancelling || loading || uploads) {
             status(
               t("sidebar.new.busy_chat"),
+              "neutral",
             );
             return;
           }
@@ -3943,7 +3975,7 @@ function activityTitle(e) {
       "interrupted",
     ].includes(type)
   )
-    return labels[type] || "Run interrupted";
+    return runLabel(type) || "Run interrupted";
   if (type === "plan_updated") return "Plan updated";
   if (type === "maestro_planning") return "Planning";
   if (type === "maestro_plan") return "Execution plan set";
@@ -4672,6 +4704,7 @@ function showTurnRetry(run) {
       button.disabled = true;
       button.setAttribute("aria-busy", "true");
       let failure = "";
+      let failureTone;
       try {
         await post("/v1/jobs/" + encodeURIComponent(run.id) + "/retry", {});
         if (req.prompt && $("prompt").value === req.prompt) {
@@ -4682,7 +4715,9 @@ function showTurnRetry(run) {
           saveView();
         }
       } catch (e) {
-        failure = userError(e.code) || e.message;
+        const coded = userError(e.code);
+        failure = coded || e.message;
+        if (coded) failureTone = "neutral";
       }
       if (conversation !== turnConversation) return;
       await load(turnConversation);
@@ -4695,7 +4730,7 @@ function showTurnRetry(run) {
         fresh.focus();
         return;
       }
-      if (failure) status(failure);
+      if (failure) status(failure, failureTone);
       $("prompt").focus();
     };
   }
@@ -4782,7 +4817,7 @@ function event(e) {
     if (box?.contains(document.activeElement))
       $("prompt").focus({ preventScroll: true });
     box?.remove();
-    status("Approval decision recorded");
+    status(t("run_status.approval.recorded"), "neutral");
     return;
   }
   if (e.type === "maestro_plan") showMaestroPlan(e.data);
@@ -4793,7 +4828,7 @@ function event(e) {
       setActivitySummary(
         active,
         ["completed", "failed", "cancelled", "interrupted"].includes(e.type)
-          ? labels[e.type] || "Run steps"
+          ? runLabel(e.type) || "Run steps"
           : "Working…",
       );
     }
@@ -4832,7 +4867,7 @@ function event(e) {
     status("Receiving response…");
   } else if (e.type === "reasoning_delta" || e.type === "reasoning_summary") {
     if (active) setActivitySummary(active, t("conversation.turn.thinking"));
-    status("Reasoning…");
+    status(t("run_status.activity.reasoning"), "progress");
   } else if (e.type === "quota_before" || e.type === "quota_after") {
     if (selected()?.backend === "codex")
       quotaSnapshot(e.type.endsWith("before") ? "before" : "after", e.data);
@@ -4850,7 +4885,8 @@ function event(e) {
     status(
       e.type === "queue_wait"
         ? waitReasonLabel(e.data?.reason || "queue")
-        : labels[e.type] || e.type,
+        : runLabel(e.type) || e.type,
+      e.type === "queue_wait" ? undefined : runLabelTone(e.type),
     );
   }
   pendingGateStatus();
@@ -4998,7 +5034,7 @@ async function result(
   updateMotion(r.state);
   $("activity-state").textContent = condition
     ? "ℹ " + condition.title
-    : (activityIcons[r.state] || "•") + " " + (labels[r.state] || r.state);
+    : (activityIcons[r.state] || "•") + " " + (runLabel(r.state) || r.state);
   if (active) {
     active.chip.textContent = $("activity-state").textContent;
     // A live read (no snapshot) has no has_turn_edits: fetch as before.
@@ -5118,10 +5154,13 @@ function showHeldTurn(response, held) {
     try {
       await post("/v1/jobs/" + encodeURIComponent(turn) + path, {});
       showHeldTurn(response, false);
-      status(done);
+      status(done, "neutral");
     } catch (e) {
       run.disabled = discard.disabled = false;
-      status("Couldn't update the queued message: " + e.message);
+      status(
+        t("run_status.queued.update_failed", { detail: e.message }),
+        "error",
+      );
     }
   };
   run.onclick = () => choose("/run-queued", t("run_status.queued.released"));
@@ -5179,7 +5218,7 @@ async function watch(retries = 0) {
     if (controller !== current) return;
     if (["running", "queued"].includes(final.state)) {
       if (retries < 3) {
-        status("Reconnecting to the running execution…");
+        status(t("run_status.activity.reconnecting"), "progress");
         await new Promise((resolve) => setTimeout(resolve, 1000));
         if (controller !== current) return;
         return await watch(retries + 1);
@@ -5197,9 +5236,7 @@ async function watch(retries = 0) {
       $("activity-state").textContent = "⚠ Connection lost";
       streamDisconnected = true;
       $("resume-execution").hidden = false;
-      status(
-        "Connection lost. The run may continue on the server. Use Resume tracking or Cancel run.",
-      );
+      status(t("run_status.connection.lost"), "error");
       await history();
     }
   } finally {
@@ -5354,7 +5391,7 @@ async function load(id, legacy = false, restoredView = null, scrollTop) {
           ? "ℹ " + condition.title
           : (activityIcons[r.state] || "•") +
             " " +
-            (labels[r.state] || r.state);
+            (runLabel(r.state) || r.state);
         const { worked: duration, waited } = runTiming(r.result);
         active.meta.textContent = [
           r.result?.model || model || "",
@@ -5484,7 +5521,7 @@ function rememberUpload(entry) {
 async function upload(list) {
   if (temporaryStarting) return;
   if (!canUpload()) {
-    status(t("composer.attachments.disabled_admin"));
+    status(t("composer.attachments.disabled_admin"), "error");
     return;
   }
   if (busy || loading || uploads) return;
@@ -5506,6 +5543,7 @@ async function upload(list) {
                 count: dropped.length,
                 total: picked.length,
               }),
+          "neutral",
         );
         attachmentNotice(dropped, "file_limit");
         break;
@@ -5587,6 +5625,7 @@ async function upload(list) {
           t("composer.attachments.upload_failed", {
             detail: attachmentError(e.code) || e.message,
           }),
+          "error",
         );
       }
     }
@@ -5819,6 +5858,7 @@ async function send() {
       e.status === 429 && submitting
         ? t("composer.send.failed_draft_kept", { detail: e.message })
         : t("composer.send.failed", { detail: e.message }),
+      "error",
     );
     if (e.status === 429) startSendCooldown(e.retryAfter || 5000);
   } finally {
@@ -6084,7 +6124,10 @@ function renderProjectFileEntries(list, entries, tree = fileTree) {
 function selectProjectFileEntry(item, entry, event = {}) {
   if (!canUpload() || uploads > 0) return;
   if (files.length >= MAX_ATTACHMENTS) {
-    status(t("composer.attachments.limit_remove", { max: MAX_ATTACHMENTS }));
+    status(
+      t("composer.attachments.limit_remove", { max: MAX_ATTACHMENTS }),
+      "neutral",
+    );
     return;
   }
   const multi = event.ctrlKey || event.metaKey;
@@ -6638,11 +6681,12 @@ async function returnFromTemporaryChat() {
   // A failed load already consumed the discard mark and left its error: re-arm the mark so the
   // leftover temporary view is not saved over the Home draft, and keep the error visible.
   const message = $("status").textContent;
+  const messageTone = statusTone;
   viewDiscarded = true;
   newConversation("New Conversation", $("project").value, {
     restoreHomeDraft: true,
   });
-  status(message);
+  status(message, messageTone);
 }
 $("close-temporary-chat").onclick = async () => {
   if (!leaveTemporaryChat()) return;
@@ -7657,6 +7701,7 @@ function attachRecentUpload(entry) {
   if (files.length >= MAX_ATTACHMENTS)
     return void status(
       t("composer.attachments.limit_remove", { max: MAX_ATTACHMENTS }),
+      "neutral",
     );
   files.push(entry);
   renderFiles();
@@ -8053,6 +8098,7 @@ async function initialize() {
     status(
       pendingSelectionNotice ||
         (models.length ? "Ready to chat." : "Set up a model to get started."),
+      pendingSelectionNotice ? "neutral" : undefined,
     );
     pendingSelectionNotice = "";
     let resumeWatch = false;
@@ -9180,7 +9226,7 @@ let pendingSelectionNotice = "";
 // initialize() would otherwise overwrite the status line with "Ready to chat."
 prefs.onNotice((code) => {
   const text = userError(code);
-  if (interfaceReady) setTimeout(() => status(text));
+  if (interfaceReady) setTimeout(() => status(text, "neutral"));
   else
     pendingSelectionNotice = pendingSelectionNotice
       ? pendingSelectionNotice + " " + text

@@ -95,6 +95,8 @@ Update `HarnessPrefs` `language`, load the catalog, set `<html lang>`, walk `[da
 - `language` accepts only a well-formed tag on write (422 `ui_state_invalid_value` on a malformed value, like every ui-state key); a stored value that is not in `index.json` behaves as missing.
 - Server codes are never translated on the server; the client maps `error.<code>`, and the English sentence from the server is the fallback.
 
+The status line takes an explicit tone: `status(text, tone)` with `tone` `"error"`, `"progress"` or `"neutral"`. Translated text passes its tone, because a translated sentence does not match the English regexes that choose the tone when the tone is omitted. Those regexes are only the fallback for untranslated callers, and later packages pass the tone explicitly.
+
 ### 2.9 Failure modes
 
 | Failure | Behavior | Guard |
