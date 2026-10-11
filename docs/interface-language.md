@@ -90,7 +90,7 @@ Update `HarnessPrefs` `language`, load the catalog, set `<html lang>`, walk `[da
 
 - `t(key, params)` returns a string for every key present in `en.json`; a key absent from `en.json` is a test failure.
 - `index.json` `complete: true` means every `en.json` key exists in that locale file with the same placeholders. Only `complete: true` locales are offered or auto-detected.
-- `language` accepts only a well-formed tag on write (400 on a malformed value); a stored value that is not in `index.json` behaves as missing.
+- `language` accepts only a well-formed tag on write (422 `ui_state_invalid_value` on a malformed value, like every ui-state key); a stored value that is not in `index.json` behaves as missing.
 - Server codes are never translated on the server; the client maps `error.<code>`, and the English sentence from the server is the fallback.
 
 ### 2.9 Failure modes

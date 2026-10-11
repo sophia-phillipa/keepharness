@@ -51,6 +51,7 @@ SAMPLES = {
     "editor_width": [0, 320, 390.5, 20000],
     "terminal_open": [True, False],
     "terminal_height": [0, 240, 390.5, 20000],
+    "language": ["en", "pt-BR", "pt-br"],
 }
 OVER = {
     "theme": "x" * 41,
@@ -344,6 +345,29 @@ def test_an_older_build_keeps_raw_terminal_keys_it_does_not_know(api, cfg, monke
 def test_terminal_keys_have_their_client_conversion(key):
     prefs = (Path(ui_state.__file__).parent / "ui-prefs.js").read_text(encoding="utf-8")
     entry = f"{key}: {{ old: () => [], read: () => undefined, write: () => [] }},"
+    assert re.search(rf"^\s+{re.escape(entry)}$", prefs, re.M)
+
+
+@pytest.mark.parametrize("value", ["pt_BR!", "", 123, "en" + "-abcdefgh" * 23])
+def test_language_write_accepts_only_a_well_formed_tag(api, value):
+    body = patch(api, language=value).json()
+    assert (body["code"], body["field"]) == ("ui_state_invalid_value", "language"), value
+    assert "language" not in api.get("/v1/ui-state").json()["values"]
+
+
+def test_a_stored_malformed_language_reads_as_missing_and_a_write_keeps_it(api, cfg):
+    patch(api, theme="paper")
+    document = json.loads(stored_file(cfg).read_text())
+    document["values"]["language"] = "pt_BR!"
+    stored_file(cfg).write_text(json.dumps(document))
+    assert "language" not in api.get("/v1/ui-state").json()["values"]
+    patch(api, theme="graphite")
+    assert json.loads(stored_file(cfg).read_text())["values"]["language"] == "pt_BR!"
+
+
+def test_language_has_its_client_conversion():
+    prefs = (Path(ui_state.__file__).parent / "ui-prefs.js").read_text(encoding="utf-8")
+    entry = "language: { old: () => [], read: () => undefined, write: () => [] },"
     assert re.search(rf"^\s+{re.escape(entry)}$", prefs, re.M)
 
 

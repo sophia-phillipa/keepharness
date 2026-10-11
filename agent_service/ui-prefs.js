@@ -201,6 +201,7 @@
     editor_width: { old: () => [], read: () => undefined, write: () => [] },
     terminal_open: { old: () => [], read: () => undefined, write: () => [] },
     terminal_height: { old: () => [], read: () => undefined, write: () => [] },
+    language: { old: () => [], read: () => undefined, write: () => [] },
   };
 
   const clone = (value) =>
