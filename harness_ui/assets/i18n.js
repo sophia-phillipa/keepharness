@@ -26,6 +26,20 @@
     }
   }
 
+  // The standalone admin has no HarnessPrefs; it reads the owner's saved language read-only.
+  function savedLanguage() {
+    try {
+      const request = new XMLHttpRequest();
+      request.open("GET", "/api/ui-language", false);
+      request.send();
+      if (request.status !== 200) return undefined;
+      const language = JSON.parse(request.responseText)?.language;
+      return typeof language === "string" ? language : undefined;
+    } catch {
+      return undefined;
+    }
+  }
+
   const index = readJson("index.json");
   const complete = (Array.isArray(index?.locales) ? index.locales : []).filter(
     (locale) => locale?.complete === true && typeof locale.tag === "string" && typeof locale.file === "string",
@@ -35,7 +49,7 @@
 
   // HarnessPrefs language first (only a complete tag), then the browser languages: exact, then primary subtag.
   function choose() {
-    const stored = window.HarnessPrefs?.get("language");
+    const stored = window.HarnessPrefs ? window.HarnessPrefs.get("language") : savedLanguage();
     const storedMatch = typeof stored === "string" ? exact(stored) : undefined;
     if (storedMatch) return storedMatch;
     for (const language of navigator.languages ?? []) {

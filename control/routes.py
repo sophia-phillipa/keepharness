@@ -23,6 +23,7 @@ from adapters.claude.auth import cli_login_environment
 from adapters.deepseek import account as deepseek
 from adapters.shared.provider_setup import login_environment
 from adapters.shared.provider_state import Scope
+from agent_service import ui_state
 from agent_service.errors import APIError, UserMessageError
 from agent_service.json_depth import too_deep
 from harness_ui import asset_response, static_response
@@ -32,6 +33,7 @@ from .catalog_admin import change_pin, read_catalogs
 from .customize_skills import read_customize_skills
 from .dashboard import execution as dashboard_execution
 from .first_run import (
+    OWNER,
     finish_first_run,
     read_first_run,
     reset_first_run,
@@ -204,6 +206,17 @@ async def read_dashboard(request, manager):
         if job
         else await manager.dashboard.read()
     )
+
+
+async def read_ui_language(request, manager):
+    """The owner's saved interface language for the standalone panel; read-only, null when unavailable."""
+    config = {"state_dir": str(manager.state / "runs")}
+    try:
+        values = (await asyncio.to_thread(ui_state.read, config, OWNER))["values"]
+    except (OSError, ValueError, APIError):
+        return {"language": None}
+    language = values.get("language")
+    return {"language": language if isinstance(language, str) else None}
 
 
 async def read_state(request, manager):
@@ -805,6 +818,7 @@ GET_ROUTES = {
     "/api/folders": list_folders,
     "/api/dashboard": read_dashboard,
     "/api/state": read_state,
+    "/api/ui-language": read_ui_language,
     "/api/provider-state": read_provider_state,
     "/api/first-run": read_first_run,
 }

@@ -82,6 +82,8 @@ Kept in English on purpose (same list as [D-036](../dossier/decisions/d-036-wp9-
 - The standalone admin reads the same backend preference (open decision 4).
 - `control/index.html` loads `i18n.js` (P10, see §3), so the admin halves can use `t()` as they are converted.
 
+The standalone admin has no `HarnessPrefs`, so `i18n.js` reads the saved tag from `GET /api/ui-language` (control origin, the same admin guard as the other `/api` reads, read-only, `{"language": tag|null}`); a failure falls back to the browser language. The chat page never calls it.
+
 ### 2.7 Switching without a reload
 
 Update `HarnessPrefs` `language`, load the catalog, set `<html lang>`, walk `[data-i18n]` and the `data-i18n-title`, `data-i18n-placeholder` and `data-i18n-aria-label` attributes, then run registered `onChange` hooks for composed text, `document.title` and formatter caches. Toasts already on screen keep their text (WP9 spec).
