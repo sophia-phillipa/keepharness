@@ -1062,16 +1062,18 @@ function renderDashboard() {
         element(
           "span",
           pendingAuthentication(info.id)
-            ? "Pending authorization"
+            ? HarnessI18n.t("admin.providers.pending_authorization")
             : s.enabled
-              ? "Enabled"
-              : "Disabled",
+              ? HarnessI18n.t("admin.providers.enabled")
+              : HarnessI18n.t("admin.providers.disabled"),
           "pill" +
             (s.enabled && !pendingAuthentication(info.id) ? " good" : ""),
         ),
         element(
           "p",
-          s.models.length ? undefined : "No model selected",
+          s.models.length
+            ? undefined
+            : HarnessI18n.t("admin.providers.no_model_selected"),
           "configured-models",
         ),
       );
@@ -1094,23 +1096,37 @@ function renderDashboard() {
           ),
         );
       const actions = element("div", undefined, "card-actions");
-      const edit = element("button", "Edit", "button secondary");
-      edit.setAttribute("aria-label", "Edit " + providerName(info));
+      const edit = element(
+        "button",
+        HarnessI18n.t("admin.providers.edit"),
+        "button secondary",
+      );
+      edit.setAttribute(
+        "aria-label",
+        HarnessI18n.t("admin.providers.edit_named", {
+          name: providerName(info),
+        }),
+      );
+      edit.dataset.editProvider = info.id;
       edit.onclick = () => openWizard(info.id);
-      const remove = element("button", "Delete", "button secondary");
+      const remove = element(
+        "button",
+        HarnessI18n.t("admin.providers.delete"),
+        "button secondary",
+      );
       remove.onclick = () =>
         action(async () => {
           if (
             !confirm(
-              "Remove " +
-                providerName(info) +
-                " from the panel? The account and CLI will not be uninstalled. The BYOK key for this provider will be deleted.",
+              HarnessI18n.t("admin.providers.remove_confirm", {
+                name: providerName(info),
+              }),
             )
           )
             return;
           await request("provider-delete", { provider: info.id });
           await load();
-          say("Provider removed.");
+          say(HarnessI18n.t("admin.providers.removed"));
         });
       edit.prepend(icon("edit"));
       remove.prepend(icon("trash"));
@@ -1119,15 +1135,17 @@ function renderDashboard() {
         actions.prepend(providerLoginButton(info), providerCheckButton(info));
       card.append(actions);
       const availability = toggle(
-        "Make this service available",
+        HarnessI18n.t("admin.providers.availability_label"),
         s.enabled,
         () => {},
-        "Turn on to use the models in conversations. Turn off to pause use without deleting the configuration.",
+        HarnessI18n.t("admin.providers.availability_hint"),
       );
       const checkbox = availability.querySelector("input");
       checkbox.setAttribute(
         "aria-label",
-        "Make " + providerName(info) + " available",
+        HarnessI18n.t("admin.providers.availability_named", {
+          name: providerName(info),
+        }),
       );
       checkbox.onchange = () => {
         const enabled = checkbox.checked;
@@ -1144,8 +1162,8 @@ function renderDashboard() {
             await load({ select: false });
             say(
               enabled
-                ? "Service enabled. Your models are available in conversations."
-                : "Service disabled. Your configuration was kept.",
+                ? HarnessI18n.t("admin.providers.service_enabled")
+                : HarnessI18n.t("admin.providers.service_disabled"),
             );
           } finally {
             checkbox.checked = s.enabled;
@@ -1161,7 +1179,7 @@ function renderDashboard() {
     $("configured-providers").append(
       element(
         "p",
-        "Your workspace is ready. Add a provider to choose models and permissions.",
+        HarnessI18n.t("admin.providers.workspace_ready"),
         "empty-state",
       ),
     );
@@ -1169,9 +1187,7 @@ function renderDashboard() {
 function openWizard(provider = null) {
   if (
     (unsaved || profileDirty) &&
-    !confirm(
-      "Discard unsaved changes, including the CPU and GPU profile, and open another provider?",
-    )
+    !confirm(HarnessI18n.t("admin.providers.discard_open_confirm"))
   )
     return;
   settings = structuredClone(state.settings);
@@ -1185,8 +1201,10 @@ function openWizard(provider = null) {
   renderProjects();
   showStep(0);
   $("wizard-title").textContent = provider
-    ? "Edit " + providerName(visibleProviders().find((i) => i.id === provider))
-    : "Add provider";
+    ? HarnessI18n.t("admin.providers.edit_named", {
+        name: providerName(visibleProviders().find((i) => i.id === provider)),
+      })
+    : HarnessI18n.t("admin.providers.add_title");
   $("provider-dialog").hidden = false;
   renderProfile();
   $("wizard-feedback").append($("feedback"));
@@ -1196,7 +1214,7 @@ function openWizard(provider = null) {
 function dashboard() {
   if (
     (unsaved || profileDirty) &&
-    !confirm("Discard unsaved changes, including the CPU and GPU profile?")
+    !confirm(HarnessI18n.t("admin.providers.discard_confirm"))
   )
     return;
   profileDirty = false;
@@ -1208,11 +1226,7 @@ function dashboard() {
 
 function renderProjects() {
   $("project-list").replaceChildren(
-    element(
-      "p",
-      "Add projects in the KeepHarness sidebar. All enabled models are available in the projects you set up.",
-      "hint",
-    ),
+    element("p", HarnessI18n.t("admin.projects.add_hint"), "hint"),
   );
   $("project-count").textContent = settings.projects.length;
 }
@@ -1221,16 +1235,17 @@ let tailnetNoticeShown = false;
 function renderStatus() {
   const s = state.status;
   const diagnostics = [];
-  if (s.startup_error) diagnostics.push("Startup error: " + s.startup_error);
+  if (s.startup_error)
+    diagnostics.push(
+      HarnessI18n.t("admin.status.startup_error", { error: s.startup_error }),
+    );
   if (s.last_exit)
     diagnostics.push(
-      "Last exit: " +
-        s.last_exit.code +
-        " at " +
-        new Date(s.last_exit.at * 1000).toISOString() +
-        " (uptime " +
-        s.last_exit.uptime_seconds +
-        "s)",
+      HarnessI18n.t("admin.status.last_exit", {
+        code: s.last_exit.code,
+        time: new Date(s.last_exit.at * 1000).toISOString(),
+        uptime: s.last_exit.uptime_seconds,
+      }),
     );
   $("runtime-diagnostics").textContent = diagnostics.join("\n");
   $("runtime-diagnostics").hidden = diagnostics.length === 0;
@@ -1240,7 +1255,9 @@ function renderStatus() {
       row.append(
         element(
           "h3",
-          tool.name + " — " + (tool.present ? "Available" : "Missing"),
+          tool.present
+            ? HarnessI18n.t("admin.status.tool_available", { name: tool.name })
+            : HarnessI18n.t("admin.status.tool_missing", { name: tool.name }),
         ),
       );
       for (const [distro, hint] of Object.entries(tool.package_hints || {}))
@@ -1262,16 +1279,16 @@ function renderStatus() {
     say(s.tailnet_signin_off, true);
   }
   $("runtime-badge").textContent = s.running
-    ? "● Harness active"
-    : "● Harness stopped";
+    ? HarnessI18n.t("admin.status.harness_active")
+    : HarnessI18n.t("admin.status.harness_stopped");
   $("runtime-badge").classList.toggle("good", s.running);
   // The link carries the real address as soon as the status gives it, and works only while the harness runs.
   const open = $("open-harness");
   open.href = (s.shared ? s.remote_url : s.local_url) || "#";
   open.setAttribute("aria-disabled", String(!s.running));
   open.title = s.running
-    ? "Open the harness chat"
-    : "The harness is stopped. Start it from Providers, then open it.";
+    ? HarnessI18n.t("admin.status.open_harness_title")
+    : HarnessI18n.t("admin.status.harness_stopped_hint");
   $("save").disabled = working;
 }
 $("open-harness").onclick = (event) => {
@@ -1291,10 +1308,9 @@ function render() {
   $("uploads").checked = settings.uploads_enabled;
   $("full-access").checked = settings.full_access === true;
   $("uploads").closest(".panel-bottom").hidden = true;
-  $("platform-note").textContent =
-    "Detected platform: " +
-    state.inventory.platform +
-    ". Isolated mode requires Linux and bubblewrap. Native mode uses the mechanisms of the installed CLI.";
+  $("platform-note").textContent = HarnessI18n.t("admin.status.platform_note", {
+    platform: state.inventory.platform,
+  });
 }
 async function load({ select = true } = {}) {
   settingsSearchChanged("refreshing");
@@ -1321,9 +1337,14 @@ async function load({ select = true } = {}) {
     }
     render();
     if (wizard)
-      $("wizard-title").textContent =
-        "Edit " +
-        (visibleProviders().find((i) => i.id === editing)?.name || "provider");
+      $("wizard-title").textContent = HarnessI18n.t(
+        "admin.providers.edit_named",
+        {
+          name:
+            visibleProviders().find((i) => i.id === editing)?.name ||
+            HarnessI18n.t("admin.providers.generic_name"),
+        },
+      );
     HarnessUI.decorate();
     settingsSearchChanged("ready");
   } catch (error) {
@@ -1337,9 +1358,11 @@ $("refresh-log-tail").onclick = async () => {
   try {
     const result = await request("logs");
     $("log-tail").textContent =
-      result.lines.join("\n") || "No harness log entries yet.";
+      result.lines.join("\n") || HarnessI18n.t("admin.logs.empty");
   } catch (error) {
-    $("log-tail").textContent = "Could not read the log: " + error.message;
+    $("log-tail").textContent = HarnessI18n.t("admin.logs.read_failed", {
+      message: error.message,
+    });
   } finally {
     button.disabled = false;
   }
@@ -1353,7 +1376,7 @@ async function action(fn) {
   const label =
     trigger?.textContent?.trim() ||
     trigger?.getAttribute("aria-label") ||
-    "Load panel";
+    HarnessI18n.t("admin.busy.default_label");
   if (trigger) trigger.disabled = true;
   $("wizard-content-lock").disabled = true;
   $("config-mcp").inert = true;
@@ -1363,7 +1386,7 @@ async function action(fn) {
   busy.hidden = false;
   busy.replaceChildren(
     icon("refresh"),
-    document.createTextNode(label + " · processing…"),
+    document.createTextNode(HarnessI18n.t("admin.busy.processing", { label })),
   );
   if (trigger) {
     trigger.setAttribute("aria-busy", "true");
@@ -1412,43 +1435,41 @@ $("scan").onclick = () =>
     renderProjects();
     renderStatus();
     renderProfile();
-    say("Check complete. No permission was enabled.");
+    say(HarnessI18n.t("admin.scan.complete"));
   });
 $("save").onclick = () =>
   action(async () => {
-    if (profileDirty)
-      throw Error(
-        "The CPU and GPU profile has pending changes. Use Save changes to this profile before saving the provider.",
-      );
-    if (!editing) throw Error("Choose a provider.");
+    if (profileDirty) throw Error(HarnessI18n.t("admin.save.profile_pending"));
+    if (!editing) throw Error(HarnessI18n.t("admin.save.choose_provider"));
     const spec = settings.services[editing],
       catalog = Object.keys(state.models[editing] || {});
     if (spec.enabled && pendingAuthentication(editing))
-      throw Error(
-        "Pending authorization. Use Log in and Check account, or turn off Make this service available to save only the setup.",
-      );
+      throw Error(HarnessI18n.t("admin.save.pending_authorization"));
     if (
       spec.enabled &&
       editing !== "local" &&
       state.authentication[editing] === true &&
       spec.models.some((model) => !catalog.includes(model))
     )
-      throw Error(
-        "There are models unavailable in the current catalog. Uncheck them and choose an available model.",
-      );
+      throw Error(HarnessI18n.t("admin.save.models_unavailable"));
     settings.services[editing].added = true;
     try {
       await request("settings", collect());
     } catch (e) {
-      HarnessUI.toast("Could not save: " + e.message, { error: true });
+      HarnessUI.toast(
+        HarnessI18n.t("admin.save.failed", { message: e.message }),
+        {
+          error: true,
+        },
+      );
       throw e;
     }
     unsaved = false;
-    $("dirty").textContent = "Settings saved";
+    $("dirty").textContent = HarnessI18n.t("admin.save.saved");
     HarnessUI.toast(
       state.status.running
-        ? "Settings saved. Updating the active harness."
-        : "Settings saved. The harness starts automatically with an enabled model.",
+        ? HarnessI18n.t("admin.save.saved_running")
+        : HarnessI18n.t("admin.save.saved_starting"),
     );
     try {
       const savedProvider = editing;
@@ -1457,18 +1478,16 @@ $("save").onclick = () =>
       editing = null;
       showStep(0);
       renderDashboard();
-      $("dirty").textContent = "Settings saved";
+      $("dirty").textContent = HarnessI18n.t("admin.save.saved");
       document
         .querySelector(
           '[data-configured-provider="' +
             savedProvider +
-            '"] button[aria-label^="Edit"]',
+            '"] button[data-edit-provider]',
         )
         ?.focus();
     } catch (e) {
-      throw Error(
-        "Settings were saved, but the panel could not be refreshed. Reload the page.",
-      );
+      throw Error(HarnessI18n.t("admin.save.refresh_failed"));
     }
   });
 // D11: Full access stays out of the chat's access menu until the owner turns it on here.
