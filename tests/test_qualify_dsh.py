@@ -1,11 +1,14 @@
 """Qualification script for the dsh ACP profile (KeepHarness #51), run against the offline fixture."""
 
+import asyncio
+import contextlib
 import tempfile
 from pathlib import Path
 from typing import Any
 
 import pytest
 
+from agent_service.errors import ToolError
 from agent_service.secret_vault import redact_secrets
 from scripts import qualify_dsh
 
@@ -16,6 +19,13 @@ CRASH_FAIL_IDS = ("P02", "P04", "P05", "P07")
 PASSING_PROBE_IDS = tuple(f"P{number:02d}" for number in range(1, 9))
 UNVERIFIED_IDS = tuple(f"U{number:02d}" for number in range(1, 10))  # one per D-043 UNVERIFIED line
 ROW_IDS = (*UNVERIFIED_IDS, *(f"P{number:02d}" for number in range(1, 10)))
+NEEDS_TURN_REASON = "needs a real model turn (no API key in the disposable profile)"
+MISSING_KEY_ERROR = (
+    "gemini_execution_failed: Internal error: turn failed: llm-deepseek: no API key for provider "
+    'route "deepseek-official"; store DEEPSEEK_API_KEY through the credentials service '
+    "(the web Models page writes it), or export DEEPSEEK_API_KEY in the launching environment"
+)
+AUTH_ERROR = "gemini_execution_failed: Internal error: turn failed: llm-deepseek: 401 Unauthorized"
 
 
 def rows_by_id(result: dict[str, Any]) -> dict[str, dict[str, Any]]:
@@ -154,3 +164,99 @@ def test_main_returns_one_in_crash_mode_and_writes_report(
 
     assert code == 1
     assert report.read_text(encoding="utf-8").strip()
+
+
+class FakeRpc:
+    """Answers each ACP method from a canned reply; an exception value is raised instead."""
+
+    def __init__(self, replies: dict[str, Any]) -> None:
+        self.replies = replies
+
+    async def call(self, method: str, _params: dict[str, Any]) -> Any:
+        reply = self.replies.get(method, {})
+        if isinstance(reply, BaseException):
+            raise reply
+        return reply
+
+
+def fake_connect(replies: dict[str, Any], monkeypatch: pytest.MonkeyPatch) -> None:
+    @contextlib.asynccontextmanager
+    async def connect(_run: Any, _extra_env: Any, *_args: Any, **_kwargs: Any) -> Any:
+        yield FakeRpc(replies)
+
+    monkeypatch.setattr(qualify_dsh, "connect", connect)
+
+
+def fake_run(tmp_path: Path) -> qualify_dsh.Run:
+    return qualify_dsh.Run(
+        dsh=tmp_path / "dsh", env={}, workspace=tmp_path, transcript=[], usage=[]
+    )
+
+
+def test_handshake_accepts_an_absent_load_session(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    fake_connect({"initialize": {"protocolVersion": 1, "agentCapabilities": {}}}, monkeypatch)
+    verdict = asyncio.run(qualify_dsh.probe_handshake(fake_run(tmp_path)))
+    assert verdict.status == "PASS"
+
+
+def test_handshake_fails_when_load_session_is_advertised(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    replies = {"initialize": {"protocolVersion": 1, "agentCapabilities": {"loadSession": True}}}
+    fake_connect(replies, monkeypatch)
+    verdict = asyncio.run(qualify_dsh.probe_handshake(fake_run(tmp_path)))
+    assert verdict.status == "FAIL"
+
+
+def test_turn_without_api_key_is_unverified(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    replies = {
+        "session/new": {"sessionId": "s1"},
+        "session/prompt": ToolError(MISSING_KEY_ERROR),
+    }
+    fake_connect(replies, monkeypatch)
+    verdict = asyncio.run(qualify_dsh.bounded(qualify_dsh.probe_turn, fake_run(tmp_path)))
+    assert verdict == qualify_dsh.Verdict("UNVERIFIED", NEEDS_TURN_REASON)
+
+
+def test_turn_auth_error_is_unverified(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    replies = {"session/new": {"sessionId": "s1"}, "session/prompt": ToolError(AUTH_ERROR)}
+    fake_connect(replies, monkeypatch)
+    verdict = asyncio.run(qualify_dsh.bounded(qualify_dsh.probe_turn, fake_run(tmp_path)))
+    assert verdict == qualify_dsh.Verdict("UNVERIFIED", NEEDS_TURN_REASON)
+
+
+def test_turn_failure_that_is_not_about_the_key_stays_fail(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    replies = {
+        "session/new": {"sessionId": "s1"},
+        "session/prompt": ToolError("gemini_execution_failed: turn stream dropped"),
+    }
+    fake_connect(replies, monkeypatch)
+    verdict = asyncio.run(qualify_dsh.bounded(qualify_dsh.probe_turn, fake_run(tmp_path)))
+    assert verdict.status == "FAIL"
+    assert verdict.reason == "gemini_execution_failed: turn stream dropped"
+
+
+def test_session_not_resumable_reply_stays_fail(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    fake_connect({"session/resume": ToolError("session is not resumable")}, monkeypatch)
+    verdict = asyncio.run(
+        qualify_dsh.bounded(qualify_dsh.probe_unknown_session, fake_run(tmp_path))
+    )
+    assert verdict.status == "FAIL"
+
+
+def test_pinned_version_with_an_unverified_turn_does_not_blame_the_version() -> None:
+    protocol = {
+        "P01": qualify_dsh.Verdict("PASS"),
+        "P02": qualify_dsh.Verdict("UNVERIFIED", NEEDS_TURN_REASON),
+    }
+    verdict = qualify_dsh.version_verdict(qualify_dsh.PINNED_VERSION, protocol)
+    assert verdict.status == "UNVERIFIED"
+    assert "not the pinned one" not in verdict.reason
