@@ -11635,6 +11635,28 @@ function applyReadingSize(value) {
 }
 applyReadingSize(prefs.get("reading_size", "15"));
 $("reading-size").onchange = () => applyReadingSize($("reading-size").value);
+// Settings › Appearance: the complete locales from index.json (English is one of them). A choice switches
+// the page in place and is saved through HarnessPrefs; the composed views below re-render on the change.
+const languageSelect = $("language-select");
+languageSelect.onchange = () => {
+  if (HarnessI18n.setLanguage(languageSelect.value))
+    prefs.set("language", languageSelect.value);
+};
+fetch("/assets/locales/index.json")
+  .then((response) => (response.ok ? response.json() : null))
+  .then((index) => {
+    const locales = (index?.locales ?? []).filter((locale) => locale.complete === true);
+    if (!locales.length) return;
+    languageSelect.replaceChildren(...locales.map((locale) => new Option(locale.name, locale.tag)));
+    languageSelect.value = HarnessI18n.tag();
+  })
+  .catch(() => {});
+HarnessI18n.onChange(() => {
+  renderProjects();
+  renderConversationHeader();
+  updateComposer();
+  updateWindowTitle();
+});
 // One owner for the wide layout: the header button, the Settings switch and the shortcut all call it.
 function setWideLayout(on) {
   document.body.classList.toggle("wide-layout", on);

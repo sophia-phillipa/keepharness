@@ -64,12 +64,11 @@ Object.defineProperty(globalThis, "navigator", {
   value: { languages: languages === "-" ? [] : languages.split(",") },
   configurable: true,
 });
-globalThis.document = { documentElement: { lang: "" } };
+globalThis.document = { documentElement: { lang: "" }, querySelectorAll: (selector) => nodes.filter((node) => selector.slice(1, -1) in node.attrs) };
 vm.runInThisContext(fs.readFileSync(runtime, "utf8"));
 const i18n = globalThis.HarnessI18n;
-i18n.apply({ querySelectorAll: (selector) => nodes.filter((node) => selector.slice(1, -1) in node.attrs) });
-console.log(
-  JSON.stringify({
+i18n.apply(document);
+const result = {
     tag: i18n.tag(),
     lang: document.documentElement.lang,
     app: i18n.t("common.app.name"),
@@ -79,8 +78,13 @@ console.log(
     applied: [nodes[0].textContent, nodes[1].textContent, nodes[2].attrs.title, nodes[3].attrs["aria-label"]],
     api: globalThis.apiRequests,
     source: [i18n.source(i18n.t("common.app.name")), i18n.source("Not in any catalog")],
-  }),
-);
+};
+result.switched = i18n.setLanguage("pt-BR");
+result.switched_lang = document.documentElement.lang;
+result.switched_app = i18n.t("common.app.name");
+result.rejected = i18n.setLanguage("xx");
+result.rejected_tag = i18n.tag();
+console.log(JSON.stringify(result));
 """
 
 
@@ -197,6 +201,15 @@ def pt_root(tmp_path):
 def test_active_language_choice(pt_root, stored, languages, tag):
     result = run_runtime(pt_root, stored=stored, languages=languages)
     assert result["tag"] == result["lang"] == tag
+
+
+def test_set_language_switches_the_catalog_and_rejects_unknown_tags(pt_root):
+    result = run_runtime(pt_root)
+    assert result["switched"] is True
+    assert result["switched_lang"] == "pt-BR"
+    assert result["switched_app"] == "Test locale app"
+    assert result["rejected"] is False
+    assert result["rejected_tag"] == "pt-BR"
 
 
 def test_plural_and_fallback_in_active_locale(pt_root):
