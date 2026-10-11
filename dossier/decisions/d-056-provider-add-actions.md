@@ -78,7 +78,7 @@ JEV: one `request_decision` (empty working directory vs verbatim vs URL expansio
 Recorded while D-056 stays proposed; they do not change the decision.
 
 - **Add MCP server reuses the provider wizard (deviation from C8).** The shipped menu entry opens the provider wizard at its integrations step (`openWizard` + `showStep(3)`) instead of a separate dialog. The alternative above was rejected only because the form is hidden outside the wizard; opening the wizard brings it into view and avoids a second `connector_add` form that would drift. JEV chose this (option A, confidence 0.96). The P5 review found it safe: it is UI navigation only and posts through the existing `/api/integration` name checks.
-- **P5 security review (Opus): approved**, with 0 blockers and 0 majors. Fixed before merge: `operations-cwd` must be a real, empty 0700 directory and is refused otherwise (no symlink), and `_public_source` was renamed to `public_source`. Deferred: deduplicating `openAddMenu`/`openMenu` in `customize.js` (#84), and using the empty working directory for every `/api/integration` action (#85).
+- **P5 security review (Opus): approved**, with 0 blockers and 0 majors. Fixed before merge: `operations-cwd` must be a real 0700 directory and is refused otherwise (no symlink); since 2026-10-11 it is emptied before each run instead of being refused when not empty, and `_public_source` was renamed to `public_source`. Deferred: deduplicating `openAddMenu`/`openMenu` in `customize.js` (#84), and using the empty working directory for every `/api/integration` action (#85).
 
 ## Sophia's answers (2026-10-11)
 
