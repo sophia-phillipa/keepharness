@@ -4,6 +4,7 @@ import asyncio
 import json
 import logging
 import os
+import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -29,10 +30,12 @@ from .routes import schedules as schedule_routes
 from .routes import spans as span_routes
 from .routes import system as system_routes
 from .routes import temporary as temporary_routes
+from .routes import terminal as terminal_routes
 from .routes import ui_state as ui_state_routes
 from .routes.projects import project_git  # noqa: F401  (re-exported)
 from .services import scheduler
 from .services.conversation_service import ConversationService
+from .terminal import TerminalManager
 
 logger = logging.getLogger(__name__)
 
@@ -44,6 +47,7 @@ def create_app(config, runtime_path=None):
     runtime_path = Path(runtime_path) if runtime_path else None
     service = Service(config)
     build_versions = system_routes.BuildVersions()
+    terminal = TerminalManager(clock=time.monotonic)
 
     @asynccontextmanager
     async def lifespan(app):
@@ -93,6 +97,7 @@ def create_app(config, runtime_path=None):
                 pass
             await service.effects.close()
             await service.temporary.close_all()
+            await asyncio.to_thread(terminal.close_all)
             service.db.close()
 
     app = Starlette(
@@ -111,9 +116,11 @@ def create_app(config, runtime_path=None):
             *harness_agent_routes.ROUTES,
             *effect_routes.ROUTES,
             *ui_state_routes.ROUTES,
+            *terminal_routes.ROUTES,
         ],
         lifespan=lifespan,
     )
+    app.state.terminal = terminal
     app.add_middleware(
         StaticGZipMiddleware,
         paths=(

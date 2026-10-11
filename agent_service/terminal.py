@@ -7,10 +7,12 @@ output chunk to a bounded event log. Idle and cap decisions read only the inject
 """
 
 import codecs
+import fcntl
 import logging
 import os
 import select
 import signal
+import struct
 import termios
 import threading
 import uuid
@@ -194,6 +196,17 @@ class TerminalSession:
                 # records the line end here; the secret itself is never recorded.
                 self._record("\n", echo=False)
         self._send(data.encode("utf-8"))
+
+    def resize(self, cols: int, rows: int) -> None:
+        with self._fd_lock:
+            if not self._fd_open:
+                raise TerminalError("terminal_exited", 409)
+            try:
+                fcntl.ioctl(
+                    self._master_fd, termios.TIOCSWINSZ, struct.pack("HHHH", rows, cols, 0, 0)
+                )
+            except OSError as exc:
+                raise TerminalError("terminal_exited", 409) from exc
 
     def lines(self) -> list[str]:
         with self._lock:
