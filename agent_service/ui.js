@@ -3905,6 +3905,7 @@ function targetTitle(data) {
           : "";
   return subject && entry?.tools ? entry.verb + " " + subject : "";
 }
+const THINKING_EVENT_TYPES = ["thinking", "reasoning_delta", "reasoning_summary"];
 function activityTitle(e) {
   const data = e.data || {},
     type = e.type,
@@ -3914,20 +3915,20 @@ function activityTitle(e) {
     data.backend,
   );
   if (condition) return condition.title;
-  if (type === "provider_warning") return data.message || "Provider warning";
+  if (type === "provider_warning") return data.message || t("activity.provider_warning");
   if (type === "hook_scope") {
     return (
       {
-        disabled: "Hooks disabled for this run",
-        project: "Using project hooks only",
-        global_and_project: "Using global and project hooks",
-      }[data.scope] || "Hook scope reported"
+        disabled: t("activity.hook_scope.disabled"),
+        project: t("activity.hook_scope.project"),
+        global_and_project: t("activity.hook_scope.global_and_project"),
+      }[data.scope] || t("activity.hook_scope.reported")
     );
   }
   if (type === "resource_fallback")
     return data.scope === "execution"
-      ? "Resource fallback applied for this run"
-      : "Resource fallback is advisory";
+      ? t("activity.resource_fallback.execution")
+      : t("activity.resource_fallback.advisory");
   if (["invocation_started", "invocation_completed"].includes(type)) {
     const invocation = data.invocation || data,
       identity =
@@ -3935,7 +3936,7 @@ function activityTitle(e) {
         invocation.role ||
         invocation.resource_id ||
         invocation.kind ||
-        "resource",
+        t("activity.resource.default"),
       route = [
         data.backend || invocation.backend,
         data.model || invocation.model,
@@ -3944,28 +3945,32 @@ function activityTitle(e) {
         .filter(Boolean)
         .join(" · ");
     return (
-      (type === "invocation_started" ? "Started " : "Completed ") +
-      identity +
+      (type === "invocation_started"
+        ? t("activity.invocation.started", { identity })
+        : t("activity.invocation.completed", { identity })) +
       (route ? " · " + route : "")
     );
   }
   if (type === "tool_start" && targetTitle(data)) return targetTitle(data);
   if (type === "tool_start")
     return data.command_name && tool
-      ? "Running command " + tool
+      ? t("activity.command.running", { command: tool })
       : {
-          Read: "Reading file",
-          Glob: "Searching files",
-          Grep: "Searching text",
-          webSearch: "Searching the web",
-          WebSearch: "Searching the web",
-        }[data.tool] || "Running " + (tool || "tool");
+          Read: t("activity.tool.read_file"),
+          Glob: t("activity.tool.search_files"),
+          Grep: t("activity.tool.search_text"),
+          webSearch: t("activity.tool.search_web"),
+          WebSearch: t("activity.tool.search_web"),
+        }[data.tool] ||
+          t("activity.tool.running", { tool: tool || t("activity.tool.generic") });
   if (type === "tool_end")
-    return data.status === "failed" ? "Tool failed" : "Tool finished";
+    return data.status === "failed"
+      ? t("activity.tool.failed")
+      : t("run_status.label.tool_end");
   if (type === "answer_delta" && data.parent_tool_use_id)
-    return "Specialist is responding";
-  if (["thinking", "reasoning_delta", "reasoning_summary"].includes(type))
-    return "Thinking";
+    return t("activity.specialist.responding");
+  if (THINKING_EVENT_TYPES.includes(type))
+    return t("run_status.label.thinking");
   if (
     [
       "queued",
@@ -3981,18 +3986,18 @@ function activityTitle(e) {
   )
     return runLabel(type) || t("run_status.terminal.interrupted");
   if (type === "plan_updated") return t("run_status.label.plan_updated");
-  if (type === "maestro_planning") return "Planning";
-  if (type === "maestro_plan") return "Execution plan set";
-  if (type === "maestro_step") return "Specialist started working";
+  if (type === "maestro_planning") return t("run_status.label.maestro_planning");
+  if (type === "maestro_plan") return t("activity.workflow.plan_set");
+  if (type === "maestro_step") return t("activity.workflow.step_started");
   return (
     {
-      session_resumed: "Conversation context resumed",
-      context_compacting: "Optimizing context",
-      context_compacted: "Context optimized",
-      validating_changes: "Validating changes",
-      changes_applied: "Changes applied",
-      deployment_failed: "Changes not applied",
-      reload_scheduled: "Panel will refresh",
+      session_resumed: t("run_status.label.session_resumed"),
+      context_compacting: t("activity.context.optimizing"),
+      context_compacted: t("activity.context.optimized"),
+      validating_changes: t("run_status.label.validating_changes"),
+      changes_applied: t("run_status.deployment.applied"),
+      deployment_failed: t("run_status.deployment.not_applied"),
+      reload_scheduled: t("activity.panel.refresh"),
     }[type] || ""
   );
 }
@@ -4168,7 +4173,7 @@ function appendActivityTitle(list, e) {
     setStepRow(
       row,
       toolFailed
-        ? "Failed: " + text
+        ? t("run_status.notice.failed", { title: text })
         : text.replace(STEP_VERB, (verb) => PAST_TENSE[verb]),
       stepMarker(data),
     );
@@ -4176,8 +4181,8 @@ function appendActivityTitle(list, e) {
   }
   const title = activityTitle(e);
   if (!title) return;
-  if (title === "Thinking" && list.lastElementChild?.dataset.stepText === title)
-    return;
+  const thinking = THINKING_EVENT_TYPES.includes(e.type);
+  if (thinking && list.lastElementChild?.dataset.thinking) return;
   const row = document.createElement("li");
   setStepRow(
     row,
@@ -4185,6 +4190,7 @@ function appendActivityTitle(list, e) {
     e.type === "tool_start" || e.type === "tool_end" ? stepMarker(data) : {},
   );
   row.dataset.state = toolFailed ? "failed" : e.type;
+  if (thinking) row.dataset.thinking = "1";
   if (eventId) row.dataset.eventId = eventId;
   list.append(row);
   if (e.type === "tool_start" && toolId) list.toolRows.set(toolId, row);
@@ -4202,7 +4208,7 @@ function assistant(id = "", model = $("model").value, replayTools = false) {
   badge.textContent = modelIcon(model);
   title.append(
     badge,
-    document.createTextNode(model ? modelName(model) : "Response"),
+    document.createTextNode(model ? modelName(model) : t("conversation.turn.response")),
   );
   a.el.prepend(title);
   const chip = document.createElement("p");
@@ -4225,7 +4231,7 @@ function assistant(id = "", model = $("model").value, replayTools = false) {
         loadResponseTools(id, milestones).catch(() => {
           delete activity.dataset.loaded;
           const row = document.createElement("li");
-          row.textContent = "Couldn't retrieve the step titles.";
+          row.textContent = t("activity.steps.load_failed");
           milestones.replaceChildren(row);
         });
       }
@@ -4233,7 +4239,7 @@ function assistant(id = "", model = $("model").value, replayTools = false) {
   const meta = document.createElement("div");
   meta.className = "run-meta";
   a.el.append(meta);
-  const copy = answerAction("copy-answer", "Copy", "copy");
+  const copy = answerAction("copy-answer", t("admin.common.copy"), "copy");
   copy.onclick = () =>
     copyText(
       a.body.rawAnswer || a.body.textContent,
@@ -4259,10 +4265,10 @@ const TURN_REVIEW_TERMINAL = [
 ];
 const TURN_REVIEW_MAX_ROWS = 10;
 const TURN_REVIEW_DIFF_LABELS = {
-  binary: "Binary file: no text diff",
-  oversized: "Diff too large to show",
-  unavailable: "Diff not available",
-  partial: "Partial diff: fragments only",
+  binary: "conversation.review.diff_binary",
+  oversized: "conversation.review.diff_oversized",
+  unavailable: "conversation.review.diff_unavailable",
+  partial: "conversation.review.diff_partial",
 };
 
 function turnReviewNote(text, testid = "") {
@@ -4272,6 +4278,13 @@ function turnReviewNote(text, testid = "") {
   note.textContent = text;
   return note;
 }
+
+const TURN_REVIEW_OP_LABELS = {
+  created: "conversation.review.op_created",
+  modified: "conversation.review.op_modified",
+  deleted: "conversation.review.op_deleted",
+  unknown: "conversation.review.op_unknown",
+};
 
 function turnReviewOp(op) {
   return ["created", "modified", "deleted"].includes(op) ? op : "unknown";
@@ -4284,7 +4297,7 @@ function turnReviewDiffNode(file) {
   box.hidden = true;
   for (const edit of file.edits ?? []) {
     const label = TURN_REVIEW_DIFF_LABELS[edit.diff_state];
-    if (label) box.append(turnReviewNote(label));
+    if (label) box.append(turnReviewNote(t(label)));
     if (
       (edit.diff_state === "diff" || edit.diff_state === "partial") &&
       typeof edit.diff === "string" &&
@@ -4296,7 +4309,7 @@ function turnReviewDiffNode(file) {
     }
   }
   if (!box.childElementCount)
-    box.append(turnReviewNote(TURN_REVIEW_DIFF_LABELS.unavailable));
+    box.append(turnReviewNote(t(TURN_REVIEW_DIFF_LABELS.unavailable)));
   return box;
 }
 
@@ -4305,7 +4318,7 @@ let turnReviewIds = 0;
 
 function turnReviewRow(file) {
   // A null path is an edit outside the project: it is shown, never opened.
-  const shownPath = file.path ?? "path outside the project";
+  const shownPath = file.path ?? t("conversation.review.outside_project");
   const item = document.createElement("li");
   item.className = "turn-review-item";
   const button = document.createElement("button");
@@ -4320,14 +4333,14 @@ function turnReviewRow(file) {
   const op = document.createElement("span");
   op.className = "turn-review-op";
   op.dataset.testid = "turn-review-op";
-  op.textContent = turnReviewOp(file.op);
+  op.textContent = t(TURN_REVIEW_OP_LABELS[turnReviewOp(file.op)]);
   button.append(path, op);
   const movedFrom = file.edits?.find((edit) => edit.moved_from)?.moved_from;
   if (movedFrom) {
     const moved = document.createElement("span");
     moved.className = "turn-review-moved";
     moved.dataset.testid = "turn-review-moved";
-    moved.textContent = "renamed from " + movedFrom;
+    moved.textContent = t("conversation.review.renamed_from", { path: movedFrom });
     button.append(moved);
   }
   const diff = turnReviewDiffNode(file);
@@ -4349,8 +4362,7 @@ function renderTurnReview(slot, data) {
   toggle.className = "turn-review-toggle";
   toggle.dataset.testid = "turn-review-toggle";
   toggle.setAttribute("aria-expanded", "false");
-  toggle.textContent =
-    files.length === 1 ? "1 file changed" : `${files.length} files changed`;
+  toggle.textContent = t("conversation.review.files_changed", { count: files.length });
   const list = document.createElement("ul");
   list.className = "turn-review-list";
   list.dataset.testid = "turn-review-list";
@@ -4361,7 +4373,7 @@ function renderTurnReview(slot, data) {
   if (files.length > TURN_REVIEW_MAX_ROWS) {
     const more = document.createElement("li");
     more.className = "turn-review-more";
-    more.textContent = `and ${files.length - TURN_REVIEW_MAX_ROWS} more`;
+    more.textContent = t("conversation.review.more", { count: files.length - TURN_REVIEW_MAX_ROWS });
     list.append(more);
   }
   toggle.addEventListener("click", () => {
@@ -4373,21 +4385,21 @@ function renderTurnReview(slot, data) {
   if (data.job_state !== "completed")
     notices.push(
       turnReviewNote(
-        "Stopped before finishing: this list covers only the changes made so far.",
+        t("conversation.review.stopped"),
         "turn-review-stopped",
       ),
     );
   if (data.shell_unattributed)
     notices.push(
       turnReviewNote(
-        "Shell commands may have changed other files.",
+        t("conversation.review.shell"),
         "turn-review-shell",
       ),
     );
   if (data.truncated)
     notices.push(
       turnReviewNote(
-        "The list is incomplete; some changed files may be missing.",
+        t("conversation.review.truncated"),
         "turn-review-truncated",
       ),
     );
@@ -4419,7 +4431,7 @@ async function loadTurnReview(answer, jobId, state, hasEdits = true) {
 }
 // D37: "Ask again" sends the question this answer replied to as a new turn, on the model now selected.
 function askAgainButton(answer) {
-  const button = answerAction("ask-again", "Ask again", "refresh");
+  const button = answerAction("ask-again", t("conversation.turn.ask_again"), "refresh");
   button.onclick = () => {
     let asked = answer.previousElementSibling;
     while (asked && !asked.matches("article.message.user"))
@@ -4427,7 +4439,7 @@ function askAgainButton(answer) {
     const question = asked?.textContent;
     if (!question || busy || submitting) return;
     if ($("prompt").value.trim())
-      return status("Send or clear the draft first, then ask again.");
+      return status(t("conversation.turn.ask_again_draft"), "neutral");
     $("prompt").value = question.trim();
     updateComposer();
     send();
@@ -4473,7 +4485,7 @@ async function loadResponseTools(id, target) {
   }
   if (!target.children.length) {
     const row = document.createElement("li");
-    row.textContent = "No step was recorded for this run.";
+    row.textContent = t("activity.steps.empty");
     target.append(row);
   }
 }
@@ -4551,26 +4563,28 @@ function renderPlanOutcome(card, runState = card.dataset.runState) {
   if (runState) card.dataset.runState = runState;
   const choice = card.dataset.choice;
   const terminal = {
-    completed: "Completed",
-    failed: "Failed",
-    cancelled: "Cancelled",
-    interrupted: "Interrupted",
+    completed: t("run_status.label.completed"),
+    failed: t("run_status.label.failed"),
+    cancelled: t("run_status.label.cancelled"),
+    interrupted: t("run_status.label.interrupted"),
   }[runState];
   let label, note;
   if (choice === "deny") {
-    label = "Discarded";
-    note = "Plan discarded.";
+    label = t("run_status.label.discarded");
+    note = t("run_status.plan.discarded");
   } else if (choice === "approve" && !card.id && !terminal) {
-    label = "Running";
-    note = "The workflow is running these steps.";
+    label = t("run_status.label.running");
+    note = t("run_status.plan.running");
   } else if (choice === "approve") {
-    label = "Approved · " + (terminal || "recorded");
+    label = t("run_status.label.approved", {
+      state: terminal || t("run_status.label.recorded"),
+    });
     note = terminal
-      ? "The approved run is " + terminal.toLowerCase() + "."
-      : "This plan was approved earlier.";
+      ? t("run_status.plan.approved_run", { state: terminal.toLowerCase() })
+      : t("run_status.plan.approved_earlier");
   } else {
-    label = "Not active";
-    note = "This plan can no longer be approved.";
+    label = t("run_status.label.not_active");
+    note = t("run_console.request.plan_expired");
   }
   card
     .querySelector(".state-pill")
@@ -4596,15 +4610,15 @@ function showWorkflowRecovery(run) {
   section.className = "workflow-recovery";
   note.textContent =
     run.workflow_completed_steps === 0
-      ? "No completed steps can be reused. Retry starts at the first step of the saved plan."
+      ? t("run_status.recovery.none_reusable")
       : (Number.isInteger(run.workflow_completed_steps)
-          ? run.workflow_completed_steps + " completed step(s) can be reused. "
-          : "Resume from the last valid checkpoint. ") +
-        "Completed steps are reused when their inputs and workflow are unchanged; remaining steps run again.";
+          ? t("run_status.recovery.reusable", { count: run.workflow_completed_steps }) + " "
+          : t("run_status.recovery.checkpoint") + " ") +
+        t("run_status.recovery.reuse_rule");
   note.setAttribute("role", "status");
   resume.type = "button";
   resume.className = "btn";
-  resume.textContent = "Resume workflow";
+  resume.textContent = t("run_status.recovery.resume");
   let resumedConversation;
   resume.onclick = async () => {
     resume.disabled = true;
@@ -4636,22 +4650,22 @@ function showWorkflowRecovery(run) {
           },
         );
         resumedConversation = child.conversation_id || child.job_id;
-        resume.textContent = "Open resumed run";
+        resume.textContent = t("run_status.recovery.open_resumed");
       }
       await load(resumedConversation);
       if (conversation !== resumedConversation) {
         note.textContent =
-          "The workflow was resumed. Couldn't open its conversation; use Open resumed run to try again.";
+          t("run_status.recovery.resumed_open_failed");
         resume.disabled = false;
       }
       void history();
     } catch (error) {
       note.textContent =
         error.code === "workflow_effect_outcome_unknown"
-          ? "Resolve the uncertain publication outcome before resuming this workflow."
-          : (resumedConversation
-              ? "The workflow was resumed. Couldn't open its conversation: "
-              : "Couldn't resume the workflow: ") + error.message;
+          ? t("run_status.recovery.outcome_unknown")
+          : resumedConversation
+            ? t("run_status.recovery.resumed_error", { detail: error.message })
+            : t("run_status.recovery.resume_failed", { detail: error.message });
       resume.disabled = false;
     }
   };
@@ -4752,7 +4766,7 @@ function showMaestroPlan(data = {}) {
   const heading = document.createElement("div");
   heading.className = "maestro-plan-heading";
   const title = document.createElement("strong");
-  title.textContent = "Plan";
+  title.textContent = t("run_status.plan.title");
   const state = document.createElement("span");
   state.className = "state-pill";
   const note = document.createElement("span");
@@ -4763,7 +4777,7 @@ function showMaestroPlan(data = {}) {
     const item = document.createElement("li");
     const role = document.createElement("span");
     role.className = "plan-role";
-    role.textContent = step.role || "Agent";
+    role.textContent = step.role || t("run_status.plan.agent_role");
     const model = document.createElement("span");
     model.className = "backend-chip";
     model.dataset.backend = step.backend || "";
@@ -4921,7 +4935,7 @@ function executionCondition(code, backend, detail) {
   const name =
       { claude: "Claude", gemini: "Gemini" }[backend] ||
       providerNames[backend] ||
-      "provider",
+      t("run_status.condition.provider"),
     panel = providerNames[backend] || name,
     reason = providerMessage(detail);
   // DeepSeek runs on a pasted API key and a prepaid balance: no sign-in, nothing renews.
@@ -4929,58 +4943,45 @@ function executionCondition(code, backend, detail) {
     backend === "deepseek" &&
     {
       authentication: {
-        title: "Replace the DeepSeek API key",
+        title: t("run_status.condition.deepseek_auth_title"),
         message:
-          "DeepSeek rejected the API key. In the admin panel, paste a valid DeepSeek API key and send your message again.",
+          t("run_status.condition.deepseek_auth_message"),
       },
       quota: {
-        title: "Top up your DeepSeek balance",
+        title: t("run_status.condition.deepseek_quota_title"),
         message:
-          "Your DeepSeek balance is used up. Top it up in your DeepSeek account, or select a different provider to continue this conversation.",
+          t("run_status.condition.deepseek_quota_message"),
       },
     }[kind];
   // D47: the admin has no Gemini card, so there is nothing to open or renew.
   const gemini = backend === "gemini" &&
     ["unavailable", "authentication"].includes(kind) && {
-      title: "Gemini unavailable",
+      title: t("run_status.condition.gemini_title"),
       message:
-        "Gemini is not available in this KeepHarness release. Select another provider to continue this conversation.",
+        t("run_status.condition.gemini_message"),
     };
   const copy =
     deepseek ||
     gemini ||
     {
       unavailable: {
-        title: name + " unavailable",
-        message:
-          "Open the admin panel to check " +
-          name +
-          ", or select another provider.",
+        title: t("run_status.condition.unavailable_title", { name }),
+        message: t("run_status.condition.unavailable_message", { name }),
       },
       authentication: {
-        title: "Renew " + name + " access",
-        message:
-          "Your " +
-          name +
-          " access needs to be renewed. In the admin panel, find " +
-          panel +
-          " and click “Renew access”. Complete the sign-in in the browser and send your message again.",
+        title: t("run_status.condition.renew_title", { name }),
+        message: t("run_status.condition.renew_message", { name, panel }),
       },
       quota: {
-        title: "Wait for quota renewal",
-        message:
-          "Your " +
-          name +
-          " quota is temporarily exhausted. Wait for it to renew or select a different provider to continue this conversation.",
+        title: t("run_status.condition.quota_title"),
+        message: t("run_status.condition.quota_message", { name }),
       },
       rate: {
-        title: "Wait a moment",
-        message:
-          name +
-          " is limiting requests. Wait a moment, or select a different provider to continue this conversation.",
+        title: t("run_status.condition.rate_title"),
+        message: t("run_status.condition.rate_message", { name }),
       },
     }[kind];
-  if (reason) copy.message += " " + name + " says: " + reason;
+  if (reason) copy.message += " " + t("run_status.condition.says", { name, reason });
   return copy;
 }
 // The prose after an adapter's "<code>: " prefix, never the code itself.
@@ -4998,13 +4999,13 @@ function executionError(error, detail) {
       String(error),
     )
   )
-    return "Couldn't prepare or process the context for this attempt. The history and files were preserved. You can continue this conversation; if the limit persists, use a model with reading tools or reduce the content sent at once.";
+    return t("run_status.error.context_limit");
   const reason = providerMessage(detail || error);
   return (
     (userError(code) ||
       attachmentError(code) ||
-      "The run did not finish. Check the activity and try again.") +
-    (reason ? " Provider message: " + reason : "")
+      t("run_status.error.did_not_finish")) +
+    (reason ? " " + t("run_status.error.provider_message", { reason }) : "")
   );
 }
 async function result(
@@ -5123,7 +5124,7 @@ async function result(
     else
       status(
         condition?.title || terminal[r.state] || r.state,
-        condition ? undefined : terminalTone[r.state],
+        condition ? "neutral" : terminalTone[r.state],
       );
     if (!terminal[r.state]) pendingGateStatus();
     if (data.deployment)
