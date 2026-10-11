@@ -182,6 +182,11 @@ SCHEMA: dict[str, Check] = {
     ),
     "last_section": text(pattern=WORD),
     "always_on_top": flag,
+    "wide_layout": flag,
+    "editor_open": flag,
+    "editor_width": _width,
+    "terminal_open": flag,
+    "terminal_height": _width,
 }
 
 

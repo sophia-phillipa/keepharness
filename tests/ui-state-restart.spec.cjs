@@ -2,7 +2,7 @@
 // localStorage keys migrate into the harness store, a read-only store enqueues nothing and says why,
 // a 413 is split per key, and the store file on disk really holds what the UI wrote.
 //
-// Own servers: this spec starts its harnesses itself, on ports 18096-18099, because it must stop
+// Own servers: this spec starts its harnesses itself, on ports 18096-18101, because it must stop
 // and restart one on another port against the same state folder, which the shared test-ui.sh
 // server cannot do. Each browser context is a new origin with an empty localStorage.
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE || "playwright");
@@ -14,7 +14,7 @@ const os = require("node:os");
 const path = require("node:path");
 
 const ROOT = path.resolve(__dirname, "..");
-const PORTS = { a: 18096, b: 18097, fresh: 18098, locked: 18099 };
+const PORTS = { a: 18096, b: 18097, fresh: 18098, locked: 18099, c: 18100, d: 18101 };
 const READ_ONLY_NOTICE =
   "Interface preferences can't be saved right now, so changes last until you reload. Check the harness state folder.";
 const results = [];
@@ -866,6 +866,44 @@ async function step(name, work) {
           "project-list-preferences",
         ])
           assert.equal(await lsItem(page, old), null, old);
+        await page.context().close();
+      },
+    );
+
+    await step(
+      "wide layout, file editor and terminal stay on after a restart on another port",
+      async () => {
+        const first = await startServer(PORTS.c, path.join(tmp, "toggles"));
+        let page = await openPage(browser, first);
+        const options = ["wide_layout", "editor_open", "terminal_open"];
+        await page.click("#wide-toggle");
+        await page.click("#editor-toggle");
+        await page.click("#terminal-toggle");
+        await flush(page);
+        const expected = Object.fromEntries(options.map((key) => [key, true]));
+        assert.deepEqual(
+          Object.fromEntries(options.map((key) => [key, onDisk(first)[key]])),
+          expected,
+        );
+        assert.deepEqual(await storedValues(first), onDisk(first));
+        await page.context().close();
+        await first.stop();
+
+        const moved = await startServer(PORTS.d, path.join(tmp, "toggles"));
+        assert.deepEqual(
+          Object.fromEntries(options.map((key) => [key, onDisk(moved)[key]])),
+          expected,
+        );
+        page = await openPage(browser, moved);
+        assert.equal(
+          await page.evaluate(() => document.body.classList.contains("wide-layout")),
+          true,
+        );
+        assert.equal(await page.locator("#wide-toggle").getAttribute("aria-pressed"), "true");
+        assert.equal(await page.locator("#editor-toggle").getAttribute("aria-pressed"), "true");
+        assert.equal(await page.locator("#terminal-toggle").getAttribute("aria-pressed"), "true");
+        assert.equal(await page.getByTestId("editor-pane").isVisible(), true);
+        assert.equal(await page.getByTestId("terminal-pane").isVisible(), true);
         await page.context().close();
       },
     );

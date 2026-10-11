@@ -1023,6 +1023,7 @@ async function refreshComposerGit() {
 }
 function syncActiveProjectBadge() {
   syncComposerProject();
+  window.terminalPane?.projectChanged();
   const option = $("project").selectedOptions[0],
     badge = $("active-project-badge");
   if (!badge) return;
@@ -1841,6 +1842,22 @@ const userErrors = {
     "You have reached the limit of 50 schedules. Delete one to add another.",
   schedule_storage_unsafe:
     "The schedules folder cannot be used safely. Check the harness state folder.",
+  editor_local_only: "Files can be edited only from this computer.",
+  file_changed: "This file changed since you opened it. Reload it and try again.",
+  file_not_text: "This file is not a text file, so it can't be edited here.",
+  file_not_writable: "This file is read-only. Check its permissions and try again.",
+  file_unavailable: "The file could not be read from disk. Try again.",
+  invalid_input: "The terminal input is not valid. Type it again.",
+  invalid_size: "The terminal size is not valid. Resize the window and try again.",
+  invalid_text: "The file contents could not be read. Reload the file and try again.",
+  precondition_required: "Reload the file before saving it, so the save checks its latest version.",
+  project_not_found: "That project no longer exists. Choose another project.",
+  storage_full: "The disk is full. Free some space and try again.",
+  terminal_local_only: "Terminals can be opened only from this computer.",
+  terminal_unavailable: "The terminal is not available right now. Try again shortly.",
+  terminal_limit: "Four terminals are already busy. End one and try again.",
+  terminal_not_found: "That terminal session has ended. Reopen the terminal to start a new one.",
+  terminal_exited: "The shell has exited. Reopen the terminal to start a new one.",
 };
 async function api(path, options = {}) {
   const { temporarySession: scope = temporarySession, ...requestOptions } =
@@ -1900,6 +1917,7 @@ async function api(path, options = {}) {
     error.code = e.code || (providerState ? e.error : undefined);
     error.field = e.field;
     error.status = r.status;
+    error.etag = r.headers.get("ETag");
     if (r.status === 429) {
       const after = r.headers.get("Retry-After");
       error.retryAfter = /^\d+(?:\.\d+)?$/.test(after || "")
@@ -2766,6 +2784,7 @@ $("prompt").addEventListener("keydown", (event) => {
 window.applyActivitySnapshot = function applyActivitySnapshot(data = {}) {
   notifyAttention(data);
   observedActivityJobs = Array.isArray(data.jobs) ? [...data.jobs] : [];
+  updateEditorStatus();
   renderWorkspaceTasks(observedActivityJobs);
   const pending = new Set(
     (data.needs_you || []).map((item) => item.conversation_id).filter(Boolean),
@@ -6532,6 +6551,8 @@ function renderProjectFileEntries(list, entries, tree = fileTree) {
     });
     const row = document.createElement("div");
     row.className = "project-file-row";
+    if (!tree.foldersOnly && entry.type !== "directory")
+      item.addEventListener("dblclick", () => openEditorFromTree(entry.path));
     if (entry.type === "directory") {
       const open = tree.expanded.has(entry.path),
         toggle = document.createElement("button");
@@ -6618,6 +6639,7 @@ function renderProjectFileEntries(list, entries, tree = fileTree) {
       } else if (e.key === "Enter") {
         e.preventDefault();
         if (entry.type === "directory") void toggleProjectDirectory(entry);
+        else if (!editorPane.hidden) openEditorFromTree(entry.path);
         else {
           const paths = tree.selected.has(entry.path)
             ? Array.from(tree.selected)
@@ -6628,7 +6650,7 @@ function renderProjectFileEntries(list, entries, tree = fileTree) {
     };
     if (entry.type !== "directory") {
       item.setAttribute("aria-keyshortcuts", "Enter Space");
-      item.title = "Enter to attach; Space to select.";
+      item.title = "Enter to attach (opens in the file editor when it is open); Space to select.";
     }
     item.draggable =
       canUpload() && !busy && !uploads && files.length < MAX_ATTACHMENTS;
@@ -7245,6 +7267,18 @@ document.addEventListener("keydown", (event) => {
   ) {
     event.preventDefault();
     void startTemporaryChat();
+  }
+});
+document.addEventListener("keydown", (event) => {
+  if (
+    (event.ctrlKey || event.metaKey) &&
+    event.shiftKey &&
+    !event.altKey &&
+    event.key.toLowerCase() === "l" &&
+    !foreignModalOpen()
+  ) {
+    event.preventDefault();
+    setWideLayout(!document.body.classList.contains("wide-layout"));
   }
 });
 $("new").onclick = () => void navigate({ kind: "home" });
@@ -11718,6 +11752,12 @@ $("settings-appearance").querySelector(".shortcut-help").textContent =
   "+K or " +
   shortcutModifier +
   "+Shift+P: search KeepHarness\n" +
+  shortcutModifier +
+  "+Shift+L: wide layout\n" +
+  shortcutModifier +
+  "+Shift+E: file editor\n" +
+  shortcutModifier +
+  "+`: terminal\n" +
   "Escape: close the current dialog or panel";
 const keyboardShortcuts = [
   ["Search KeepHarness", [shortcutModifier, "K"]],
@@ -11728,6 +11768,9 @@ const keyboardShortcuts = [
   ["Go forward", [shortcutModifier, "]"]],
   ["Keyboard shortcuts", [shortcutModifier, "/"]],
   ["New temporary chat", [shortcutModifier, "Shift", "N"]],
+  ["Wide layout", [shortcutModifier, "Shift", "L"]],
+  ["File editor", [shortcutModifier, "Shift", "E"]],
+  ["Terminal", [shortcutModifier, "`"]],
 ];
 let shortcutReturnFocus = null;
 function renderKeyboardShortcuts() {
@@ -12071,6 +12114,240 @@ function applyReadingSize(value) {
 }
 applyReadingSize(prefs.get("reading_size", "15"));
 $("reading-size").onchange = () => applyReadingSize($("reading-size").value);
+// One owner for the wide layout: the header button, the Settings switch and the shortcut all call it.
+function setWideLayout(on) {
+  document.body.classList.toggle("wide-layout", on);
+  $("wide-toggle").setAttribute("aria-pressed", String(on));
+  $("wide-layout-toggle").checked = on;
+  prefs.set("wide_layout", on);
+}
+$("wide-toggle").onclick = () =>
+  setWideLayout(!document.body.classList.contains("wide-layout"));
+$("wide-layout-toggle").onchange = (event) =>
+  setWideLayout(event.target.checked);
+setWideLayout(prefs.get("wide_layout", false) === true);
+// File editor pane (D-055 P5): one owner for the open state, the open file and the save flow.
+const editorPane = $("editor-pane"),
+  editorText = $("editor-textarea"),
+  editorNarrow = matchMedia("(max-width: 999px)");
+let editor = { project: "", rootId: "", path: "", etag: "", eol: "lf", writable: true, saved: "" };
+let editorPending = null;
+let editorDrag = null;
+const editorUrl = (file) =>
+  "/v1/project-files/content?project_id=" +
+  encodeURIComponent(file.project) +
+  "&root_id=" +
+  encodeURIComponent(file.rootId) +
+  "&path=" +
+  encodeURIComponent(file.path);
+function updateEditorStatus() {
+  const running = observedActivityJobs.some(
+    (job) => job.project === editor.project && job.state === "running",
+  );
+  $("editor-dirty").hidden = editorText.value === editor.saved;
+  $("editor-notice").hidden = !editor.path || (!running && editor.writable);
+  $("editor-notice").textContent = running
+    ? "A turn is running in this project; the agent may also change this file."
+    : "This file is read-only here.";
+  $("editor-save").disabled = !editor.writable;
+}
+function syncEditorMode() {
+  if (editorNarrow.matches) {
+    editorPane.setAttribute("role", "dialog");
+    editorPane.setAttribute("aria-modal", "true");
+  } else {
+    editorPane.removeAttribute("role");
+    editorPane.removeAttribute("aria-modal");
+  }
+}
+function setEditorOpen(on) {
+  document.body.classList.toggle("editor-open", on);
+  editorPane.hidden = !on;
+  $("editor-toggle").setAttribute("aria-pressed", String(on));
+  $("editor-settings-toggle").checked = on;
+  prefs.set("editor_open", on);
+  syncEditorMode();
+}
+function openEditor() {
+  // Below 1000 px both panels are overlays; only one may cover the page.
+  if (editorNarrow.matches && !$("activity-panel").hidden) setPanelOpen(false, false);
+  window.terminalPane?.closeForPanel();
+  setEditorOpen(true);
+  if (editorNarrow.matches) $("editor-close").focus();
+}
+// Closing or switching with unsaved text asks Save / Discard / Cancel first.
+function guardEditorDirty(then) {
+  if (editorText.value === editor.saved) return then();
+  editorPending = then;
+  $("editor-dirty-name").textContent = editor.path;
+  $("editor-dirty-dialog").showModal();
+}
+function closeEditor(afterClose) {
+  guardEditorDirty(() => {
+    setEditorOpen(false);
+    afterClose?.();
+  });
+}
+// The Settings switch and the header toggle show the pane's real state after a cancelled or failed close.
+function syncEditorToggles() {
+  const on = !editorPane.hidden;
+  $("editor-settings-toggle").checked = on;
+  $("editor-toggle").setAttribute("aria-pressed", String(on));
+}
+async function resolveEditorDirty(choice) {
+  const then = editorPending;
+  editorPending = null;
+  $("editor-dirty-dialog").close();
+  if (choice === "cancel") {
+    syncEditorToggles();
+    return;
+  }
+  if (choice === "discard") editorText.value = editor.saved;
+  else if (!(await saveEditor())) {
+    syncEditorToggles();
+    return;
+  }
+  updateEditorStatus();
+  then?.();
+}
+function showEditorError(message) {
+  $("editor-error").textContent = message;
+  $("editor-error").hidden = false;
+}
+async function loadEditorFile(file) {
+  try {
+    const data = await (await api(editorUrl(file))).json();
+    editorText.value = data.text.replace(/\r\n/g, "\n");
+    editor = { ...file, etag: data.etag, eol: data.eol, writable: data.writable, saved: editorText.value };
+    editorText.readOnly = !data.writable;
+    $("editor-path").textContent = file.path;
+    $("editor-empty").hidden = true;
+    $("editor-body").hidden = false;
+    $("editor-conflict").hidden = true;
+    $("editor-error").hidden = true;
+    updateEditorStatus();
+    if (editorPane.hidden) openEditor();
+  } catch (error) {
+    showEditorError(error.message);
+  }
+}
+function openEditorFromTree(path) {
+  guardEditorDirty(() =>
+    loadEditorFile({ project: fileTree.project, rootId: fileTree.rootId, path }),
+  );
+}
+// PUT with If-Match; CRLF files get CRLF back on every line. A 412 keeps the text and offers reload or overwrite.
+async function saveEditor(ifMatch = editor.etag) {
+  const text = editorText.value;
+  try {
+    const response = await api(editorUrl(editor), {
+      method: "PUT",
+      headers: { "Content-Type": "application/json", "If-Match": ifMatch },
+      body: JSON.stringify({
+        text: editor.eol === "crlf" ? text.replace(/\n/g, "\r\n") : text,
+      }),
+    });
+    editor = { ...editor, etag: (await response.json()).etag, saved: text };
+    $("editor-conflict").hidden = true;
+    $("editor-error").hidden = true;
+    updateEditorStatus();
+    return true;
+  } catch (error) {
+    if (error.status === 412) {
+      editor.conflictEtag = error.etag;
+      $("editor-conflict").hidden = false;
+    } else showEditorError(error.message);
+    updateEditorStatus();
+    return false;
+  }
+}
+// Below 1000 px the pane is a modal dialog: Tab cycles inside it, Escape closes it and returns focus to the toggle.
+document.addEventListener("keydown", (event) => {
+  if (editorPane.hidden || !editorNarrow.matches || $("editor-dirty-dialog").open) return;
+  if (event.key === "Escape" && !foreignModalOpen()) {
+    event.preventDefault();
+    closeEditor(() => $("editor-toggle").focus());
+  } else if (event.key === "Tab") {
+    const items = [...editorPane.querySelectorAll("button, textarea")].filter(
+      (el) => !el.disabled && el.offsetParent,
+    );
+    const at = items.indexOf(document.activeElement);
+    const next = event.shiftKey
+      ? at <= 0 ? items.length - 1 : at - 1
+      : at < 0 || at === items.length - 1 ? 0 : at + 1;
+    event.preventDefault();
+    items[next].focus();
+  }
+});
+document.addEventListener("keydown", (event) => {
+  if (
+    (event.ctrlKey || event.metaKey) &&
+    event.shiftKey &&
+    !event.altKey &&
+    event.key.toLowerCase() === "e" &&
+    !foreignModalOpen()
+  ) {
+    event.preventDefault();
+    if (editorPane.hidden) openEditor();
+    else closeEditor();
+  }
+});
+editorNarrow.addEventListener("change", (event) => {
+  syncEditorMode();
+  if (event.matches && !editorPane.hidden && !$("activity-panel").hidden) setPanelOpen(false, false);
+});
+syncEditorMode();
+$("editor-toggle").onclick = () => (editorPane.hidden ? openEditor() : closeEditor());
+$("editor-close").onclick = () => closeEditor();
+$("editor-settings-toggle").onchange = (event) =>
+  event.target.checked ? openEditor() : closeEditor();
+$("editor-save").onclick = () => saveEditor();
+$("editor-reload").onclick = () => loadEditorFile(editor);
+$("editor-overwrite").onclick = () => saveEditor(editor.conflictEtag);
+editorText.addEventListener("input", updateEditorStatus);
+editorText.addEventListener("keydown", (event) => {
+  if (
+    (event.ctrlKey || event.metaKey) &&
+    !event.altKey &&
+    !event.shiftKey &&
+    event.key.toLowerCase() === "s"
+  ) {
+    event.preventDefault();
+    void saveEditor();
+  }
+});
+for (const choice of ["save", "discard", "cancel"])
+  $("editor-dirty-" + choice).onclick = () => resolveEditorDirty(choice);
+$("editor-dirty-dialog").addEventListener("cancel", () => {
+  editorPending = null;
+  $("editor-settings-toggle").checked = !editorPane.hidden;
+});
+// Docked: drag the left edge; the stored width is the pane's measured width once the drag ends.
+function sizeEditor(width) {
+  document.body.style.setProperty(
+    "--th-editor-width",
+    Math.round(Math.max(280, Math.min(720, width))) + "px",
+  );
+}
+const editorResize = $("editor-resize");
+editorResize.addEventListener("pointerdown", (event) => {
+  if (event.button !== 0) return;
+  event.preventDefault();
+  editorDrag = { x: event.clientX, width: editorPane.getBoundingClientRect().width };
+  editorResize.setPointerCapture(event.pointerId);
+});
+editorResize.addEventListener("pointermove", (event) => {
+  if (editorDrag) sizeEditor(editorDrag.width + editorDrag.x - event.clientX);
+});
+const endEditorDrag = () => {
+  if (!editorDrag) return;
+  editorDrag = null;
+  prefs.set("editor_width", Math.round(editorPane.getBoundingClientRect().width));
+};
+editorResize.addEventListener("pointerup", endEditorDrag);
+editorResize.addEventListener("pointercancel", endEditorDrag);
+if (Number(prefs.get("editor_width", 0))) sizeEditor(Number(prefs.get("editor_width", 0)));
+setEditorOpen(prefs.get("editor_open", false) === true);
 $("visual-markers-toggle").checked = visualMarkersOn();
 $("visual-markers-toggle").onchange = (event) => {
   prefs.set("visual_markers", event.target.checked);

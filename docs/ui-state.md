@@ -22,6 +22,11 @@ Errors: `ui_state_local_only` (403, any client but the local owner), `ui_state_u
 - Concurrency: `update` holds an exclusive `flock` on `preferences.json.lock` (a sibling file, 0600, never deleted; the store file is replaced atomically, so a lock on it would follow the old inode) around load, merge and write, because the first-run wizard writes this store from the control process while the harness writes it too. Reads take no lock. The merge is per top-level key and the last write wins per key. Two windows editing the same map key (for example `project_expanded`) overwrite each other, and the later `PATCH` wins; there is no ETag or version check.
 - Caps are served in `limits` so the client shares them; maps the client grows without bound (`project_expanded`, `conversation_activity`) must be pruned to their cap before sending.
 - `always_on_top` (boolean) is the desktop window's stay-on-top choice; the first-run wizard sets it and only the desktop shell acts on it.
+- `wide_layout` (boolean) is the wide chat layout preference; a missing key reads as `false`.
+- `editor_open` (boolean) shows the file editor pane beside the chat; a missing key reads as `false`.
+- `editor_width` (pixels, 0 to 20000) is the editor pane width; a missing key reads as the CSS default.
+- `terminal_open` (boolean) shows the terminal pane docked at the bottom of the main column; a missing key reads as `false`.
+- `terminal_height` (pixels, 0 to 20000) is the terminal pane height; a missing key reads as the CSS default.
 - Nothing here is conversation content, a draft, a secret or a path.
 
 A GET may repair the store as a side effect: an unparsable file is moved aside as `.bak` (the client did not ask for it; it is an internal repair). Keys a newer build wrote are kept on write and never served. `<state_dir>` is the harness run state folder (`state/runs`).

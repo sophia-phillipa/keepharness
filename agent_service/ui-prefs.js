@@ -196,6 +196,11 @@
     last_section: { old: () => [], read: () => undefined, write: () => [] },
     visual_markers: { old: () => [], read: () => undefined, write: () => [] },
     always_on_top: { old: () => [], read: () => undefined, write: () => [] },
+    wide_layout: { old: () => [], read: () => undefined, write: () => [] },
+    editor_open: { old: () => [], read: () => undefined, write: () => [] },
+    editor_width: { old: () => [], read: () => undefined, write: () => [] },
+    terminal_open: { old: () => [], read: () => undefined, write: () => [] },
+    terminal_height: { old: () => [], read: () => undefined, write: () => [] },
   };
 
   const clone = (value) =>

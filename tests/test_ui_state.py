@@ -3,6 +3,7 @@
 import hashlib
 import json
 import os
+import re
 import stat
 import subprocess
 import sys
@@ -45,6 +46,11 @@ SAMPLES = {
     ],
     "last_section": ["appearance", ""],
     "always_on_top": [True, False],
+    "wide_layout": [True, False],
+    "editor_open": [True, False],
+    "editor_width": [0, 320, 390.5, 20000],
+    "terminal_open": [True, False],
+    "terminal_height": [0, 240, 390.5, 20000],
 }
 OVER = {
     "theme": "x" * 41,
@@ -53,6 +59,11 @@ OVER = {
     "sidebar_collapsed": 1,
     "visual_markers": "on",
     "always_on_top": "yes",
+    "wide_layout": "yes",
+    "editor_open": "yes",
+    "editor_width": 20001,
+    "terminal_open": "yes",
+    "terminal_height": 20001,
     "chat_selection": {"model": "m" * 201},
     "project_expanded": {f"p{i}": True for i in range(201)},
     "project_list_preferences": {f"p{i}": {} for i in range(201)},
@@ -208,6 +219,132 @@ def test_keys_from_a_newer_build_survive_a_write_from_this_one(api, cfg):
     stored = json.loads(stored_file(cfg).read_text())["values"]
     assert stored["future_key"] == {"kept": True}
     assert "future_key" not in api.get("/v1/ui-state").json()["values"]
+
+
+def test_wide_layout_write_rejects_every_non_boolean(api):
+    for value in ("yes", 1, 0, [True]):
+        body = patch(api, wide_layout=value).json()
+        assert (body["code"], body["field"]) == ("ui_state_invalid_value", "wide_layout"), value
+    assert "wide_layout" not in api.get("/v1/ui-state").json()["values"]
+
+
+def test_stored_wide_layout_of_the_wrong_type_reads_as_default_and_a_write_keeps_it(api, cfg):
+    patch(api, theme="paper")
+    document = json.loads(stored_file(cfg).read_text())
+    document["values"]["wide_layout"] = "yes"
+    stored_file(cfg).write_text(json.dumps(document))
+    assert "wide_layout" not in api.get("/v1/ui-state").json()["values"]
+    patch(api, theme="graphite")
+    assert json.loads(stored_file(cfg).read_text())["values"]["wide_layout"] == "yes"
+
+
+def test_an_older_build_keeps_a_raw_wide_layout_it_does_not_know(api, cfg, monkeypatch):
+    patch(api, theme="paper")
+    document = json.loads(stored_file(cfg).read_text())
+    document["values"]["wide_layout"] = True
+    stored_file(cfg).write_text(json.dumps(document))
+    monkeypatch.delitem(ui_state.SCHEMA, "wide_layout")
+    patch(api, reading_size="17")
+    assert json.loads(stored_file(cfg).read_text())["values"]["wide_layout"] is True
+    assert "wide_layout" not in api.get("/v1/ui-state").json()["values"]
+
+
+def test_wide_layout_has_its_client_conversion():
+    prefs = (Path(ui_state.__file__).parent / "ui-prefs.js").read_text(encoding="utf-8")
+    entry = "wide_layout: { old: () => [], read: () => undefined, write: () => [] },"
+    assert re.search(rf"^\s+{re.escape(entry)}$", prefs, re.M)
+
+
+def test_editor_open_write_rejects_every_non_boolean(api):
+    for value in ("yes", 1, 0, [True]):
+        body = patch(api, editor_open=value).json()
+        assert (body["code"], body["field"]) == ("ui_state_invalid_value", "editor_open"), value
+    assert "editor_open" not in api.get("/v1/ui-state").json()["values"]
+
+
+@pytest.mark.parametrize("value", ["wide", True, -1, 20001])
+def test_editor_width_write_rejects_non_numbers_and_out_of_range(api, value):
+    body = patch(api, editor_width=value).json()
+    assert (body["code"], body["field"]) == ("ui_state_invalid_value", "editor_width"), value
+    assert "editor_width" not in api.get("/v1/ui-state").json()["values"]
+
+
+def test_stored_editor_keys_of_the_wrong_type_read_as_default_and_a_write_keeps_them(api, cfg):
+    patch(api, theme="paper")
+    document = json.loads(stored_file(cfg).read_text())
+    document["values"].update(editor_open="yes", editor_width=-1)
+    stored_file(cfg).write_text(json.dumps(document))
+    values = api.get("/v1/ui-state").json()["values"]
+    assert "editor_open" not in values and "editor_width" not in values
+    patch(api, theme="graphite")
+    stored = json.loads(stored_file(cfg).read_text())["values"]
+    assert (stored["editor_open"], stored["editor_width"]) == ("yes", -1)
+
+
+def test_an_older_build_keeps_raw_editor_keys_it_does_not_know(api, cfg, monkeypatch):
+    patch(api, theme="paper")
+    document = json.loads(stored_file(cfg).read_text())
+    document["values"].update(editor_open=True, editor_width=320)
+    stored_file(cfg).write_text(json.dumps(document))
+    monkeypatch.delitem(ui_state.SCHEMA, "editor_open")
+    monkeypatch.delitem(ui_state.SCHEMA, "editor_width")
+    patch(api, reading_size="17")
+    stored = json.loads(stored_file(cfg).read_text())["values"]
+    assert (stored["editor_open"], stored["editor_width"]) == (True, 320)
+    assert "editor_open" not in api.get("/v1/ui-state").json()["values"]
+
+
+@pytest.mark.parametrize("key", ["editor_open", "editor_width"])
+def test_editor_keys_have_their_client_conversion(key):
+    prefs = (Path(ui_state.__file__).parent / "ui-prefs.js").read_text(encoding="utf-8")
+    entry = f"{key}: {{ old: () => [], read: () => undefined, write: () => [] }},"
+    assert re.search(rf"^\s+{re.escape(entry)}$", prefs, re.M)
+
+
+def test_terminal_open_write_rejects_every_non_boolean(api):
+    for value in ("yes", 1, 0, [True]):
+        body = patch(api, terminal_open=value).json()
+        assert (body["code"], body["field"]) == ("ui_state_invalid_value", "terminal_open"), value
+    assert "terminal_open" not in api.get("/v1/ui-state").json()["values"]
+
+
+@pytest.mark.parametrize("value", ["wide", True, -1, 20001])
+def test_terminal_height_write_rejects_non_numbers_and_out_of_range(api, value):
+    body = patch(api, terminal_height=value).json()
+    assert (body["code"], body["field"]) == ("ui_state_invalid_value", "terminal_height"), value
+    assert "terminal_height" not in api.get("/v1/ui-state").json()["values"]
+
+
+def test_stored_terminal_keys_of_the_wrong_type_read_as_default_and_a_write_keeps_them(api, cfg):
+    patch(api, theme="paper")
+    document = json.loads(stored_file(cfg).read_text())
+    document["values"].update(terminal_open="yes", terminal_height=-1)
+    stored_file(cfg).write_text(json.dumps(document))
+    values = api.get("/v1/ui-state").json()["values"]
+    assert "terminal_open" not in values and "terminal_height" not in values
+    patch(api, theme="graphite")
+    stored = json.loads(stored_file(cfg).read_text())["values"]
+    assert (stored["terminal_open"], stored["terminal_height"]) == ("yes", -1)
+
+
+def test_an_older_build_keeps_raw_terminal_keys_it_does_not_know(api, cfg, monkeypatch):
+    patch(api, theme="paper")
+    document = json.loads(stored_file(cfg).read_text())
+    document["values"].update(terminal_open=True, terminal_height=240)
+    stored_file(cfg).write_text(json.dumps(document))
+    monkeypatch.delitem(ui_state.SCHEMA, "terminal_open")
+    monkeypatch.delitem(ui_state.SCHEMA, "terminal_height")
+    patch(api, reading_size="17")
+    stored = json.loads(stored_file(cfg).read_text())["values"]
+    assert (stored["terminal_open"], stored["terminal_height"]) == (True, 240)
+    assert "terminal_open" not in api.get("/v1/ui-state").json()["values"]
+
+
+@pytest.mark.parametrize("key", ["terminal_open", "terminal_height"])
+def test_terminal_keys_have_their_client_conversion(key):
+    prefs = (Path(ui_state.__file__).parent / "ui-prefs.js").read_text(encoding="utf-8")
+    entry = f"{key}: {{ old: () => [], read: () => undefined, write: () => [] }},"
+    assert re.search(rf"^\s+{re.escape(entry)}$", prefs, re.M)
 
 
 def test_quarantine_moved_by_another_reader_is_not_read_only(cfg):
