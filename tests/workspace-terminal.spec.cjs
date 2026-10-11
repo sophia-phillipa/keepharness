@@ -128,6 +128,11 @@ async function waitForOutput(page, token, minimum) {
   );
 }
 
+// The id of the focused element, so the spec can check where focus went.
+function focusedId(page) {
+  return page.evaluate(() => document.activeElement?.id ?? "");
+}
+
 // Types one line into the terminal input and sends it with Enter.
 async function runLine(page, line) {
   const input = page.getByTestId("terminal-input");
@@ -177,11 +182,13 @@ async function openSettingsWorkspace(page) {
     await railToggle.click();
     await pane.waitFor({ state: "visible" });
     assert.equal(await railToggle.getAttribute("aria-pressed"), "true", "rail reports pressed");
+    assert.equal(await focusedId(page), "terminal-input", "opening focuses the terminal input");
     await waitSaved(page, "terminal_open", true);
 
     await page.keyboard.press("Control+Backquote");
     await pane.waitFor({ state: "hidden" });
     assert.equal(await railToggle.getAttribute("aria-pressed"), "false", "shortcut closes it");
+    assert.equal(await focusedId(page), "terminal-toggle", "closing with focus inside moves it to the rail button");
     await waitSaved(page, "terminal_open", false);
 
     await openSettingsWorkspace(page);
@@ -334,11 +341,49 @@ async function openSettingsWorkspace(page) {
       "terminal height survives a reload",
     );
 
+    // 11. A refused start (409 terminal_limit) leaves the pane with no session: typed input is not sent,
+    // so it cannot reach the shell of the previous open.
+    const sessionPosts = [];
+    const inputPosts = [];
+    const countPost = (request) => {
+      const { pathname } = new URL(request.url());
+      if (request.method() !== "POST") return;
+      if (pathname === "/v1/terminal/sessions") sessionPosts.push(request);
+      else if (/\/v1\/terminal\/sessions\/[^/]+\/input$/.test(pathname)) inputPosts.push(request);
+    };
+    page.on("request", countPost);
+    await page.route("**/v1/terminal/sessions", (route) =>
+      route.request().method() === "POST"
+        ? route.fulfill({
+            status: 409,
+            contentType: "application/json",
+            body: JSON.stringify({ error: { code: "terminal_limit" } }),
+          })
+        : route.continue(),
+    );
+    await railToggle.click();
+    await pane.waitFor({ state: "hidden" });
+    await railToggle.click();
+    await pane.waitFor({ state: "visible" });
+    await until(() => sessionPosts.length === 1, "the reopen asks the server for a session");
+    await runLine(page, "echo kh-refused-target");
+    await delay(500);
+    assert.equal(inputPosts.length, 0, "no input is sent after a refused start");
+    assert.equal(await page.getByTestId("terminal-cwd").textContent(), "", "no cwd label from the old session");
+    assert.match(
+      await page.getByTestId("terminal-notice").textContent(),
+      /Open the terminal to start a session/,
+      "the pane says it has no session",
+    );
+    page.off("request", countPost);
+    await page.unroute("**/v1/terminal/sessions");
+
     assert.deepEqual(pageErrors, [], "no uncaught page errors");
     console.log("PASS workspace-terminal");
   } finally {
     // Best effort: end the session this spec left running (the owner's shell belongs to the harness).
-    const live = log.starts.at(-1)?.body?.session_id;
+    // A refused start (409) carries no session id, so take the last start that succeeded.
+    const live = log.starts.filter((start) => start.status < 300).at(-1)?.body?.session_id;
     if (page && live && !log.ends.some((end) => end.id === live))
       await page.request
         .delete(harness + "/v1/terminal/sessions/" + live)

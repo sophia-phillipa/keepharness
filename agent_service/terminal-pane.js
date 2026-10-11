@@ -2,6 +2,7 @@
 (() => {
   "use strict";
   const MAX_LINES = 5000;
+  const MAX_PARTIAL = 64 * 1024; // UTF-16 units; a line without a newline keeps only its tail
   const MIN_HEIGHT = 120;
   const KEYBOARD_STEP = 24;
   const KEYS = { ctrlC: "\x03", ctrlD: "\x04", tab: "\t", up: "\x1b[A" };
@@ -60,7 +61,7 @@
       state.carriage = true;
     }
     text.split(/(\r\n|\n|\r)/).forEach((part, index) => {
-      if (index % 2 === 0) state.partial += part;
+      if (index % 2 === 0) state.partial = (state.partial + part).slice(-MAX_PARTIAL);
       else if (part === "\r") state.partial = "";
       else endLine();
     });
@@ -96,10 +97,25 @@
     render();
   }
 
+  // Stops the stream and forgets the session, so typed input can no longer reach it.
   function detach() {
     state.generation++;
     if (state.source) state.source.close();
     state.source = null;
+    state.session = "";
+  }
+
+  function resetInput() {
+    state.masked = false;
+    input.type = "text";
+    input.placeholder = "";
+    input.value = "";
+  }
+
+  function endSession(message) {
+    detach();
+    resetInput();
+    say(message);
   }
 
   function connect(generation, session) {
@@ -110,19 +126,23 @@
     });
     source.addEventListener("exit", (event) => {
       if (generation !== state.generation) return;
-      detach();
-      say("The shell exited with code " + JSON.parse(event.data).code + ". Reopen the terminal to start a new one.");
+      endSession("The shell exited with code " + JSON.parse(event.data).code + ". Reopen the terminal to start a new one.");
     });
     source.addEventListener("revoked", (event) => {
       if (generation !== state.generation) return;
-      detach();
-      say("Terminal access ended (" + JSON.parse(event.data).code + ").");
+      endSession("Terminal access ended (" + JSON.parse(event.data).code + ").");
     });
+    // EventSource retries by itself; only a CLOSED source has given up.
+    source.onerror = () => {
+      if (generation !== state.generation || source.readyState !== EventSource.CLOSED) return;
+      endSession("The terminal stream closed. Reopen the terminal to reconnect.");
+    };
   }
 
   // Starts the project's session, or reattaches to it (200), then replays its output from the stream.
   async function attach() {
     detach();
+    cwdLabel.textContent = "";
     clearOutput();
     say("");
     const project = byId("project").value;
@@ -153,19 +173,22 @@
       return;
     }
     state.sending = state.sending
-      .then(() =>
-        api("/v1/terminal/sessions/" + encodeURIComponent(session) + "/input", {
+      .then(() => {
+        // Input queued before a detach or project switch must not reach the old shell.
+        if (state.session !== session) return;
+        return api("/v1/terminal/sessions/" + encodeURIComponent(session) + "/input", {
           method: "POST",
           headers: JSON_HEADERS,
           body: JSON.stringify({ data }),
-        }),
-      )
+        });
+      })
       .catch((error) => say(error.message));
   }
 
   function setOpen(on, save = true) {
     if (on === state.open) return;
     state.open = on;
+    const hadFocus = pane.contains(document.activeElement);
     pane.hidden = !on;
     toggle.setAttribute("aria-pressed", String(on));
     settingsToggle.checked = on;
@@ -174,8 +197,11 @@
       window.runConsole?.closeForPanel();
       if (narrow.matches && !byId("editor-pane").hidden) byId("editor-toggle").click();
       attach();
+      // The startup restore (save false) keeps focus where the page put it.
+      if (save) input.focus();
     } else {
       detach();
+      if (hadFocus) toggle.focus();
     }
   }
 
@@ -191,7 +217,6 @@
     const session = state.session;
     if (!session) return;
     detach();
-    state.session = "";
     clearOutput();
     try {
       await api("/v1/terminal/sessions/" + encodeURIComponent(session), { method: "DELETE" });
@@ -274,7 +299,7 @@
   // Called by ui.js when the active project changes (conversation switch); the pane reattaches to its session.
   window.terminalPane = {
     closeForPanel() {
-      if (narrow.matches) setOpen(false);
+      if (narrow.matches) setOpen(false, false);
     },
     projectChanged() {
       if (state.open && byId("project").value !== state.project) attach();
