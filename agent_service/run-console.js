@@ -54,27 +54,34 @@
   const drawer = el("section", null, "run-console");
   drawer.id = "run-console";
   drawer.hidden = true;
-  drawer.setAttribute("aria-label", "Run console");
+  drawer.setAttribute("aria-label", HarnessI18n.t("run_console.drawer.label"));
   const resizer = el("div", null, "run-console-resizer");
   resizer.id = "run-console-resize";
-  resizer.title = "Drag or use Up and Down arrow keys to resize";
+  resizer.title = HarnessI18n.t("run_console.resize.hint");
   resizer.tabIndex = 0;
   resizer.setAttribute("role", "separator");
-  resizer.setAttribute("aria-label", "Resize run console");
+  resizer.setAttribute("aria-label", HarnessI18n.t("run_console.resize.label"));
   resizer.setAttribute("aria-orientation", "horizontal");
   resizer.setAttribute("aria-controls", drawer.id);
   const header = el("div", null, "run-console-header");
   const tabs = el("div", null, "run-console-tabs");
   tabs.dataset.tour = "run-console-tabs";
   tabs.setAttribute("role", "tablist");
-  tabs.setAttribute("aria-label", "Run console views");
+  tabs.setAttribute("aria-label", HarnessI18n.t("run_console.tabs.label"));
   const tabButtons = [];
   const body = el("div", null, "run-console-body");
   body.id = "run-console-panel";
   body.setAttribute("role", "tabpanel");
   body.tabIndex = -1;
+  const tabLabels = {
+    Pipeline: HarnessI18n.t("run_console.tab.pipeline"),
+    Timeline: HarnessI18n.t("run_console.tab.timeline"),
+    Logs: HarnessI18n.t("run_console.tab.logs"),
+    Runs: HarnessI18n.t("run_console.tab.runs"),
+    Agents: HarnessI18n.t("run_console.tab.agents"),
+  };
   for (const name of ["Pipeline", "Timeline", "Logs", "Runs", "Agents"]) {
-    const tab = button(name, () => setTab(name));
+    const tab = button(tabLabels[name], () => setTab(name));
     tab.prepend(
       HarnessUI.icon(
         {
@@ -88,7 +95,7 @@
     );
     tab.dataset.tab = name;
     tab.id = "run-tab-" + name.toLowerCase();
-    tab.setAttribute("aria-label", name);
+    tab.setAttribute("aria-label", tabLabels[name]);
     tab.setAttribute("role", "tab");
     tab.setAttribute("aria-controls", body.id);
     tabButtons.push(tab);
@@ -111,7 +118,7 @@
     tabButtons[next].click();
     tabButtons[next].focus();
   });
-  const close = button("Collapse run console", () => toggle(false));
+  const close = button(HarnessI18n.t("run_console.close.label"), () => toggle(false));
   close.classList.add("run-console-close");
   close.prepend(HarnessUI.icon("chevron-down"));
   let consoleHeight = Math.max(340, innerHeight * 0.45),
@@ -122,52 +129,56 @@
     const saved = Number(HarnessPrefs.get("run_console_height", 0));
     if (saved >= 190) consoleHeight = saved;
   }
-  const maximize = button("Maximize", () => {
+  const maximize = button(HarnessI18n.t("run_console.maximize.label"), () => {
     if (!maximized) restoreHeight = consoleHeight;
     maximized = !maximized;
-    maximize.textContent = maximized ? "Restore" : "Maximize";
+    maximize.textContent = maximized
+      ? HarnessI18n.t("run_console.restore.label")
+      : HarnessI18n.t("run_console.maximize.label");
     maximize.setAttribute(
       "aria-label",
-      maximized ? "Restore run console" : "Maximize run console",
+      maximized
+        ? HarnessI18n.t("run_console.restore.aria")
+        : HarnessI18n.t("run_console.maximize.aria"),
     );
     maximize.setAttribute("aria-pressed", String(maximized));
     resize(maximized ? consoleLimit() : restoreHeight, false);
   });
   maximize.id = "run-console-maximize";
-  maximize.setAttribute("aria-label", "Maximize run console");
+  maximize.setAttribute("aria-label", HarnessI18n.t("run_console.maximize.aria"));
   maximize.setAttribute("aria-controls", drawer.id);
   maximize.setAttribute("aria-pressed", "false");
-  header.append(el("h2", "RUN CONSOLE"), tabs, maximize, close);
+  header.append(el("h2", HarnessI18n.t("run_console.title")), tabs, maximize, close);
   const controls = el("div", null, "run-console-controls");
-  const runSelect = select("console-run", [["", "Select a run"]]);
+  const runSelect = select("console-run", [["", HarnessI18n.t("run_console.run.select")]]);
   runSelect.addEventListener("change", () => chooseRun(runSelect.value));
   const error = el("p", "", "run-console-error");
   error.setAttribute("role", "status");
-  controls.append(field("Run", runSelect));
+  controls.append(field(HarnessI18n.t("run_console.field.run"), runSelect));
   drawer.append(resizer, header, controls, error, body);
   const strip = el("div", null, "run-status-strip");
   strip.id = "run-status-strip";
   strip.dataset.tour = "status-strip";
   strip.setAttribute("role", "region");
-  strip.setAttribute("aria-label", "Run status");
-  const toggleButton = button("Run console · checking activity…", () =>
+  strip.setAttribute("aria-label", HarnessI18n.t("run_console.status.label"));
+  const toggleButton = button(HarnessI18n.t("run_console.toggle.checking"), () =>
     toggle(drawer.hidden),
   );
   toggleButton.id = "run-status-toggle";
   toggleButton.setAttribute("aria-controls", drawer.id);
   toggleButton.setAttribute("aria-expanded", "false");
-  toggleButton.title = "Open run console (Ctrl/⌘+J)";
-  const inboxButton = button("Needs you (0)", () =>
+  toggleButton.title = HarnessI18n.t("run_console.toggle.title");
+  const inboxButton = button(HarnessI18n.t("run_console.inbox.button", { count: 0 }), () =>
     openInbox("request", inboxButton),
   );
   inboxButton.id = "needs-you-toggle";
   inboxButton.setAttribute("aria-haspopup", "dialog");
-  const shortcut = el("span", "Ctrl J", "run-status-shortcut");
+  const shortcut = el("span", HarnessI18n.t("run_console.shortcut"), "run-status-shortcut");
   shortcut.setAttribute("aria-hidden", "true");
-  const stripAction = button("Expand", () => toggle(drawer.hidden));
+  const stripAction = button(HarnessI18n.t("run_console.toggle.expand"), () => toggle(drawer.hidden));
   stripAction.id = "run-status-action";
   stripAction.prepend(HarnessUI.icon("chevron-up"));
-  stripAction.setAttribute("aria-label", "Toggle console from status strip");
+  stripAction.setAttribute("aria-label", HarnessI18n.t("run_console.strip_action.label"));
   stripAction.setAttribute("aria-controls", drawer.id);
   stripAction.setAttribute("aria-expanded", "false");
   strip.append(toggleButton, inboxButton, stripAction, shortcut);
@@ -176,11 +187,11 @@
   inbox.id = "needs-you-inbox";
   inbox.setAttribute("aria-labelledby", "needs-you-title");
   const inboxHeader = el("div", null, "run-console-header");
-  const inboxTitle = el("h2", "Needs you");
+  const inboxTitle = el("h2", HarnessI18n.t("run_console.inbox.title_request"));
   inboxTitle.id = "needs-you-title";
   inboxHeader.append(
     inboxTitle,
-    button("Close inbox", () => inbox.close()),
+    button(HarnessI18n.t("run_console.inbox.close"), () => inbox.close()),
   );
   const inboxList = el("div");
   inbox.append(inboxHeader, inboxList);
@@ -202,7 +213,7 @@
   const projectFilter = select("console-project", []);
   const workFilter = input("console-work-item");
   const stateFilter = select("console-state", [
-    ["", "All states"],
+    ["", HarnessI18n.t("run_console.filter.all_states")],
     ...[
       "running",
       "queued",
@@ -213,10 +224,10 @@
     ].map((v) => [v, v]),
   ]);
   const logSearch = input("console-log-search", "search");
-  const logType = select("console-log-type", [["", "All event types"]]);
+  const logType = select("console-log-type", [["", HarnessI18n.t("run_console.log.all_types")]]);
   const logOrder = select("console-log-order", [
-    ["newest", "Newest first"],
-    ["oldest", "Oldest first"],
+    ["newest", HarnessI18n.t("run_console.log.order_newest")],
+    ["oldest", HarnessI18n.t("run_console.log.order_oldest")],
   ]);
   logOrder.addEventListener("change", renderLogs);
   logSearch.addEventListener("input", renderLogs);
@@ -230,14 +241,18 @@
     error.textContent = message || "";
   };
   const duration = (span) => {
-    if (span.start_ts == null) return "Unknown duration";
+    if (span.start_ts == null) return HarnessI18n.t("run_console.duration.unknown");
     const seconds = Math.max(
       0,
       (span.end_ts ?? Date.now() / 1000) - span.start_ts,
     );
-    return (
-      seconds.toFixed(1) + " s" + (span.end_ts == null ? " · pending" : "")
-    );
+    return span.end_ts == null
+      ? HarnessI18n.t("run_console.duration.pending", {
+          seconds: seconds.toFixed(1),
+        })
+      : HarnessI18n.t("run_console.duration.seconds", {
+          seconds: seconds.toFixed(1),
+        });
   };
   const outcome = (span) =>
     span.attrs?.effect_status ||
@@ -248,12 +263,15 @@
       (key) => attrs["gen_ai.usage." + key + "_tokens"],
     );
     return values.some((v) => v != null)
-      ? values.map((v) => v ?? "?").join(" in / ") + " out tokens"
-      : "Tokens not reported";
+      ? HarnessI18n.t("run_console.tokens.counts", {
+          input: values[0] ?? "?",
+          output: values[1] ?? "?",
+        })
+      : HarnessI18n.t("run_console.tokens.not_reported");
   };
   function contentValue(span, section) {
     const records = span.content || [];
-    if (!Array.isArray(records)) return records[section] ?? "Not recorded";
+    if (!Array.isArray(records)) return records[section] ?? HarnessI18n.t("run_console.content.not_recorded");
     const values = [];
     for (const record of records) {
       const data = record.data || {};
@@ -286,7 +304,7 @@
       )
         values.push(data.result?.answer ?? data.answer ?? data);
     }
-    if (!values.length) return "Not recorded";
+    if (!values.length) return HarnessI18n.t("run_console.content.not_recorded");
     return values.every((value) => typeof value === "string")
       ? values.join("")
       : values;
@@ -307,7 +325,11 @@
     toggleButton.setAttribute("aria-expanded", String(open));
     stripAction.replaceChildren(
       HarnessUI.icon(open ? "chevron-down" : "chevron-up"),
-      document.createTextNode(open ? "Collapse" : "Expand"),
+      document.createTextNode(
+        open
+          ? HarnessI18n.t("run_console.toggle.collapse")
+          : HarnessI18n.t("run_console.toggle.expand"),
+      ),
     );
     stripAction.setAttribute("aria-expanded", String(open));
     if (open) {
@@ -584,16 +606,24 @@
       );
       const highlight = current
         ? [current.work_item, current.state].filter(Boolean).join(" · ")
-        : "No active run";
+        : HarnessI18n.t("run_console.status.no_active_run");
       toggleButton.replaceChildren(
         HarnessUI.icon("pulse"),
         document.createTextNode(
-          `${counts.running || 0} running · ${counts.queued || 0} queued · ${counts.needs_you || 0} needs you · ${highlight}`,
+          HarnessI18n.t("run_console.toggle.summary", {
+            running: counts.running || 0,
+            queued: counts.queued || 0,
+            needs_you: counts.needs_you || 0,
+            highlight,
+          }),
         ),
       );
-      toggleButton.title =
-        toggleButton.textContent + " · Toggle run console (Ctrl/⌘+J)";
-      inboxButton.textContent = `Needs you (${counts.needs_you || 0})`;
+      toggleButton.title = HarnessI18n.t("run_console.toggle.title_full", {
+        summary: toggleButton.textContent,
+      });
+      inboxButton.textContent = HarnessI18n.t("run_console.inbox.button", {
+        count: counts.needs_you || 0,
+      });
       const attentionCount = document.getElementById("attention-count");
       if (attentionCount)
         attentionCount.textContent = String(
@@ -625,7 +655,7 @@
     } catch (failure) {
       if (sequence !== state.activitySequence) return;
       toggleButton.textContent = toggleButton.title =
-        "Activity unavailable · Open run console to retry";
+        HarnessI18n.t("run_console.toggle.unavailable");
       showError(failure.message);
     }
   }
@@ -658,7 +688,7 @@
     if (state.run && !options.some(([id]) => id === state.run))
       options.push([state.run, state.run]);
     runSelect.replaceChildren(
-      new Option("Select a run", ""),
+      new Option(HarnessI18n.t("run_console.run.select"), ""),
       ...options.map(([id, label]) => new Option(label, id)),
     );
     runSelect.value = state.run;
@@ -742,7 +772,7 @@
     const scrollLeft = body.querySelector(".run-span-list")?.scrollLeft || 0;
     body.replaceChildren();
     if (!state.run) {
-      body.append(el("p", "Select a run to inspect its recorded steps."));
+      body.append(el("p", HarnessI18n.t("run_console.pipeline.select_run")));
       return;
     }
     const summary = el("div", null, "run-pipeline-summary");
@@ -750,7 +780,7 @@
       (item) => item.job_id === state.run,
     );
     summary.append(
-      el("strong", current?.work_item || current?.title || "Current run"),
+      el("strong", current?.work_item || current?.title || HarnessI18n.t("run_console.pipeline.current_run")),
       el(
         "span",
         [current?.state, current?.backend, current?.model]
@@ -759,15 +789,15 @@
       ),
     );
     const actions = el("div", null, "run-pipeline-actions");
-    const rerun = button("↻ Re-run from span", () => {});
+    const rerun = button(HarnessI18n.t("run_console.action.rerun"), () => {});
     rerun.disabled = true;
-    rerun.title = "Re-running from a span is not available in this release.";
-    const fork = button("+ Fork", () => {});
+    rerun.title = HarnessI18n.t("run_console.action.rerun_help");
+    const fork = button(HarnessI18n.t("run_console.action.fork"), () => {});
     fork.disabled = true;
-    fork.title = "Fork is not available in this release.";
-    const exportJson = button("Export OTLP JSON", () => {});
+    fork.title = HarnessI18n.t("run_console.action.fork_help");
+    const exportJson = button(HarnessI18n.t("run_console.action.export"), () => {});
     exportJson.disabled = true;
-    exportJson.title = "OTLP JSON export is not available in this release.";
+    exportJson.title = HarnessI18n.t("run_console.action.export_help");
     for (const action of [rerun, fork, exportJson]) {
       const explanation = el("span", null, "run-action-help");
       explanation.tabIndex = 0;
@@ -775,7 +805,10 @@
       explanation.dataset.tooltip = action.title;
       explanation.setAttribute(
         "aria-label",
-        action.textContent + ": " + action.title,
+        HarnessI18n.t("run_console.action.help_label", {
+          action: action.textContent,
+          explanation: action.title,
+        }),
       );
       explanation.append(action);
       actions.append(explanation);
@@ -795,11 +828,11 @@
         renderSpans();
         document.getElementById("console-zoom").focus();
       });
-      const zoomField = field("Timeline zoom", zoom);
+      const zoomField = field(HarnessI18n.t("run_console.timeline.zoom"), zoom);
       zoomField.classList.add("run-timeline-zoom");
       body.append(zoomField);
     }
-    if (!state.spans.length) list.append(el("p", "No spans recorded yet."));
+    if (!state.spans.length) list.append(el("p", HarnessI18n.t("run_console.span.no_spans")));
     const starts = state.spans
       .map((span) => span.start_ts)
       .filter((value) => value != null);
@@ -821,7 +854,9 @@
       );
       const spanState = el(
         "span",
-        span.attrs?.checkpoint_reused ? "Reused checkpoint" : outcome(span),
+        span.attrs?.checkpoint_reused
+          ? HarnessI18n.t("run_console.span.reused_checkpoint")
+          : outcome(span),
         "run-span-state",
       );
       const backend =
@@ -870,7 +905,9 @@
         row.append(
           el(
             "span",
-            "Publication: " + publicationLabel(span.attrs.enforcement),
+            HarnessI18n.t("run_console.span.publication", {
+              label: publicationLabel(span.attrs.enforcement),
+            }),
             "run-span-enforcement",
           ),
         );
@@ -924,37 +961,40 @@
   function spanDetail(span) {
     const detail = el("section", null, "run-span-detail");
     detail.dataset.tour = "span-detail";
-    detail.setAttribute("aria-label", "Span detail");
+    detail.setAttribute("aria-label", HarnessI18n.t("run_console.span.detail_label"));
     detail.append(el("h3", span.name));
     if (span.kind === "harness.effect") {
       const attrs = span.attrs || {};
       detail.append(
-        el("p", "Effect status: " + outcome(span)),
-        el("p", "Publication: " + publicationLabel(attrs.enforcement)),
+        el("p", HarnessI18n.t("run_console.effect.status", { status: outcome(span) })),
+        el("p", HarnessI18n.t("run_console.span.publication", {
+            label: publicationLabel(attrs.enforcement),
+          })),
       );
       for (const [label, value] of [
-        ["Operation", attrs.operation],
-        ["Destination", attrs.destination],
-        ["Integration", attrs.integration],
-        ["Jira site", attrs.endpoint],
-        ["Artifact digest", attrs.artifact_digest],
-        ["Arguments digest", attrs.arguments_digest],
-        ["Approval", attrs.approved_by],
-        ["Gate", attrs.gate_id],
-        ["Receipt", attrs.receipt_issue_key],
+        [HarnessI18n.t("run_console.effect.label_operation"), attrs.operation],
+        [HarnessI18n.t("run_console.effect.label_destination"), attrs.destination],
+        [HarnessI18n.t("run_console.effect.label_integration"), attrs.integration],
+        [HarnessI18n.t("run_console.effect.label_jira_site"), attrs.endpoint],
+        [HarnessI18n.t("run_console.effect.label_artifact_digest"), attrs.artifact_digest],
+        [HarnessI18n.t("run_console.effect.label_arguments_digest"), attrs.arguments_digest],
+        [HarnessI18n.t("run_console.effect.label_approval"), attrs.approved_by],
+        [HarnessI18n.t("run_console.effect.label_gate"), attrs.gate_id],
+        [HarnessI18n.t("run_console.effect.label_receipt"), attrs.receipt_issue_key],
       ]) {
-        if (value) detail.append(el("p", label + ": " + value));
+        if (value)
+          detail.append(el("p", HarnessI18n.t("run_console.effect.field", { label, value })));
       }
       const history = el("ol", null, "effect-history");
       const names = {
-        effect_prepared: "Prepared",
-        effect_intent: "Intent recorded",
-        effect_approved: "Approval recorded",
-        effect_execution: "Execution started",
-        effect_done: "Receipt recorded",
-        effect_failed: "Failed",
-        effect_unknown: "Outcome unknown",
-        effect_reconciled: "Human reconciliation decision",
+        effect_prepared: HarnessI18n.t("run_console.effect.step_prepared"),
+        effect_intent: HarnessI18n.t("run_console.effect.step_intent"),
+        effect_approved: HarnessI18n.t("run_console.effect.step_approved"),
+        effect_execution: HarnessI18n.t("run_console.effect.step_execution"),
+        effect_done: HarnessI18n.t("run_console.effect.step_done"),
+        effect_failed: HarnessI18n.t("run_console.effect.step_failed"),
+        effect_unknown: HarnessI18n.t("run_console.effect.step_unknown"),
+        effect_reconciled: HarnessI18n.t("run_console.effect.step_reconciled"),
       };
       for (const event of span.events || [])
         history.append(el("li", names[event.name] || event.name));
@@ -963,18 +1003,20 @@
         detail.append(
           el(
             "p",
-            "The outcome is unknown. An empty search is inconclusive. Publication will not be retried automatically.",
+            HarnessI18n.t("run_console.effect.unknown_notice"),
           ),
         );
         detail.append(
-          button("Reconcile", () =>
+          button(HarnessI18n.t("run_console.effect.reconcile"), () =>
             showReconciliation(detail, attrs.effect_id),
           ),
         );
       }
     }
     const reveal = button(
-      state.content ? "Hide content" : "Show content",
+      state.content
+        ? HarnessI18n.t("run_console.content.hide")
+        : HarnessI18n.t("run_console.content.show"),
       async () => {
         state.content = !state.content;
         state.sequence++;
@@ -988,19 +1030,26 @@
     reveal.id = "run-content-toggle";
     detail.append(reveal);
     if (!state.content)
-      detail.append(el("p", "Input, output and prompt are hidden."));
+      detail.append(el("p", HarnessI18n.t("run_console.content.hidden")));
     const detailTabs = el("div", null, "run-detail-tabs");
     detailTabs.setAttribute("role", "tablist");
-    detailTabs.setAttribute("aria-label", "Span details");
+    detailTabs.setAttribute("aria-label", HarnessI18n.t("run_console.span.details_label"));
     const detailBody = el("pre", null, "run-detail-value");
     detailBody.id = "run-detail-value";
     detailBody.setAttribute("role", "tabpanel");
+    const detailLabels = {
+      Metrics: HarnessI18n.t("run_console.detail.metrics"),
+      Attributes: HarnessI18n.t("run_console.detail.attributes"),
+      Input: HarnessI18n.t("run_console.detail.input"),
+      Output: HarnessI18n.t("run_console.detail.output"),
+      Prompt: HarnessI18n.t("run_console.detail.prompt"),
+    };
     for (const name of [
       "Metrics",
       "Attributes",
       ...(state.content ? ["Input", "Output", "Prompt"] : []),
     ]) {
-      const tab = button(name, () => {
+      const tab = button(detailLabels[name], () => {
         state.detailTab = name;
         renderSpans();
         document.getElementById("run-detail-" + name.toLowerCase())?.focus();
@@ -1060,7 +1109,7 @@
     form.append(
       el(
         "p",
-        "Record your decision: check external evidence or keep this outcome unknown. This never republishes the artifact. An enrolled human session is required.",
+        HarnessI18n.t("run_console.reconcile.intro"),
       ),
     );
     const feedback = el("p");
@@ -1077,10 +1126,9 @@
           "/v1/effects/" + encodeURIComponent(effectId) + "/reconcile",
           { decision },
         );
-        feedback.textContent =
-          "Decision recorded. Effect status: " +
-          (result.status || result.effect?.status || "unknown") +
-          ".";
+        feedback.textContent = HarnessI18n.t("run_console.reconcile.recorded", {
+          status: result.status || result.effect?.status || "unknown",
+        });
         await fetchSpans();
       } catch (failure) {
         feedback.textContent = failure.message;
@@ -1092,8 +1140,8 @@
       }
     };
     form.append(
-      button("Check evidence", () => decide("check")),
-      button("Keep unknown", () => decide("keep_unknown")),
+      button(HarnessI18n.t("run_console.reconcile.check"), () => decide("check")),
+      button(HarnessI18n.t("run_console.reconcile.keep_unknown"), () => decide("keep_unknown")),
       feedback,
     );
     detail.append(form);
@@ -1135,7 +1183,7 @@
       if (!live) state.more = Boolean(data.has_more);
       const type = logType.value;
       logType.replaceChildren(
-        new Option("All event types", ""),
+        new Option(HarnessI18n.t("run_console.log.all_types"), ""),
         ...[...new Set(state.logs.map((item) => item.type))]
           .sort()
           .map((type) => new Option(type, type)),
@@ -1165,7 +1213,12 @@
     const head = el("thead"),
       titles = el("tr"),
       list = el("tbody");
-    for (const title of ["Date / time", "Sequence", "Type", "Details"])
+    for (const title of [
+      HarnessI18n.t("run_console.log.column_time"),
+      HarnessI18n.t("run_console.log.column_sequence"),
+      HarnessI18n.t("run_console.log.column_type"),
+      HarnessI18n.t("run_console.log.column_details"),
+    ])
       titles.append(el("th", title));
     head.append(titles);
     table.append(head, list);
@@ -1199,7 +1252,7 @@
               minute: "2-digit",
               second: "2-digit",
             })
-          : "Unknown time",
+          : HarnessI18n.t("run_console.log.unknown_time"),
       );
       if (valid) {
         time.dateTime = date.toISOString();
@@ -1218,14 +1271,14 @@
     if (!oldViewport) {
       const toolbar = el("div", null, "run-console-controls");
       toolbar.append(
-        field("Search logs", logSearch),
-        field("Event type", logType),
-        field("Log order", logOrder),
+        field(HarnessI18n.t("run_console.log.search_label"), logSearch),
+        field(HarnessI18n.t("run_console.log.type_label"), logType),
+        field(HarnessI18n.t("run_console.log.order_label"), logOrder),
       );
       viewport.tabIndex = 0;
       viewport.setAttribute("role", "region");
-      viewport.setAttribute("aria-label", "Log table");
-      const more = button("Load more events", () => loadLogs());
+      viewport.setAttribute("aria-label", HarnessI18n.t("run_console.log.table_label"));
+      const more = button(HarnessI18n.t("run_console.log.load_more"), () => loadLogs());
       more.classList.add("run-log-more");
       body.replaceChildren(
         toolbar,
@@ -1236,11 +1289,11 @@
     }
     viewport.replaceChildren(table);
     body.querySelector(".run-log-count").textContent =
-      `${state.logs.length} events loaded · search applies to loaded events`;
+      HarnessI18n.t("run_console.log.count", { count: state.logs.length });
     const more = body.querySelector(".run-log-more");
     more.textContent = state.logLoading
-      ? "Loading events…"
-      : "Load more events";
+      ? HarnessI18n.t("run_console.log.loading")
+      : HarnessI18n.t("run_console.log.load_more");
     more.disabled = !state.run || state.logLoading || !state.more;
     restoringLogFocus = true;
     (focusedControl || (viewportFocused ? viewport : null))?.focus({
@@ -1263,22 +1316,22 @@
       event.preventDefault();
       void refresh();
     });
-    const apply = el("button", "Apply filters", "btn");
+    const apply = el("button", HarnessI18n.t("run_console.filter.apply"), "btn");
     apply.type = "submit";
     apply.id = "console-apply-filters";
     filters.append(
-      field("Project filter", projectFilter),
-      field("Work item filter", workFilter),
-      field("Run state", stateFilter),
+      field(HarnessI18n.t("run_console.filter.project"), projectFilter),
+      field(HarnessI18n.t("run_console.filter.work_item"), workFilter),
+      field(HarnessI18n.t("run_console.filter.state"), stateFilter),
       apply,
     );
     const table = el("table", null, "run-table");
     const head = el("tr");
     for (const title of [
-      "Run / conversation",
-      "State",
-      "Provider / model",
-      "Work item",
+      HarnessI18n.t("run_console.run.column_name"),
+      HarnessI18n.t("run_console.run.column_state"),
+      HarnessI18n.t("run_console.run.column_identity"),
+      HarnessI18n.t("run_console.run.column_work"),
     ])
       head.append(el("th", title));
     const thead = el("thead");
@@ -1307,7 +1360,7 @@
       open.id = "console-open-" + item.job_id;
       name.append(open);
       const work = el("td", item.work_item || "—");
-      const tag = button("Tag work item", () => tagWorkItem(item, work));
+      const tag = button(HarnessI18n.t("run_console.run.tag"), () => tagWorkItem(item, work));
       tag.id = "console-tag-action-" + item.job_id;
       work.append(tag);
       const identity = el(
@@ -1319,8 +1372,12 @@
         name,
         el(
           "td",
-          item.state +
-            (item.wait_reason ? " · " + waitReasonLabel(item.wait_reason) : ""),
+          item.wait_reason
+            ? HarnessI18n.t("run_console.run.state_wait", {
+                state: item.state,
+                reason: waitReasonLabel(item.wait_reason),
+              })
+            : item.state + "",
         ),
         identity,
         work,
@@ -1330,7 +1387,7 @@
     table.append(tbody);
     body.replaceChildren(filters, table);
     if (!tbody.children.length)
-      body.append(el("p", "No runs match these filters."));
+      body.append(el("p", HarnessI18n.t("run_console.run.none_match")));
     if (focusedId)
       (document.getElementById(focusedId) || workFilter).focus({
         preventScroll: true,
@@ -1344,12 +1401,12 @@
     const key = input("console-tag-" + item.job_id);
     key.value = item.work_item || "";
     key.maxLength = 128;
-    const save = el("button", "Save work item", "btn");
+    const save = el("button", HarnessI18n.t("run_console.run.save_work_item"), "btn");
     save.type = "submit";
     form.append(
-      field("Work item key", key),
+      field(HarnessI18n.t("run_console.run.work_item_key"), key),
       save,
-      button("Cancel tagging", renderRuns),
+      button(HarnessI18n.t("run_console.run.cancel_tag"), renderRuns),
     );
     form.addEventListener("submit", async (event) => {
       event.preventDefault();
@@ -1387,15 +1444,19 @@
         ),
         el(
           "p",
-          `${provider.state} · ${provider.running} running · ${provider.queued} queued`,
+          HarnessI18n.t("run_console.agents.summary", {
+            state: provider.state,
+            running: provider.running,
+            queued: provider.queued,
+          }),
         ),
       );
       row.append(
         el(
           "p",
           provider.quota
-            ? "Quota: " + JSON.stringify(provider.quota)
-            : "Quota not reported",
+            ? HarnessI18n.t("run_console.agents.quota", { quota: JSON.stringify(provider.quota) })
+            : HarnessI18n.t("run_console.agents.quota_missing"),
         ),
       );
       row
@@ -1404,7 +1465,7 @@
       body.append(row);
     }
     if (!body.children.length)
-      body.append(el("p", "No configured agents are available."));
+      body.append(el("p", HarnessI18n.t("run_console.agents.none")));
   }
   async function openInbox(
     filter = "request",
@@ -1413,9 +1474,11 @@
     if (!inbox.open) inboxOpener = opener;
     state.attentionFilter = filter;
     inboxTitle.textContent =
-      { complete: "Completed runs", request: "Needs you", error: "Run errors" }[
-        filter
-      ] || "Needs you";
+      {
+        complete: HarnessI18n.t("run_console.inbox.title_complete"),
+        request: HarnessI18n.t("run_console.inbox.title_request"),
+        error: HarnessI18n.t("run_console.inbox.title_error"),
+      }[filter] || HarnessI18n.t("run_console.inbox.title_request");
     inbox.showModal();
     renderInbox();
     await refresh();
@@ -1449,7 +1512,7 @@
             ),
           );
           card.append(
-            button("View run", async () => {
+            button(HarnessI18n.t("run_console.run.view"), async () => {
               inbox.close();
               if (item.conversation_id) await load(item.conversation_id, false);
               syncContext();
@@ -1472,8 +1535,8 @@
           el(
             "p",
             state.attentionFilter === "complete"
-              ? "No completed runs in this activity window."
-              : "No failed runs in this activity window.",
+              ? HarnessI18n.t("run_console.inbox.none_completed")
+              : HarnessI18n.t("run_console.inbox.none_failed"),
           ),
         );
       return;
@@ -1509,19 +1572,19 @@
         inboxList.insertBefore(card, inboxList.children[index] || null);
     }
     if (!cards.length)
-      inboxList.append(el("p", "No live requests need your attention."));
+      inboxList.append(el("p", HarnessI18n.t("run_console.inbox.none_live")));
     if (focused && !focused.isConnected) inbox.querySelector("button").focus();
   }
   // D15: a paused scheduled task, or a scheduled run that skipped an approval.
   function scheduleAlertCard(item) {
     const card = el("section", null, "needs-you-card schedule-alert");
     card.append(
-      el("h3", "Scheduled task: " + item.title),
+      el("h3", HarnessI18n.t("run_console.inbox.scheduled_task", { title: item.title })),
       el("p", item.message),
     );
     if (item.job_id)
       card.append(
-        button("Open run", async () => {
+        button(HarnessI18n.t("run_console.run.open"), async () => {
           inbox.close();
           await load(item.job_id, false);
         }),
@@ -1533,7 +1596,7 @@
     const id = item.gate_id || item.approval_id;
     card.dataset.requestId = id;
     card.append(
-      el("h3", item.question || item.tool || "Approval required"),
+      el("h3", item.question || item.tool || HarnessI18n.t("run_console.request.approval_required")),
       el(
         "p",
         [item.work_item, item.project_id, item.job_id]
@@ -1564,7 +1627,7 @@
         if (step.reason) row.append(el("p", step.reason));
         steps.append(row);
       }
-      card.append(steps, el("p", "This plan can no longer be approved."));
+      card.append(steps, el("p", HarnessI18n.t("run_console.request.plan_expired")));
       return card;
     }
     if (publish) appendPublishEvidence(card, item);
@@ -1573,7 +1636,9 @@
       group.append(
         el(
           "legend",
-          item.multi_select ? "Choose options" : "Choose one option",
+          item.multi_select
+            ? HarnessI18n.t("run_console.request.legend_multi")
+            : HarnessI18n.t("run_console.request.legend_single"),
         ),
       );
       for (const option of item.options || []) {
@@ -1602,8 +1667,8 @@
           el(
             "p",
             [
-              item.risk && "Risk: " + item.risk,
-              item.publish && "Publication approval",
+              item.risk && HarnessI18n.t("run_console.request.risk", { risk: item.risk }),
+              item.publish && HarnessI18n.t("run_console.request.publication"),
             ]
               .filter(Boolean)
               .join(" · "),
@@ -1613,7 +1678,7 @@
         card.append(el("pre", JSON.stringify(item.evidence, null, 2)));
     } else {
       card.append(
-        el("p", item.request?.message || "Action approval"),
+        el("p", item.request?.message || HarnessI18n.t("run_console.request.action_approval")),
         el("pre", JSON.stringify(item.request || {}, null, 2)),
       );
       for (const question of item.request?.questions || []) {
@@ -1634,7 +1699,7 @@
       fields.forEach((node) => {
         node.disabled = true;
       });
-      feedback.textContent = "Sending your decision…";
+      feedback.textContent = HarnessI18n.t("run_console.request.sending");
       try {
         await post("/v1/approvals/" + encodeURIComponent(id), payload);
         retireDraft(gateChoiceKey(id));
@@ -1667,11 +1732,11 @@
     };
     if (publish) {
       card.append(
-        button("Approve", () => resolve({ choice: "approve" })),
-        button("Deny", () => resolve({ choice: "deny" })),
+        button(HarnessI18n.t("run_console.request.approve"), () => resolve({ choice: "approve" })),
+        button(HarnessI18n.t("run_console.request.deny"), () => resolve({ choice: "deny" })),
       );
     } else if (isGate) {
-      const submit = button("Submit answer", () => {
+      const submit = button(HarnessI18n.t("run_console.request.submit"), () => {
         const selected = choices
           .filter((choice) => choice.checked)
           .map((choice) => choice.value);
@@ -1695,7 +1760,7 @@
       card.append(submit);
     } else {
       card.append(
-        button("Allow once", () =>
+        button(HarnessI18n.t("run_console.request.allow_once"), () =>
           resolve({
             approved: true,
             scope: "once",
@@ -1707,7 +1772,7 @@
             ),
           }),
         ),
-        button("Deny", () => resolve({ approved: false, scope: "once" })),
+        button(HarnessI18n.t("run_console.request.deny"), () => resolve({ approved: false, scope: "once" })),
       );
     }
     card.append(feedback);
@@ -1733,7 +1798,7 @@
     attachAnswer(target, id) {
       if (!id) return;
       const session = temporarySession;
-      const view = button("View run", async () => {
+      const view = button(HarnessI18n.t("run_console.run.view"), async () => {
         syncContext();
         toggle(true);
         setTab("Pipeline");

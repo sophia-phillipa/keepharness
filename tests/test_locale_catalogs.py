@@ -219,4 +219,5 @@ def test_every_t_key_used_by_the_ui_exists_in_english():
         for key in USED_KEY_RE.findall(path.read_text(encoding="utf-8"))
     }
     assert "settings_search.status.found" in used  # the scan sees the pilot keys
+    assert "run_console.toggle.summary" in used  # and the run console in agent_service/
     assert sorted(used - set(english)) == []
