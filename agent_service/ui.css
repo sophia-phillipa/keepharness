@@ -10721,3 +10721,29 @@ body.panel-order-reversed #sidebar .sidebar-tree {
   color: var(--th-text);
   padding: 0 8px;
 }
+/* Wide layout (D-055 P2): the header toggle and, from 1000px up, the wider message column. */
+.header-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid var(--th-border);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--th-muted);
+  cursor: pointer;
+}
+.header-toggle[aria-pressed="true"] {
+  border-color: var(--th-accent);
+  color: var(--th-accent);
+}
+@media (min-width: 1000px) {
+  body.wide-layout #messages,
+  body.wide-layout .composer-area {
+    max-width: none;
+    padding-inline: 24px;
+  }
+}

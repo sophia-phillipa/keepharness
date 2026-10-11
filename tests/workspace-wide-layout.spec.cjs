@@ -93,7 +93,7 @@ const contrastOf = (page, selector) =>
     assert.equal(defaults.pressed, "false", "header button starts unpressed");
     assert.equal(defaults.switchOn, false, "Settings switch starts off");
     assert.equal(defaults.messagesMax, "1040px", "default column unchanged");
-    assert.equal(defaults.composerMax, "1040px", "default composer unchanged");
+    assert.equal(defaults.composerMax, "672px", "default composer unchanged");
     assert.equal(await savedWideLayout(page), false, "default is saved as false");
 
     // Header button: class, aria-pressed, the widened column and the server write.

@@ -7247,6 +7247,18 @@ document.addEventListener("keydown", (event) => {
     void startTemporaryChat();
   }
 });
+document.addEventListener("keydown", (event) => {
+  if (
+    (event.ctrlKey || event.metaKey) &&
+    event.shiftKey &&
+    !event.altKey &&
+    event.key.toLowerCase() === "l" &&
+    !foreignModalOpen()
+  ) {
+    event.preventDefault();
+    setWideLayout(!document.body.classList.contains("wide-layout"));
+  }
+});
 $("new").onclick = () => void navigate({ kind: "home" });
 function startNewConversation(resetExecutionMode = false) {
   const loose = Array.from($("project").options).some(
@@ -11718,6 +11730,8 @@ $("settings-appearance").querySelector(".shortcut-help").textContent =
   "+K or " +
   shortcutModifier +
   "+Shift+P: search KeepHarness\n" +
+  shortcutModifier +
+  "+Shift+L: wide layout\n" +
   "Escape: close the current dialog or panel";
 const keyboardShortcuts = [
   ["Search KeepHarness", [shortcutModifier, "K"]],
@@ -11728,6 +11742,7 @@ const keyboardShortcuts = [
   ["Go forward", [shortcutModifier, "]"]],
   ["Keyboard shortcuts", [shortcutModifier, "/"]],
   ["New temporary chat", [shortcutModifier, "Shift", "N"]],
+  ["Wide layout", [shortcutModifier, "Shift", "L"]],
 ];
 let shortcutReturnFocus = null;
 function renderKeyboardShortcuts() {
@@ -12071,6 +12086,18 @@ function applyReadingSize(value) {
 }
 applyReadingSize(prefs.get("reading_size", "15"));
 $("reading-size").onchange = () => applyReadingSize($("reading-size").value);
+// One owner for the wide layout: the header button, the Settings switch and the shortcut all call it.
+function setWideLayout(on) {
+  document.body.classList.toggle("wide-layout", on);
+  $("wide-toggle").setAttribute("aria-pressed", String(on));
+  $("wide-layout-toggle").checked = on;
+  prefs.set("wide_layout", on);
+}
+$("wide-toggle").onclick = () =>
+  setWideLayout(!document.body.classList.contains("wide-layout"));
+$("wide-layout-toggle").onchange = (event) =>
+  setWideLayout(event.target.checked);
+setWideLayout(prefs.get("wide_layout", false) === true);
 $("visual-markers-toggle").checked = visualMarkersOn();
 $("visual-markers-toggle").onchange = (event) => {
   prefs.set("visual_markers", event.target.checked);
