@@ -6573,10 +6573,10 @@ $("cancel").onclick = async () => {
   $("cancel").disabled = true;
   try {
     await post("/v1/jobs/" + job + "/cancel", {});
-    status("Cancelling…");
+    status(t("conversation.cancelling"), "progress");
     if (streamDisconnected) await watch();
   } catch (e) {
-    status("Couldn't cancel: " + e.message);
+    status(t("conversation.cancel_failed", { detail: e.message }), "error");
   } finally {
     cancelling = false;
     setBusy(busy);
@@ -6594,7 +6594,7 @@ function leaveTemporaryChat() {
   if (submitting || cancelling || loading || uploads) return false;
   if (
     !window.confirm(
-      "Close temporary chat? Messages and attachments will be discarded. Nothing is saved in KeepHarness.",
+      t("conversation.temporary.close_confirm"),
     )
   )
     return false;
@@ -6633,7 +6633,7 @@ function discardTemporaryChat() {
   document.body.classList.remove("temporary-chat");
   renderFiles();
   setBusy(false);
-  setConversationTitle("New Conversation");
+  setConversationTitle(t("sidebar.conversation.new_title"));
   void deleteTemporarySession(id);
 }
 async function renewTemporaryChat() {
@@ -6643,7 +6643,7 @@ async function renewTemporaryChat() {
     await json("/v1/temporary/" + encodeURIComponent(id));
   } catch (error) {
     if (temporarySession === id)
-      status("Temporary chat connection: " + error.message);
+      status(t("conversation.temporary.connection", { detail: error.message }), "neutral");
   }
 }
 async function startTemporaryChat() {
@@ -6661,12 +6661,12 @@ async function startTemporaryChat() {
   setBusy(busy);
   try {
     const session = await post("/v1/temporary", {});
-    if (!session.id) throw Error("The server did not create a temporary chat.");
+    if (!session.id) throw Error(t("conversation.temporary.not_created"));
     temporarySession = session.id;
     temporaryHeartbeat = setInterval(renewTemporaryChat, 15000);
     $("prompt").value = "";
     files = [];
-    newConversation("Temporary chat", $("project").value, {
+    newConversation(t("static.composer.temporary_title"), $("project").value, {
       resetExecutionMode: true,
       keepTemporary: true,
     });
@@ -6681,7 +6681,7 @@ async function startTemporaryChat() {
     temporaryStarting = false; // newConversation refuses to run while a start is pending
     if (replacing) await returnFromTemporaryChat();
     temporaryPreviousDraft = null;
-    status("Couldn't start temporary chat: " + error.message);
+    status(t("conversation.temporary.start_failed", { detail: error.message }), "error");
   } finally {
     temporaryStarting = false;
     setBusy(busy);
@@ -6706,7 +6706,7 @@ async function returnFromTemporaryChat() {
   const message = $("status").textContent;
   const messageTone = statusTone;
   viewDiscarded = true;
-  newConversation("New Conversation", $("project").value, {
+  newConversation(t("sidebar.conversation.new_title"), $("project").value, {
     restoreHomeDraft: true,
   });
   status(message, messageTone);
@@ -6753,9 +6753,10 @@ function startNewConversation(resetExecutionMode = false) {
   );
   newConversation(
     loose
-      ? "New Conversation"
-      : "New Conversation in project " +
-          $("project").selectedOptions[0]?.textContent,
+      ? t("sidebar.conversation.new_title")
+      : t("sidebar.project.new_conversation_in", {
+          project: $("project").selectedOptions[0]?.textContent,
+        }),
     loose ? "sem-projeto" : $("project").value,
     { resetExecutionMode },
   );
@@ -6838,9 +6839,9 @@ $("dropzone").ondrop = (e) => {
       const selection = JSON.parse(payload);
       if (Array.isArray(selection.paths))
         void attachSelectedProjectFiles(selection);
-      else status("The file selection isn't valid.");
+      else status(t("composer.files.selection_invalid"), "neutral");
     } catch {
-      status("The file selection isn't valid.");
+      status(t("composer.files.selection_invalid"), "neutral");
     }
   } else upload(e.dataTransfer.files);
 };
@@ -6930,7 +6931,7 @@ function syncSidebarFocus() {
   if (overlay) {
     sidebar.setAttribute("role", "dialog");
     sidebar.setAttribute("aria-modal", "true");
-    sidebar.setAttribute("aria-label", "Conversations");
+    sidebar.setAttribute("aria-label", t("static.sidebar.history.aria_label"));
     // Focus the dialog itself: its first button is an action (New Conversation) that typing could trigger.
     if (!sidebar.contains(document.activeElement)) {
       sidebar.tabIndex = -1;
@@ -6962,10 +6963,11 @@ $("about-dialog").addEventListener("close", () => {
 });
 // D43: the theme switch lives in Settings › Appearance; the label names what a press does.
 function syncThemeToggle() {
-  $("theme-toggle").textContent =
-    "Switch to " +
-    (document.documentElement.dataset.theme === "dark" ? "light" : "dark") +
-    " theme";
+  $("theme-toggle").textContent = t(
+    document.documentElement.dataset.theme === "dark"
+      ? "static.topbar.theme_switch_light"
+      : "static.topbar.theme_switch_dark",
+  );
 }
 $("theme-toggle").onclick = () => {
   const dark = document.documentElement.dataset.theme === "dark";
@@ -7027,11 +7029,11 @@ function syncComposerProjectButton() {
   $("project-button-label").textContent = chosen
     ? option.textContent
     : option
-      ? "No project"
-      : "Choose project";
+      ? t("sidebar.project.none")
+      : t("static.menus.project_menu.aria_label");
   $("project-button").title = chosen
-    ? "Project: " + option.textContent
-    : "Choose the project for this conversation";
+    ? t("composer.project.title", { project: option.textContent })
+    : t("composer.project.choose_title");
   $("project-button").disabled = $("project").disabled;
   $("agents-chip").disabled = $("prompt").disabled;
 }
@@ -7050,7 +7052,7 @@ $("project-button").onclick = () => {
       item.append(
         HarnessUI.icon("folder"),
         document.createTextNode(
-          option.value === "sem-projeto" ? "No project" : option.textContent,
+          option.value === "sem-projeto" ? t("sidebar.project.none") : option.textContent,
         ),
       );
       item.onclick = () => {
@@ -7115,9 +7117,7 @@ function renderProjectTrust() {
     const inherited = document.createElement("p");
     inherited.className = "project-trust-inherited";
     inherited.textContent =
-      "Codex still loads trusted configuration from " +
-      trust.inherited_from +
-      ". Revoking this project's trust does not revoke its parent.";
+      t("customize.trust.inherited", { from: trust.inherited_from });
     panel.append(inherited);
   }
   if (trust?.required) {
@@ -7126,13 +7126,13 @@ function renderProjectTrust() {
       warning = document.createElement("p"),
       accept = document.createElement("button");
     copy.className = "project-trust-copy";
-    heading.textContent = "Trust " + context.label + "?";
+    heading.textContent = t("customize.trust.question", { project: context.label });
     warning.textContent =
-      "Trusting this project applies to both Codex and Claude Code in KeepHarness. It enables project instructions, Claude hooks and environment settings, including env entries. Versioned .mcp.json servers approved in project settings can then run; other servers still need approval below.";
+      t("customize.trust.explain");
     copy.append(heading, warning);
     accept.type = "button";
     accept.className = "project-trust-action";
-    accept.textContent = "Trust " + context.label;
+    accept.textContent = t("customize.trust.accept", { project: context.label });
     accept.disabled = projectTrustWriting;
     accept.onclick = () => writeProjectTrust(context, "trust", {});
     panel.append(copy, accept);
@@ -7141,10 +7141,10 @@ function renderProjectTrust() {
     const copy = document.createElement("p"),
       revoke = document.createElement("button");
     copy.textContent =
-      "Trusted by Codex or Claude Code. Revoking trust applies to both CLIs.";
+      t("customize.trust.trusted_note");
     revoke.type = "button";
     revoke.className = "project-trust-action";
-    revoke.textContent = "Revoke trust for " + context.label;
+    revoke.textContent = t("customize.trust.revoke", { project: context.label });
     revoke.disabled = projectTrustWriting;
     revoke.onclick = () =>
       writeProjectTrust(context, "trust", { trusted: false });
@@ -7161,16 +7161,17 @@ function renderProjectTrust() {
     row.dataset.server = item.server;
     name.textContent = item.server;
     detail.textContent =
-      "Project MCP server · " +
-      (item.enabled === false
-        ? "Disabled by owner"
+      item.enabled === false
+        ? t("customize.mcp.status_disabled")
         : item.approved
-          ? "Approved"
-          : "Not approved");
+          ? t("customize.mcp.status_approved")
+          : t("customize.mcp.status_not_approved");
     copy.append(name, detail);
     toggle.type = "button";
     toggle.className = "project-trust-action";
-    toggle.textContent = (item.approved ? "Revoke " : "Approve ") + item.server;
+    toggle.textContent = t(item.approved ? "customize.mcp.revoke" : "customize.mcp.approve", {
+      server: item.server,
+    });
     toggle.disabled = projectTrustWriting;
     toggle.onclick = () =>
       writeProjectTrust(context, "mcp-approvals", {
@@ -7213,11 +7214,8 @@ async function writeProjectTrust(context, action, extra) {
         )?.approved;
         if (actual !== extra.approved)
           projectTrustError = data.trust?.required
-            ? "Approval saved for " +
-              server +
-              ". Trust this project before it can run."
-            : server +
-              " remains not approved because another CLI settings layer denies it.";
+            ? t("customize.mcp.saved_trust_this", { server })
+            : t("customize.mcp.denied", { server });
       }
     }
   } catch (error) {
@@ -7233,7 +7231,7 @@ async function writeProjectTrust(context, action, extra) {
     if (current)
       projectTrustError =
         error.status === 409 && error.code === "provider_state_conflict"
-          ? "The CLI state changed elsewhere. Review it and try again."
+          ? t("composer.trust.state_changed")
           : error.message;
   } finally {
     projectTrustWriting = false;
@@ -7273,7 +7271,7 @@ async function refreshProjectTrust() {
       data.snapshot?.provider !== context.provider ||
       !data.snapshot?.project_root
     )
-      throw Error("The project context is unavailable. Refresh and try again.");
+      throw Error(t("composer.trust.context_unavailable"));
     projectTrustContext = {
       ...context,
       expected_project_root: data.snapshot.project_root,
@@ -7281,7 +7279,7 @@ async function refreshProjectTrust() {
     projectTrustData = data;
   } catch (error) {
     if (!currentProjectTrust(context)) return;
-    projectTrustError = "Couldn't check project trust. " + error.message;
+    projectTrustError = t("composer.trust.check_failed", { detail: error.message });
   }
   renderProjectTrust();
 }
@@ -7289,10 +7287,10 @@ async function refreshProjectTrust() {
 function usageAge(seconds) {
   const age = Math.max(0, Date.now() / 1000 - Number(seconds || 0));
   return age < 3600
-    ? Math.max(1, Math.round(age / 60)) + " min ago"
+    ? t("composer.connectors.age_minutes", { n: Math.max(1, Math.round(age / 60)) })
     : age < 86400
-      ? Math.round(age / 3600) + " h ago"
-      : Math.round(age / 86400) + " d ago";
+      ? t("composer.connectors.age_hours", { n: Math.round(age / 3600) })
+      : t("composer.connectors.age_days", { n: Math.round(age / 86400) });
 }
 let pluginsView = null;
 // WP4: tools another provider has connected, per route. Drives the Plugins chip dot,
@@ -7323,7 +7321,7 @@ function setElsewhere(key, list) {
     chip.dataset.elsewhere = "true";
     chip.setAttribute(
       "aria-label",
-      "Plugins, tools available on other providers",
+      t("composer.connectors.elsewhere_label"),
     );
   } else {
     delete chip.dataset.elsewhere;
@@ -7356,7 +7354,7 @@ function elsewhereSection(list, backend, menu) {
     ul = document.createElement("ul"),
     here = providerNames[backend] || backend;
   wrap.dataset.testid = "elsewhere-section";
-  heading.textContent = "On other providers";
+  heading.textContent = t("composer.connectors.elsewhere_heading");
   for (const entry of list) {
     const row = document.createElement("li"),
       box = document.createElement("div"),
@@ -7372,8 +7370,8 @@ function elsewhereSection(list, backend, menu) {
     name.textContent = entry.label;
     meta.textContent =
       entry.here === "enable"
-        ? "Installed on " + here + ", turned off for KeepHarness"
-        : "Not connected on " + here + " (connected on " + on + ")";
+        ? t("composer.connectors.elsewhere_off", { provider: here })
+        : t("composer.connectors.elsewhere_absent", { provider: here, others: on });
     text.append(name, meta);
     box.append(HarnessUI.icon("plug"), text);
     // Provider state lives in the Plugins facade where the admin is reachable, and in the native
@@ -7381,7 +7379,10 @@ function elsewhereSection(list, backend, menu) {
     const action = document.createElement("button");
     action.type = "button";
     action.className = "plugins-action";
-    action.textContent = entry.here === "enable" ? "Enable" : "Open Plugins";
+    action.textContent =
+      entry.here === "enable"
+        ? t("composer.connectors.enable")
+        : t("composer.connectors.open_plugins");
     action.onclick = () => {
       menu.hidePopover();
       openSettings("plugins");
@@ -7403,11 +7404,8 @@ function carryoverToolLines(from, next) {
     )
     .map((entry) =>
       entry.here === "absent"
-        ? entry.label + " is connected on " + was + " but not on " + to
-        : entry.label +
-          " is installed on " +
-          to +
-          " but not enabled - enable it in Settings › System › Providers",
+        ? t("composer.connectors.carry_absent", { label: entry.label, from: was, to })
+        : t("composer.connectors.carry_enable", { label: entry.label, to }),
     );
 }
 function integrationRow(item, sharedReason = "") {
@@ -7420,17 +7418,20 @@ function integrationRow(item, sharedReason = "") {
   open.className =
     "integration-row" + (item.effective === false ? " unavailable" : "");
   open.dataset.integrationId = item.id;
-  open.title = "Show details";
+  open.title = t("composer.connectors.show_details");
   open.onclick = () => showIntegrationDetail(item);
   name.textContent = item.name;
   meta.textContent = [
     item.kind === "mcp"
-      ? "Connector" + (item.transport ? " · " + item.transport : "")
-      : "Plugin",
+      ? t("composer.connectors.kind_connector") + (item.transport ? " · " + item.transport : "")
+      : t("composer.connectors.kind_plugin"),
     item.used?.count
-      ? "used " + item.used.count + "× · " + usageAge(item.used.last_used)
+      ? t("composer.connectors.used", {
+          count: item.used.count,
+          age: usageAge(item.used.last_used),
+        })
       : item.effective
-        ? "not used here recently"
+        ? t("composer.connectors.not_used_recently")
         : "",
     item.effective || item.reason === sharedReason ? "" : item.reason,
   ]
@@ -7455,7 +7456,7 @@ function showIntegrationDetail(item) {
   back.className = "plugins-back";
   back.append(
     HarnessUI.icon("chevron-left"),
-    document.createTextNode("Connectors and plugins"),
+    document.createTextNode(t("static.menus.plugins_menu.aria_label")),
   );
   back.onclick = () => {
     body.replaceChildren(...(pluginsView?.parts || []));
@@ -7467,9 +7468,9 @@ function showIntegrationDetail(item) {
   title.textContent = item.name;
   kind.textContent =
     item.kind === "mcp"
-      ? "Connector (MCP server)" +
+      ? t("composer.connectors.kind_mcp") +
         (item.transport ? " · " + item.transport : "")
-      : "Plugin";
+      : t("composer.connectors.kind_plugin");
   head.append(
     HarnessUI.icon(item.kind === "mcp" ? "plug" : "stack-2"),
     title,
@@ -7484,34 +7485,39 @@ function showIntegrationDetail(item) {
     facts.append(dt, dd);
   };
   fact(
-    "In this conversation",
-    item.effective ? "Available" : item.reason || "Not available",
+    t("composer.connectors.fact_conversation"),
+    item.effective
+      ? t("composer.connectors.available")
+      : item.reason || t("composer.connectors.not_available"),
   );
   fact(
-    "Allowed for this provider",
+    t("composer.connectors.fact_allowed"),
     item.allowed === null
-      ? "Controlled by the native CLI"
+      ? t("composer.connectors.controlled_native")
       : item.allowed
-        ? "Yes"
-        : "No",
+        ? t("composer.connectors.yes")
+        : t("composer.connectors.no"),
   );
   fact(
-    "Installed",
+    t("composer.connectors.fact_installed"),
     item.status === "installed" || item.status === "configured"
-      ? "Yes · " + item.status
+      ? t("composer.connectors.installed_status", { status: item.status })
       : item.status,
   );
   fact(
-    "Used in this project",
+    t("composer.connectors.fact_used"),
     item.used?.count
-      ? item.used.count + "× · last " + usageAge(item.used.last_used)
-      : "Not in the last " + (data.window_days || 30) + " days",
+      ? t("composer.connectors.used_last", {
+          count: item.used.count,
+          age: usageAge(item.used.last_used),
+        })
+      : t("composer.connectors.not_in_window", { days: data.window_days || 30 }),
   );
-  fact("Tools used", (item.used?.tools || []).join(", "));
+  fact(t("composer.connectors.fact_tools"), (item.used?.tools || []).join(", "));
   fact(
-    "Approvals",
+    t("composer.connectors.fact_approvals"),
     item.effective !== false
-      ? data.effective_note || "Follows the conversation's access mode."
+      ? data.effective_note || t("composer.connectors.approvals_default")
       : "",
   );
   facts.className = "plugins-facts";
@@ -7522,7 +7528,7 @@ function showIntegrationDetail(item) {
     manage.className = "plugins-manage";
     manage.append(
       HarnessUI.icon("settings"),
-      document.createTextNode("Discover and manage plugins"),
+      document.createTextNode(t("composer.connectors.manage")),
     );
     manage.onclick = () => {
       $("plugins-menu").hidePopover();
@@ -7538,15 +7544,16 @@ async function renderPluginsMenu() {
     m = resourceEngine(),
     heading = document.createElement("p");
   heading.className = "access-menu-heading";
-  heading.textContent =
-    "Connectors and plugins · " +
-    (providerNames[m.backend] || m.backend || "no model");
+  heading.textContent = t("composer.connectors.heading", {
+    provider:
+      providerNames[m.backend] || m.backend || t("composer.connectors.no_model"),
+  });
   const body = document.createElement("div");
   body.className = "plugins-body";
-  body.textContent = "Checking…";
+  body.textContent = t("admin.providers.checking");
   menu.replaceChildren(heading, body);
   if (!m.backend) {
-    body.textContent = "Choose a model to see its connectors and plugins.";
+    body.textContent = t("composer.connectors.choose_model");
     return;
   }
   try {
@@ -7594,17 +7601,17 @@ async function renderPluginsMenu() {
       return wrap;
     };
     if (configured.length)
-      parts.push(section("Configured in the native CLI", configured, ""));
+      parts.push(section(t("composer.connectors.section_configured"), configured, ""));
     else
       parts.push(
         section(
-          "Available in this conversation",
+          t("composer.connectors.section_available"),
           effective,
-          "None for this project and model.",
+          t("composer.connectors.section_none"),
         ),
       );
     if (others.length)
-      parts.push(section("Installed, not available here", others, ""));
+      parts.push(section(t("composer.connectors.section_installed"), others, ""));
     if (elsewhere.length)
       parts.push(elsewhereSection(elsewhere, m.backend, menu));
     const tools = Array.isArray(data.other_tools) ? data.other_tools : [];
@@ -7614,9 +7621,7 @@ async function renderPluginsMenu() {
         list = document.createElement("ul");
       details.className = "plugins-tools";
       summary.textContent =
-        "Other tools used in this project (" +
-        (data.window_days || 30) +
-        " days)";
+        t("composer.connectors.other_tools", { days: data.window_days || 30 });
       list.replaceChildren(
         ...tools.map((tool) =>
           Object.assign(document.createElement("li"), {
@@ -7645,7 +7650,7 @@ async function renderPluginsMenu() {
       manage.className = "plugins-manage";
       manage.append(
         HarnessUI.icon("settings"),
-        document.createTextNode("Discover and manage plugins"),
+        document.createTextNode(t("composer.connectors.manage")),
       );
       manage.onclick = () => {
         menu.hidePopover();
@@ -7657,7 +7662,7 @@ async function renderPluginsMenu() {
     pluginsView = { data, parts };
   } catch (error) {
     body.textContent =
-      "Couldn't check connectors and plugins. " + error.message;
+      t("composer.connectors.check_failed", { detail: error.message });
   }
 }
 function openChipMenu(menu, chip, render) {
@@ -7730,7 +7735,7 @@ function attachRecentUpload(entry) {
   renderFiles();
   saveView();
   updateComposer();
-  status("File attached.");
+  status(t("composer.files.attached"), "neutral");
 }
 async function attachSpacePage(pageId, project) {
   try {
@@ -7742,7 +7747,7 @@ async function attachSpacePage(pageId, project) {
     );
     await upload([pageFile(page.title, page.body)]);
   } catch (error) {
-    status("Couldn't attach the page: " + error.message);
+    status(t("composer.files.page_failed", { detail: error.message }), "error");
   }
 }
 async function renderFilesMenu() {
@@ -7751,17 +7756,17 @@ async function renderFilesMenu() {
     heading = document.createElement("p"),
     body = document.createElement("div"),
     attachable = canUpload() && !busy && !loading && !uploads,
-    uploadButton = menuButton("Upload…", () => $("file").click(), {
+    uploadButton = menuButton(t("composer.files.upload"), () => $("file").click(), {
       testid: "files-menu-upload",
       icon: HarnessUI.icon("paperclip"),
     });
   heading.className = "access-menu-heading";
-  heading.textContent = "Attach to this message";
+  heading.textContent = t("composer.files.attach_heading");
   body.className = "plugins-body files-body";
   uploadButton.disabled = !attachable;
   if (!attachable)
     uploadButton.title =
-      "Attachments are not available for this model or project right now.";
+      t("composer.files.unavailable");
   const recent = recentUploads()
     .filter(
       (entry) =>
@@ -7776,20 +7781,20 @@ async function renderFilesMenu() {
       }),
     );
   for (const button of recent) button.disabled = !attachable;
-  const pagesSection = menuSection("Space pages", [], "Checking…");
+  const pagesSection = menuSection(t("composer.files.space_pages"), [], t("admin.providers.checking"));
   body.append(
     uploadButton,
     menuSection(
-      "Recent uploads",
+      t("composer.files.recent"),
       recent,
-      "Nothing uploaded in this project yet.",
+      t("composer.files.recent_empty"),
     ),
     pagesSection,
   );
   const detail = projectDetails[project];
   if (!detail || detail.root)
     body.append(
-      menuButton("Browse project files…", browseProjectFiles, {
+      menuButton(t("composer.files.browse"), browseProjectFiles, {
         testid: "files-menu-browse",
         icon: HarnessUI.icon("folder"),
       }),
@@ -7803,16 +7808,16 @@ async function renderFilesMenu() {
       menuButton(page.title, () => void attachSpacePage(page.id, project), {
         testid: "files-menu-page",
         icon: projectFileIcon(page.title + ".md"),
-        hint: "Current version",
+        hint: t("composer.files.current_version"),
       }),
     );
     for (const button of buttons) button.disabled = !attachable;
     pagesSection.replaceWith(
-      menuSection("Space pages", buttons, "No pages in this project yet."),
+      menuSection(t("composer.files.space_pages"), buttons, t("composer.files.pages_empty")),
     );
   } catch (error) {
     pagesSection.replaceWith(
-      menuSection("Space pages", [], "Couldn't load pages. " + error.message),
+      menuSection(t("composer.files.space_pages"), [], t("composer.files.pages_failed", { detail: error.message })),
     );
   }
 }
