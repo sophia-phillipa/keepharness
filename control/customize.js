@@ -8,19 +8,34 @@
   const CLIS = ["codex", "claude", "deepseek"];
   // Like every admin button, each chip leads with its own icon on the label's line.
   const CHIPS = [
-    ["plugins", "Plugins", "plugin", "cube"],
-    ["apps", "Apps", "app", "world"],
-    ["mcps", "MCPs", "mcp", "plug"],
-    ["skills", "Skills", "skill", "list-check"],
-    ["hooks", "Hooks", "hook", "plug"],
-    ["rules", "Rules", "instructions", "list-check"],
+    ["plugins", HarnessI18n.t("customize.chip.plugins"), "plugin", "cube"],
+    ["apps", HarnessI18n.t("customize.chip.apps"), "app", "world"],
+    ["mcps", HarnessI18n.t("customize.chip.mcps"), "mcp", "plug"],
+    ["skills", HarnessI18n.t("customize.chip.skills"), "skill", "list-check"],
+    ["hooks", HarnessI18n.t("customize.chip.hooks"), "hook", "plug"],
+    [
+      "rules",
+      HarnessI18n.t("customize.chip.rules"),
+      "instructions",
+      "list-check",
+    ],
   ];
   const NO_PROJECT = "sem-projeto";
-  // Add actions of the Plugins toolbar: [catalog action, menu label, testid stem].
+  // Add actions of the Plugins toolbar: [catalog action, testid stem]; addLabel gives the menu label.
   const ADD_ITEMS = [
-    ["marketplace_add", "Add a marketplace", "plugins-add-marketplace"],
-    ["connector_add", "Add MCP server", "plugins-add-mcp"],
+    ["marketplace_add", "plugins-add-marketplace"],
+    ["connector_add", "plugins-add-mcp"],
   ];
+  // Menu label of an Add action; provider is null unless several providers offer one.
+  const addLabel = (action, provider) => {
+    if (action === "marketplace_add")
+      return provider === null
+        ? HarnessI18n.t("customize.add.marketplace")
+        : HarnessI18n.t("customize.add.marketplace_to", { provider });
+    return provider === null
+      ? HarnessI18n.t("customize.add.mcp")
+      : HarnessI18n.t("customize.add.mcp_to", { provider });
+  };
   const view = {
     chip: "plugins",
     skillScope: "user",
@@ -40,8 +55,8 @@
   // "<provider>|<item id>" -> the last write error, shown on that row until the next read or write.
   const rowErrors = new Map();
   const SKILL_SCOPES = [
-    ["user", "User"],
-    ["project", "Project"],
+    ["user", HarnessI18n.t("customize.scope.user")],
+    ["project", HarnessI18n.t("customize.scope.project")],
   ];
   let list,
     scopeTabs,
@@ -79,7 +94,9 @@
       .toLowerCase()
       .replace(/[_ ]/g, "-");
   const marketplace = (item) =>
-    item.marketplace || String(item.id || "").split("@")[1] || "Local plugins";
+    item.marketplace ||
+    String(item.id || "").split("@")[1] ||
+    HarnessI18n.t("customize.marketplace.local");
 
   // One card per plugin family. Provider variants stay separate so every operation keeps its exact
   // provider and identifier; ambiguous same-provider variants are explained instead of guessed.
@@ -231,13 +248,7 @@
     const label = connectorLabel(group.item),
       where = providerName(info);
     if (
-      !confirm(
-        "Uninstall " +
-          label +
-          " from " +
-          where +
-          "? The plugin is removed from that CLI only.",
-      )
+      !confirm(HarnessI18n.t("customize.uninstall.confirm", { label, where }))
     )
       return;
     return action(async () => {
@@ -248,12 +259,7 @@
       });
       // The cached catalog still lists the plugin; the next visit or Refresh reads it again.
       integrationCatalogs.delete(info.id);
-      say(
-        label +
-          " is being uninstalled from " +
-          where +
-          ". Refresh the list when the operation finishes.",
-      );
+      say(HarnessI18n.t("customize.uninstall.started", { label, where }));
     });
   }
   // Up and Down move the focus through a menu's items, wrapping at both ends.
@@ -277,8 +283,10 @@
       const entry = node(
         "button",
         group.providers.length > 1
-          ? "Uninstall from " + providerName(info)
-          : "Uninstall",
+          ? HarnessI18n.t("customize.uninstall.from_provider", {
+              provider: providerName(info),
+            })
+          : HarnessI18n.t("customize.uninstall.label"),
         "plugins-menu-item",
       );
       entry.type = "button";
@@ -310,8 +318,8 @@
     const named = offering.length > 1;
     return offering.flatMap(({ info, actions }) =>
       ADD_ITEMS.filter(([action]) => actions.includes(action)).map(
-        ([action, label, testid]) => ({
-          label: named ? label + " to " + providerName(info) : label,
+        ([action, testid]) => ({
+          label: addLabel(action, named ? providerName(info) : null),
           testid: testid + "-" + info.id,
           open: () => OPEN[action](info),
         }),
@@ -349,7 +357,9 @@
   }
   function openAddDialog(info) {
     addInfo = info;
-    addTitle.textContent = "Add a marketplace to " + providerName(info);
+    addTitle.textContent = HarnessI18n.t("customize.add.marketplace_to", {
+      provider: providerName(info),
+    });
     addInput.value = "";
     addError.textContent = "";
     addDialog.showModal();
@@ -379,7 +389,7 @@
     }
     addDialog.close();
     report(
-      "Started in " + providerName(info) + ". Track Operations, then Refresh.",
+      HarnessI18n.t("customize.add.started", { provider: providerName(info) }),
     );
     pollOperations();
   }
@@ -395,27 +405,46 @@
     addTitle.id = "plugins-add-title";
     dialog.setAttribute("aria-labelledby", "plugins-add-title");
     addForm = node("form", undefined, "plugins-add-form", "plugins-add-form");
-    addInput = node("input", undefined, "plugins-add-source", "plugins-add-source");
+    addInput = node(
+      "input",
+      undefined,
+      "plugins-add-source",
+      "plugins-add-source",
+    );
     addInput.type = "text";
     addInput.required = true;
     addInput.autocomplete = "off";
     addInput.spellcheck = false;
     addInput.setAttribute("aria-describedby", "plugins-add-hint");
-    const field = node("label", "Source", "plugins-add-field");
+    const field = node(
+      "label",
+      HarnessI18n.t("customize.add.source"),
+      "plugins-add-field",
+    );
     field.append(addInput);
     const hint = node(
       "p",
-      "owner/repo or an https:// URL",
+      HarnessI18n.t("customize.add.hint"),
       "hint",
       "plugins-add-hint",
     );
     hint.id = "plugins-add-hint";
     addError = node("p", undefined, "plugins-add-error", "plugins-add-error");
     addError.setAttribute("role", "alert");
-    const cancel = node("button", "Cancel", "button secondary", "plugins-add-cancel");
+    const cancel = node(
+      "button",
+      HarnessI18n.t("customize.add.cancel"),
+      "button secondary",
+      "plugins-add-cancel",
+    );
     cancel.type = "button";
     cancel.onclick = () => dialog.close();
-    addSubmit = node("button", "Add", "button primary", "plugins-add-submit");
+    addSubmit = node(
+      "button",
+      HarnessI18n.t("customize.add.submit"),
+      "button primary",
+      "plugins-add-submit",
+    );
     addSubmit.type = "submit";
     const actions = node("div", undefined, "plugins-add-actions");
     actions.append(cancel, addSubmit);
@@ -439,13 +468,7 @@
         action: "plugin_install",
         name: variant.id.replace(/^plugin:/, ""),
       });
-      report(
-        "Installation of " +
-          label +
-          " started in " +
-          where +
-          ". Track Operations, then Refresh.",
-      );
+      report(HarnessI18n.t("customize.install.started", { label, where }));
       pollOperations();
     });
   }
@@ -456,6 +479,19 @@
     status.hidden = !text;
   }
   const capitalized = (text) => text.charAt(0).toUpperCase() + text.slice(1);
+  // Display names of the scopes and of the on/off words; the protocol values keep their English form.
+  const scopeName = (scope) =>
+    scope === "user"
+      ? HarnessI18n.t("customize.scope.user")
+      : scope === "project"
+        ? HarnessI18n.t("customize.scope.project")
+        : scope === "local"
+          ? HarnessI18n.t("customize.scope.local")
+          : capitalized(scope);
+  const onOffText = (enabled) =>
+    enabled
+      ? HarnessI18n.t("customize.state.on")
+      : HarnessI18n.t("customize.state.off");
 
   const projectLabel = () =>
     projectSelect?.selectedOptions[0]?.textContent || view.project;
@@ -525,10 +561,13 @@
           });
         }
         report(
-          projectLabel() +
-            (body.trust?.trusted
-              ? " is trusted for Codex and Claude Code in KeepHarness."
-              : " is no longer trusted by Codex or Claude Code."),
+          body.trust?.trusted
+            ? HarnessI18n.t("customize.trust.trusted", {
+                project: projectLabel(),
+              })
+            : HarnessI18n.t("customize.trust.untrusted", {
+                project: projectLabel(),
+              }),
         );
       } catch (error) {
         current = currentTrustContext(context);
@@ -566,20 +605,21 @@
         )?.approved;
         report(
           actual === approved
-            ? server +
-                " is now " +
-                (approved ? "approved" : "not approved") +
-                " for " +
-                projectLabel() +
-                "."
+            ? approved
+              ? HarnessI18n.t("customize.mcp.now_approved", {
+                  server,
+                  project: projectLabel(),
+                })
+              : HarnessI18n.t("customize.mcp.now_not_approved", {
+                  server,
+                  project: projectLabel(),
+                })
             : body.trust?.required
-              ? "Approval saved for " +
-                server +
-                ". Trust " +
-                projectLabel() +
-                " before it can run."
-              : server +
-                " remains not approved because another CLI settings layer denies it.",
+              ? HarnessI18n.t("customize.mcp.saved_trust_first", {
+                  server,
+                  project: projectLabel(),
+                })
+              : HarnessI18n.t("customize.mcp.denied", { server }),
         );
       } catch (error) {
         current = currentTrustContext(context);
@@ -611,29 +651,34 @@
     const approvals = states.get("claude")?.mcp_approvals || [];
     if (!trust && !approvals.length) return;
     trustPanel.hidden = false;
-    trustPanel.setAttribute("aria-label", "Project trust and MCP approvals");
+    trustPanel.setAttribute(
+      "aria-label",
+      HarnessI18n.t("customize.trust.aria_label"),
+    );
     if (trust?.inherited_from)
       trustPanel.append(
         node(
           "p",
-          "Codex still loads trusted configuration from " +
-            trust.inherited_from +
-            ". Revoking this project's trust does not revoke its parent.",
+          HarnessI18n.t("customize.trust.inherited", {
+            from: trust.inherited_from,
+          }),
           "project-trust-inherited",
         ),
       );
     if (trust?.required) {
       const copy = node("div", undefined, "project-trust-copy");
       copy.append(
-        node("strong", "Trust " + projectLabel() + "?"),
         node(
-          "p",
-          "Trusting this project applies to both Codex and Claude Code in KeepHarness. It enables project instructions, Claude hooks and environment settings, including env entries. Versioned .mcp.json servers approved in project settings can then run; other servers still need approval below.",
+          "strong",
+          HarnessI18n.t("customize.trust.question", {
+            project: projectLabel(),
+          }),
         ),
+        node("p", HarnessI18n.t("customize.trust.explain")),
       );
       const accept = node(
         "button",
-        "Trust " + projectLabel(),
+        HarnessI18n.t("customize.trust.accept", { project: projectLabel() }),
         "button primary",
       );
       accept.type = "button";
@@ -646,17 +691,14 @@
       const context = trustContext(provider),
         revoke = node(
           "button",
-          "Revoke trust for " + projectLabel(),
+          HarnessI18n.t("customize.trust.revoke", { project: projectLabel() }),
           "button secondary",
         );
       revoke.type = "button";
       revoke.disabled = !currentTrustContext(context);
       revoke.onclick = () => writeTrust(context, false);
       trustPanel.append(
-        node(
-          "p",
-          "Trusted by Codex or Claude Code. Revoking trust applies to both CLIs.",
-        ),
+        node("p", HarnessI18n.t("customize.trust.trusted_note")),
         revoke,
       );
     }
@@ -673,17 +715,18 @@
         node("strong", item.server),
         node(
           "small",
-          "Project MCP server · " +
-            (item.enabled === false
-              ? "Disabled by owner"
-              : item.approved
-                ? "Approved"
-                : "Not approved"),
+          item.enabled === false
+            ? HarnessI18n.t("customize.mcp.status_disabled")
+            : item.approved
+              ? HarnessI18n.t("customize.mcp.status_approved")
+              : HarnessI18n.t("customize.mcp.status_not_approved"),
         ),
       );
       const toggle = node(
         "button",
-        (item.approved ? "Revoke" : "Approve") + " " + item.server,
+        item.approved
+          ? HarnessI18n.t("customize.mcp.revoke", { server: item.server })
+          : HarnessI18n.t("customize.mcp.approve", { server: item.server }),
         "button secondary",
       );
       toggle.type = "button";
@@ -722,7 +765,11 @@
         acceptProviderBody(info.id, body);
         rowErrors.delete(key);
         report(
-          label + " is now " + onOff(!stateItem.enabled) + " in " + where + ".",
+          HarnessI18n.t("customize.state.changed", {
+            label,
+            state: onOffText(!stateItem.enabled),
+            where,
+          }),
         );
       } catch (error) {
         current = project === view.project;
@@ -734,11 +781,16 @@
           showProviderNotices();
           const now = fresh.items.find((x) => x.id === stateItem.id);
           report(
-            where +
-              " changed since this page loaded: " +
-              label +
-              (now ? " is now " + onOff(now.enabled) : " was removed") +
-              ". Try again.",
+            now
+              ? HarnessI18n.t("customize.state.changed_now", {
+                  where,
+                  label,
+                  state: onOffText(now.enabled),
+                })
+              : HarnessI18n.t("customize.state.changed_removed", {
+                  where,
+                  label,
+                }),
           );
         } else {
           rowErrors.set(key, error.message);
@@ -791,37 +843,40 @@
       cell.append(
         node(
           "span",
-          "Changed outside KeepHarness",
+          HarnessI18n.t("customize.plugin.changed_outside"),
           "pill plugins-changed",
           "plugin-changed",
         ),
       );
     let text = !read?.snapshot
-      ? where + ": " + (read?.error || "State is not readable here yet.")
+      ? HarnessI18n.t("customize.plugin.where_text", {
+          where,
+          text:
+            read?.error || HarnessI18n.t("customize.plugin.state_unreadable"),
+        })
       : matchingStates.length > 1
-        ? where +
-          ": Multiple installed entries share this name; manage them in the CLI."
+        ? HarnessI18n.t("customize.plugin.multiple_installed", { where })
         : !stateItem && variants.some((item) => item.status === "installed")
-          ? where +
-            ": The catalog reports this plugin as installed, but provider state did not return a matching item."
+          ? HarnessI18n.t("customize.plugin.catalog_unmatched", { where })
           : !stateItem && variants.length > 1
-            ? where +
-              ": Multiple catalog entries share this name; choose one in the CLI."
+            ? HarnessI18n.t("customize.plugin.multiple_catalog", { where })
             : !stateItem &&
                 variants.length === 1 &&
                 variants[0].status === "available"
-              ? "Not installed in " + where + "."
+              ? HarnessI18n.t("customize.plugin.not_installed", { where })
               : !stateItem
-                ? where + ": This plugin is not offered by this provider."
+                ? HarnessI18n.t("customize.plugin.not_offered", { where })
                 : [
-                    where +
-                      ": " +
-                      capitalized(stateItem.scope) +
-                      " · " +
-                      stateItem.source,
+                    HarnessI18n.t("customize.plugin.source_line", {
+                      where,
+                      scope: scopeName(stateItem.scope),
+                      source: stateItem.source,
+                    }),
                     stateItem.reason,
                     stateItem.affects?.length &&
-                      "Also affects: " + stateItem.affects.join(", "),
+                      HarnessI18n.t("customize.plugin.affects", {
+                        list: stateItem.affects.join(", "),
+                      }),
                     rowErrors.get(info.id + "|" + stateItem.id),
                   ]
                     .filter(Boolean)
@@ -840,7 +895,10 @@
       );
       input.type = "button";
       input.setAttribute("role", "switch");
-      input.setAttribute("aria-label", label + " in " + where);
+      input.setAttribute(
+        "aria-label",
+        HarnessI18n.t("customize.plugin.switch_label", { label, where }),
+      );
       input.setAttribute("aria-checked", String(stateItem.enabled));
       input.setAttribute("aria-describedby", hint.id);
       input.dataset.itemId = stateItem.id;
@@ -858,14 +916,14 @@
       const variant = variants[0];
       const installButton = node(
         "button",
-        "Install",
+        HarnessI18n.t("customize.plugin.install"),
         "button secondary",
         "plugin-install",
       );
       installButton.type = "button";
       installButton.setAttribute(
         "aria-label",
-        "Install " + label + " in " + where,
+        HarnessI18n.t("customize.plugin.install_label", { label, where }),
       );
       installButton.onclick = () => install(group, info, variant);
       hint.textContent = text;
@@ -896,7 +954,10 @@
     article.dataset.itemId = cardItem.id;
     const open = node("button", undefined, "plugin-card-open");
     open.type = "button";
-    open.setAttribute("aria-label", "View " + label + " details");
+    open.setAttribute(
+      "aria-label",
+      HarnessI18n.t("customize.card.view_details", { label }),
+    );
     const text = node("span", undefined, "plugin-card-text");
     text.append(node("strong", label, undefined, "plugin-name"));
     if (cardItem.description)
@@ -915,19 +976,25 @@
     );
     if (installedTargets(group, true).length) {
       actionButton.textContent = "⋯";
-      actionButton.setAttribute("aria-label", label + " actions");
+      actionButton.setAttribute(
+        "aria-label",
+        HarnessI18n.t("customize.card.actions", { label }),
+      );
       actionButton.setAttribute("aria-haspopup", "menu");
       actionButton.setAttribute("aria-expanded", "false");
       actionButton.onclick = () => openMenu(actionButton, group, true);
     } else if (hasInstallTarget) {
       actionButton.textContent = "+";
-      actionButton.setAttribute("aria-label", "Install " + label);
+      actionButton.setAttribute(
+        "aria-label",
+        HarnessI18n.t("customize.card.install", { label }),
+      );
       actionButton.onclick = () => openDetail(group, true, source);
     } else {
       actionButton.textContent = "›";
       actionButton.setAttribute(
         "aria-label",
-        "View " + label + " provider availability",
+        HarnessI18n.t("customize.card.view_availability", { label }),
       );
       actionButton.onclick = () => openDetail(group, true, source);
     }
@@ -949,7 +1016,8 @@
           .flatMap((info) => providerVariants(group, info))
           .map(marketplace),
       );
-      if (!sources.size) sources.add("Local plugins");
+      if (!sources.size)
+        sources.add(HarnessI18n.t("customize.marketplace.local"));
       for (const source of sources) {
         if (!byMarketplace.has(source)) byMarketplace.set(source, []);
         byMarketplace.get(source).push(group);
@@ -986,8 +1054,14 @@
       "plugin-detail-back",
     );
     back.type = "button";
-    back.setAttribute("aria-label", "Back to plugins");
-    back.append(icon("chevron-left"), document.createTextNode("Plugins"));
+    back.setAttribute(
+      "aria-label",
+      HarnessI18n.t("customize.detail.back_aria"),
+    );
+    back.append(
+      icon("chevron-left"),
+      document.createTextNode(HarnessI18n.t("customize.detail.back")),
+    );
     back.onclick = () => {
       view.detailKey = "";
       renderList();
@@ -1018,12 +1092,15 @@
     const versionValue = metadata.version;
     if (versionValue) {
       const version = node("dl", undefined, "plugin-detail-facts");
-      version.append(node("dt", "Version"), node("dd", versionValue));
+      version.append(
+        node("dt", HarnessI18n.t("customize.detail.version")),
+        node("dd", versionValue),
+      );
       detail.append(version);
     }
     for (const [name, entries] of [
-      ["Apps", metadata.apps],
-      ["Skills", metadata.skills],
+      [HarnessI18n.t("customize.detail.apps"), metadata.apps],
+      [HarnessI18n.t("customize.detail.skills"), metadata.skills],
     ]) {
       if (!Array.isArray(entries)) continue;
       if (!entries.length) continue;
@@ -1038,8 +1115,8 @@
     }
     const attribution = node("dl", undefined, "plugin-detail-facts");
     for (const [name, value] of [
-      ["Developer", metadata.developer],
-      ["Source", metadata.source],
+      [HarnessI18n.t("customize.detail.developer"), metadata.developer],
+      [HarnessI18n.t("customize.detail.source"), metadata.source],
     ].filter(([, value]) => value))
       attribution.append(node("dt", name), node("dd", value));
     if (attribution.children.length) detail.append(attribution);
@@ -1050,7 +1127,7 @@
       "plugin-providers",
     );
     providers.tabIndex = -1;
-    providers.append(node("h3", "Providers"));
+    providers.append(node("h3", HarnessI18n.t("customize.detail.providers")));
     for (const info of view.clis) {
       const providerRow = node(
         "div",
@@ -1082,12 +1159,14 @@
     }
     const more = node("button", "⋯", "plugins-more", "plugin-menu-button");
     more.type = "button";
-    more.setAttribute("aria-label", label + " actions");
+    more.setAttribute(
+      "aria-label",
+      HarnessI18n.t("customize.card.actions", { label }),
+    );
     more.setAttribute("aria-haspopup", "menu");
     more.setAttribute("aria-expanded", "false");
     more.disabled = !installedTargets(group).length;
-    if (more.disabled)
-      more.title = "Provider state did not report an installed item.";
+    if (more.disabled) more.title = HarnessI18n.t("customize.row.no_installed");
     else more.onclick = () => openMenu(more, group);
     const menuWrap = node("div", undefined, "plugins-row-menu");
     menuWrap.append(more);
@@ -1119,18 +1198,20 @@
       node("h4", item.name),
       node(
         "p",
-        providerName(info) +
-          ": " +
-          capitalized(item.scope) +
-          " · " +
-          item.source,
+        HarnessI18n.t("customize.plugin.source_line", {
+          where: providerName(info),
+          scope: scopeName(item.scope),
+          source: item.source,
+        }),
         "plugins-resource-source",
       ),
     );
     row.append(
       node(
         "p",
-        (item.enabled ? "Enabled" : "Disabled") +
+        (item.enabled
+          ? HarnessI18n.t("customize.resource.enabled")
+          : HarnessI18n.t("customize.resource.disabled")) +
           (item.reason ? " · " + item.reason : ""),
         "plugins-resource-status",
       ),
@@ -1141,7 +1222,7 @@
       row.append(
         node(
           "span",
-          "Changed outside KeepHarness",
+          HarnessI18n.t("customize.plugin.changed_outside"),
           "pill plugins-changed",
           "resource-changed",
         ),
@@ -1152,7 +1233,7 @@
         continue;
       const text =
         key === "size_bytes"
-          ? value + " bytes"
+          ? HarnessI18n.t("customize.resource.size", { size: value })
           : typeof value === "object"
             ? JSON.stringify(value, null, 2)
             : String(value);
@@ -1162,7 +1243,10 @@
     if (typeof item.details?.preview === "string") {
       const preview = node("details", undefined, "plugins-resource-preview");
       preview.append(
-        node("summary", "Preview " + item.name),
+        node(
+          "summary",
+          HarnessI18n.t("customize.resource.preview", { name: item.name }),
+        ),
         node("pre", item.details.preview),
       );
       row.append(preview);
@@ -1176,7 +1260,13 @@
       const section = node("section", undefined, "plugins-resources");
       section.setAttribute(
         "aria-label",
-        providerName(info) + (kind === "hook" ? " hooks" : " rules"),
+        kind === "hook"
+          ? HarnessI18n.t("customize.resource.section_hooks", {
+              provider: providerName(info),
+            })
+          : HarnessI18n.t("customize.resource.section_rules", {
+              provider: providerName(info),
+            }),
       );
       section.append(node("h2", providerName(info)));
       const data = states.get(info.id);
@@ -1188,11 +1278,7 @@
         section.append(node("p", warning, "hint"));
       if (kind === "instructions")
         section.append(
-          node(
-            "p",
-            "Previews are best effort; open the source file for the full text.",
-            "hint",
-          ),
+          node("p", HarnessI18n.t("customize.resource.preview_note"), "hint"),
         );
       const items = (data?.snapshot?.items || []).filter(
         (item) =>
@@ -1212,20 +1298,22 @@
           node(
             "p",
             query
-              ? "No matches for “" + view.query.trim() + "”."
+              ? HarnessI18n.t("customize.resource.no_matches", {
+                  query: view.query.trim(),
+                })
               : kind === "hook"
-                ? "No hooks found"
-                : "No rules found",
+                ? HarnessI18n.t("customize.resource.no_hooks")
+                : HarnessI18n.t("customize.resource.no_rules"),
             "hint",
           ),
         );
         if (!query && kind === "hook")
           section.append(
-            node("p", "Configured hooks will appear here", "hint"),
+            node("p", HarnessI18n.t("customize.resource.hooks_hint"), "hint"),
           );
       }
       for (const scope of [...new Set(items.map((item) => item.scope))]) {
-        section.append(node("h3", capitalized(scope)));
+        section.append(node("h3", scopeName(scope)));
         section.append(
           ...items
             .filter((item) => item.scope === scope)
@@ -1237,7 +1325,7 @@
     list.replaceChildren(...sections);
     if (!sections.length)
       list.append(
-        node("p", "No provider CLI was found. Check AI Providers.", "hint"),
+        node("p", HarnessI18n.t("customize.plugin.no_provider_cli"), "hint"),
       );
   }
 
@@ -1246,14 +1334,13 @@
     if (view.loading) {
       const wait = node(
         "p",
-        "Loading plugins… this can take up to 15 seconds.",
+        HarnessI18n.t("customize.plugin.loading"),
         "hint",
         "plugins-loading",
       );
       wait.setAttribute("role", "status");
       return list.replaceChildren(wait);
     }
-    const [, label] = CHIPS.find(([id]) => id === view.chip);
     const empty = (message) =>
       list.replaceChildren(node("p", message, "hint", "plugins-empty"));
     if (resourceKind()) return renderResources(resourceKind());
@@ -1269,16 +1356,17 @@
       return rows.length
         ? list.replaceChildren(...rows.map(row))
         : empty(
-            "No " +
-              (kind === "skill" ? view.skillScope + " " : "") +
-              label.toLowerCase() +
-              " are listed.",
+            kind === "app"
+              ? HarnessI18n.t("customize.empty.apps")
+              : kind === "mcp"
+                ? HarnessI18n.t("customize.empty.mcps")
+                : view.skillScope === "project"
+                  ? HarnessI18n.t("customize.empty.project_skills")
+                  : HarnessI18n.t("customize.empty.user_skills"),
           );
     }
     if (!view.clis.length)
-      return empty(
-        "No Codex or Claude Code CLI was found. Check the environment on the AI Providers page.",
-      );
+      return empty(HarnessI18n.t("customize.plugin.no_cli"));
     const query = view.query.trim().toLocaleLowerCase();
     if (view.mode === "manage") {
       const rows = installed("plugin").filter((group) =>
@@ -1289,8 +1377,10 @@
       if (!rows.length)
         return empty(
           query
-            ? "No plugins match “" + view.query.trim() + "”."
-            : "No plugins are installed.",
+            ? HarnessI18n.t("customize.plugin.no_match", {
+                query: view.query.trim(),
+              })
+            : HarnessI18n.t("customize.plugin.none_installed"),
         );
       return list.replaceChildren(...rows.map(row));
     }
@@ -1320,8 +1410,10 @@
     if (!rows.length)
       return empty(
         query
-          ? "No plugins match “" + view.query.trim() + "”."
-          : "No plugins are available.",
+          ? HarnessI18n.t("customize.plugin.no_match", {
+              query: view.query.trim(),
+            })
+          : HarnessI18n.t("customize.plugin.none_available"),
       );
     renderDirectory(rows);
   }
@@ -1335,7 +1427,12 @@
         ...(data?.warnings || []),
       ]
         .filter(Boolean)
-        .map((line) => providerName(info) + ": " + line);
+        .map((line) =>
+          HarnessI18n.t("customize.plugin.where_text", {
+            where: providerName(info),
+            text: line,
+          }),
+        );
     });
     note.textContent = lines.join("\n");
     note.hidden = !lines.length || view.loading;
@@ -1371,7 +1468,9 @@
     modeButton.replaceChildren(
       icon(view.mode === "directory" ? "settings" : "cube"),
       document.createTextNode(
-        view.mode === "directory" ? "Manage" : "Browse directory",
+        view.mode === "directory"
+          ? HarnessI18n.t("customize.toolbar.manage")
+          : HarnessI18n.t("customize.toolbar.browse"),
       ),
     );
     modeButton.hidden = view.chip !== "plugins";
@@ -1393,7 +1492,12 @@
       tab.tabIndex = selected ? 0 : -1;
     }
     const search = panel.querySelector(".plugins-search");
-    search.placeholder = "Search " + (resourceKind() ? view.chip : "plugins");
+    search.placeholder =
+      view.chip === "hooks"
+        ? HarnessI18n.t("customize.search.hooks")
+        : view.chip === "rules"
+          ? HarnessI18n.t("customize.search.rules")
+          : HarnessI18n.t("customize.search.plugins");
     search.setAttribute("aria-label", search.placeholder);
     renderList();
   }
@@ -1401,7 +1505,10 @@
   function build() {
     const chips = node("div", undefined, "plugins-chips");
     chips.setAttribute("role", "group");
-    chips.setAttribute("aria-label", "Plugin categories");
+    chips.setAttribute(
+      "aria-label",
+      HarnessI18n.t("customize.chip.group_label"),
+    );
     for (const [id] of CHIPS) {
       const chip = node(
         "button",
@@ -1420,8 +1527,11 @@
     }
     const search = node("input", undefined, "plugins-search", "plugins-search");
     search.type = "search";
-    search.placeholder = "Search plugins";
-    search.setAttribute("aria-label", "Search plugins");
+    search.placeholder = HarnessI18n.t("customize.search.plugins");
+    search.setAttribute(
+      "aria-label",
+      HarnessI18n.t("customize.search.plugins"),
+    );
     search.oninput = () => {
       view.query = search.value;
       renderList();
@@ -1435,7 +1545,7 @@
     refreshButton.type = "button";
     refreshButton.replaceChildren(
       icon("refresh"),
-      document.createTextNode("Refresh"),
+      document.createTextNode(HarnessI18n.t("customize.toolbar.refresh")),
     );
     refreshButton.onclick = () => loadCatalogs(true);
     modeButton = node("button", undefined, "button secondary", "plugins-mode");
@@ -1451,19 +1561,29 @@
     addButton.type = "button";
     addButton.setAttribute("aria-haspopup", "menu");
     addButton.setAttribute("aria-expanded", "false");
-    addButton.replaceChildren(icon("plus"), document.createTextNode("Add"));
+    addButton.replaceChildren(
+      icon("plus"),
+      document.createTextNode(HarnessI18n.t("customize.toolbar.add")),
+    );
     addButton.onclick = () => openAddMenu();
     addWrapper.append(addButton);
     addDialog = buildAddDialog();
     const toolbar = node("div", undefined, "plugins-toolbar");
-    const projectLabelNode = node("label", "Project", "plugins-project-label");
+    const projectLabelNode = node(
+      "label",
+      HarnessI18n.t("customize.toolbar.project"),
+      "plugins-project-label",
+    );
     projectSelect = node(
       "select",
       undefined,
       "plugins-project",
       "plugins-project",
     );
-    projectSelect.setAttribute("aria-label", "Project for plugins");
+    projectSelect.setAttribute(
+      "aria-label",
+      HarnessI18n.t("customize.toolbar.project_aria"),
+    );
     projectSelect.onchange = () => {
       view.project = projectSelect.value;
       rowErrors.clear();
@@ -1489,7 +1609,10 @@
       "plugins-scope-tabs",
     );
     scopeTabs.setAttribute("role", "tablist");
-    scopeTabs.setAttribute("aria-label", "Skill scope");
+    scopeTabs.setAttribute(
+      "aria-label",
+      HarnessI18n.t("customize.scope.aria_label"),
+    );
     scopeTabs.hidden = true;
     scopeTabs.addEventListener("keydown", (event) => {
       const tabs = [...scopeTabs.children];
@@ -1572,7 +1695,9 @@
         setProviderNotices(id, result.body.external_changes);
       } else {
         states.set(id, {
-          error: result?.error?.message || "State is not readable here yet.",
+          error:
+            result?.error?.message ||
+            HarnessI18n.t("customize.plugin.state_unreadable"),
         });
         setProviderNotices(id, []);
       }
@@ -1592,7 +1717,7 @@
         (info) => info.found && CLIS.includes(info.id),
       );
       const projects = [
-        [NO_PROJECT, "No project"],
+        [NO_PROJECT, HarnessI18n.t("customize.toolbar.no_project")],
         ...(state?.settings?.projects || []).map((project) => [
           project.id,
           project.label || project.id,
