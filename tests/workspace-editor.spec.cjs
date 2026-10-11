@@ -263,7 +263,7 @@ const contrastOf = (page, selector) =>
     assert.equal(await railToggle.getAttribute("title"), "File editor");
     assert.equal(await railToggle.getAttribute("aria-pressed"), "false", "starts unpressed");
     assert.equal(await editorOpen(page), false, "chat-first: the pane starts closed");
-    assert.equal(await savedValue(page, "editor_open"), false, "default is saved as false");
+    await waitSaved(page, "editor_open", false); // the default is saved as false, after the startup save
 
     await openSettingsWorkspace(page);
     const group = page.getByTestId("workspace-group");
