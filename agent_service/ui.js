@@ -4,6 +4,7 @@ const MAX_ATTACHMENT_BYTES = 100 * 1024 * 1024;
 const AUDIO_ATTACHMENT_TIMEOUT_MS = 8200000;
 ("use strict");
 const $ = (id) => document.getElementById(id);
+const t = (key, params) => HarnessI18n.t(key, params);
 const prefs = window.HarnessPrefs;
 let providers = {},
   models = [],
@@ -1014,7 +1015,9 @@ async function refreshComposerGit() {
     );
     if (request !== composerGitRequest || id !== $("project").value) return;
     $("composer-git").textContent = data.revision || "";
-    $("composer-git").title = data.revision ? "Git: " + data.revision : "";
+    $("composer-git").title = data.revision
+      ? t("composer.git.title", { revision: data.revision })
+      : "";
     $("composer-git").hidden = !data.revision;
   } catch {
     if (request === composerGitRequest && id === $("project").value)
@@ -1159,12 +1162,12 @@ function syncComposerAvailability() {
   $("model-availability-title").textContent =
     condition?.title ||
     (modelAvailabilityError
-      ? "Couldn't check the models"
-      : "No model available");
+      ? t("composer.availability.title_error")
+      : t("composer.availability.title_none"));
   $("model-availability-detail").textContent =
     condition?.message ||
     modelAvailabilityError ||
-    "Add and enable a provider in the admin panel.";
+    t("composer.availability.detail_none");
   $("prompt").disabled = blocked;
   return blocked;
 }
@@ -1190,28 +1193,35 @@ const modelLabel = (model) =>
     ? model.name
     : friendlyModelName(model.id));
 const modelName = (id) =>
-  id ? modelLabel(models.find((m) => m.id === id) || { id }) : "No model";
+  id
+    ? modelLabel(models.find((m) => m.id === id) || { id })
+    : t("composer.model.none");
 const selectedIdentity = () => {
   const m = selected();
   return m
     ? {
         backend: m.backend,
-        provider: providerNames[m.backend] || m.backend || "Provider",
+        provider:
+          providerNames[m.backend] ||
+          m.backend ||
+          t("composer.provider.fallback"),
         model: modelName(m.id),
         modelIcon: modelIcon(m.id),
       }
     : null;
 };
+// Catalog keys for the effort labels; read through effortLabel so a language switch shows at once.
 const efforts = {
-  none: "No reasoning",
-  configured: "Default",
-  low: "Low",
-  medium: "Medium",
-  high: "High",
-  xhigh: "Very high",
-  max: "Maximum",
-  ultra: "Ultra",
+  none: "composer.effort.none",
+  configured: "composer.effort.configured",
+  low: "composer.effort.low",
+  medium: "composer.effort.medium",
+  high: "composer.effort.high",
+  xhigh: "composer.effort.xhigh",
+  max: "composer.effort.max",
+  ultra: "composer.effort.ultra",
 };
+const effortLabel = (effort) => (efforts[effort] ? t(efforts[effort]) : effort);
 // Copy for a server code, read from the `error.<code>` catalog key. Undefined when the key is missing,
 // so callers keep their own fallback (the generic sentence, or the English server message).
 function userError(code) {
@@ -1413,16 +1423,14 @@ async function refreshProjectPermissions(timeout = 30000) {
     if (policyError) {
       const showingPolicyError = $("status").textContent === policyError;
       policyError = "";
-      if (showingPolicyError) status("Ready to chat");
+      if (showingPolicyError) status(t("composer.status.ready"));
     }
     updateEfforts();
     if ([...$("effort").options].some((o) => o.value === effort))
       $("effort").value = effort;
   } catch (e) {
     if (sequence !== policySequence) return;
-    policyError =
-      "Couldn't load this project's permissions. Select it again to retry: " +
-      e.message;
+    policyError = t("composer.permissions.load_error", { detail: e.message });
     status(policyError);
     return false;
   } finally {
@@ -1460,30 +1468,25 @@ function updateModelPermissions() {
     m?.backend === "deepseek" ||
     (executionMode !== "native" && m?.backend !== "local");
   const imageHelp = textOnly
-    ? "Images unavailable in this integration"
-    : "Images depending on model support";
+    ? t("composer.attachments.images_unavailable")
+    : t("composer.attachments.images_depend");
   const videoHelp = canAttachVideo()
-    ? "MP4: sampled frames" +
-      (m.capabilities.video_transcription
-        ? " and local speech transcription"
-        : " · audio-only videos only: local transcription unavailable")
-    : "MP4 unavailable for this model or mode";
-  const attachmentHelp =
-    "Up to 100 MiB per file · audio: up to 4h, transcribed locally · " +
-    imageHelp +
-    " · " +
-    videoHelp;
+    ? m.capabilities.video_transcription
+      ? t("composer.attachments.video_transcribed")
+      : t("composer.attachments.video_audio_only")
+    : t("composer.attachments.video_unavailable");
+  const attachmentHelp = t("composer.attachments.help", {
+    images: imageHelp,
+    video: videoHelp,
+  });
   $("attach").title = full
-    ? MAX_ATTACHMENTS +
-      " of " +
-      MAX_ATTACHMENTS +
-      " files attached. Remove one to add another."
+    ? t("composer.attachments.limit_reached", { max: MAX_ATTACHMENTS })
     : allowed
-      ? "Attach file. " + attachmentHelp
-      : "Attachments not allowed for this model";
+      ? t("composer.attachments.title", { help: attachmentHelp })
+      : t("composer.attachments.not_allowed");
   $("attachment-help").textContent = allowed
     ? attachmentHelp
-    : "Attachments disabled for this model. Review your permissions in the admin panel.";
+    : t("composer.attachments.disabled");
   let panel = $("model-permissions");
   if (!panel) {
     panel = document.createElement("p");
@@ -1494,15 +1497,19 @@ function updateModelPermissions() {
   panel.hidden = !m?.permissions;
   if (m?.permissions)
     panel.textContent =
-      (m.permissions.upload ? "Attachments allowed" : "No attachments") +
+      (m.permissions.upload
+        ? t("composer.permissions.upload_allowed")
+        : t("composer.permissions.upload_none")) +
       " · " +
       (m.permissions.internet
         ? m.backend === "local"
-          ? "Internet allowed for local tools"
-          : "Internet allowed"
-        : "Internet disabled") +
+          ? t("composer.permissions.internet_local")
+          : t("composer.permissions.internet_allowed")
+        : t("composer.permissions.internet_disabled")) +
       " · " +
-      (m.permissions.shell ? "Terminal allowed" : "Terminal disabled");
+      (m.permissions.shell
+        ? t("composer.permissions.shell_allowed")
+        : t("composer.permissions.shell_disabled"));
 }
 function updateEfforts() {
   syncAccessMode();
@@ -1517,7 +1524,7 @@ function updateEfforts() {
     ...m.efforts.map((e) => {
       const o = document.createElement("option");
       o.value = e;
-      o.textContent = efforts[e] || e;
+      o.textContent = effortLabel(e);
       return o;
     }),
   );
@@ -1526,14 +1533,14 @@ function updateEfforts() {
   if (preferred) $("effort").value = preferred;
   $("model-note").textContent =
     m.backend === "local"
-      ? "Local model runs on the server through the Codex CLI · no OpenAI quota · check the sources"
+      ? t("composer.model_note.local")
       : m.backend === "deepseek"
-        ? "DeepSeek API · uses your DeepSeek credits · runs through the Codex CLI"
+        ? t("composer.model_note.deepseek")
         : m.backend === "gemini"
-          ? "Gemini CLI · Google account · subscription quota"
+          ? t("composer.model_note.gemini")
           : m.backend === "claude"
-            ? "Claude Code on the server · Anthropic inference · quota not available"
-            : "Codex CLI on the server · OpenAI inference · uses ChatGPT quota";
+            ? t("composer.model_note.claude")
+            : t("composer.model_note.codex");
 }
 function quotaWindows(q, backend = selected()?.backend) {
   const buckets = q?.rateLimitsByLimitId || { codex: q?.rateLimits },
@@ -2237,12 +2244,12 @@ const history = async (timeout = 30000, background = false) => {
       }
     }
     $("history-note").textContent = legacyHistory
-      ? "Compatible history: previous runs. Update the service to group turns."
+      ? t("sidebar.history.compatible_note")
       : "";
     return true;
   } catch (e) {
     if (request === historyRequest)
-      status("Couldn't load conversations: " + e.message);
+      status(t("sidebar.history.load_failed", { detail: e.message }));
     return false;
   }
 };
@@ -2251,7 +2258,7 @@ function conversationRow(c) {
   row.className = "conversation-row";
   const open = document.createElement("button");
   open.setAttribute("aria-current", c.id === conversation ? "true" : "false");
-  open.textContent = c.title || "Conversation";
+  open.textContent = c.title || t("sidebar.conversation.untitled");
   open.title = open.textContent;
   open.className = c.id === conversation ? "active" : "";
   open.dataset.conversationId = c.id;
@@ -2262,29 +2269,29 @@ function conversationRow(c) {
   actions.hidden = !!c.legacy;
   const trigger = document.createElement("summary");
   trigger.textContent = "⋯";
-  trigger.setAttribute("aria-label", "Actions for " + open.textContent);
-  trigger.title = "Conversation actions";
+  trigger.setAttribute("aria-label", t("sidebar.conversation.actions_for", { title: open.textContent }));
+  trigger.title = t("sidebar.conversation.actions");
   const menu = document.createElement("div");
   menu.className = "conversation-actions-menu";
-  const rename = menuAction("pencil", "Rename conversation");
+  const rename = menuAction("pencil", t("sidebar.menu.rename"));
   rename.onclick = () => {
     actions.open = false;
     if (busy || loading || uploads) return;
     openRenameConversation(c, trigger);
   };
-  const handoff = menuAction("message-plus", "Continue in another app…");
+  const handoff = menuAction("message-plus", t("sidebar.menu.continue_other_app"));
   handoff.onclick = () => {
     actions.open = false;
     if (busy || loading || uploads) return;
     openContinuation(c, trigger);
   };
-  const archive = menuAction("archive", "Archive conversation");
+  const archive = menuAction("archive", t("sidebar.menu.archive"));
   archive.onclick = () => {
     actions.open = false;
     if (busy || loading || uploads) return;
     void archiveConversation(c, true);
   };
-  const remove = menuAction("trash", "Delete permanently");
+  const remove = menuAction("trash", t("sidebar.menu.delete_permanently"));
   remove.onclick = () => {
     actions.open = false;
     if (busy || loading || uploads) return;
@@ -2332,7 +2339,7 @@ function conversationRow(c) {
   icon.setAttribute("aria-hidden", "true");
   const title = document.createElement("span");
   title.className = "conversation-title";
-  title.textContent = c.title || "Conversation";
+  title.textContent = c.title || t("sidebar.conversation.untitled");
   title.dir = "auto";
   open.replaceChildren(icon, title);
   const indicator = conversationIndicator(c);
@@ -2360,23 +2367,23 @@ function conversationRow(c) {
   const project = document.createElement("span");
   project.className = "conversation-project";
   project.textContent =
-    projectDetails[c.project]?.label || c.project || "No project";
+    projectDetails[c.project]?.label || c.project || t("sidebar.project.none");
   meta.append(summary, age, backend, project);
   // Runs started by a scheduled task say so, with the task's title.
   if (c.schedule_title) {
     const scheduled = document.createElement("span");
     scheduled.className = "conversation-scheduled";
-    scheduled.textContent = "Scheduled";
-    scheduled.title = "Scheduled task: " + c.schedule_title;
+    scheduled.textContent = t("sidebar.conversation.scheduled");
+    scheduled.title = t("sidebar.conversation.scheduled_title", { title: c.schedule_title });
     meta.prepend(scheduled);
-    open.title += "\nScheduled task: " + c.schedule_title;
+    open.title += "\n" + t("sidebar.conversation.scheduled_title", { title: c.schedule_title });
   }
   open.append(meta);
   if (conversationState(c) === "needs-you") {
     const peek = document.createElement("button");
     peek.type = "button";
     peek.className = "conversation-peek";
-    peek.textContent = "Peek";
+    peek.textContent = t("sidebar.conversation.peek");
     peek.onclick = (event) => {
       event.stopPropagation();
       void navigate({ kind: "conversation", id: c.id, legacy: c.legacy });
@@ -2395,21 +2402,21 @@ function openRenameConversation(c, trigger) {
     cancel = $("rename-conversation-cancel"),
     error = $("rename-conversation-error");
   let saving = false;
-  input.value = c.title || "Conversation";
+  input.value = c.title || t("sidebar.conversation.untitled");
   input.disabled = false;
   cancel.disabled = false;
-  save.textContent = "Save";
+  save.textContent = t("sidebar.rename.save");
   const validate = () => {
     const length = Array.from(input.value.trim()).length;
     const message = !length
-      ? "Enter a name; spaces only are not allowed."
+      ? t("sidebar.rename.empty")
       : length > 100
-        ? "Use at most 100 characters."
+        ? t("sidebar.rename.too_long")
         : "";
     error.textContent = message;
     input.setAttribute("aria-invalid", String(!!message));
     save.disabled = saving || !!message;
-    $("rename-conversation-count").textContent = length + " / 100 characters";
+    $("rename-conversation-count").textContent = t("sidebar.rename.count", { count: length });
     return !message;
   };
   input.oninput = validate;
@@ -2428,7 +2435,7 @@ function openRenameConversation(c, trigger) {
     input.disabled = true;
     save.disabled = true;
     cancel.disabled = true;
-    save.textContent = "Saving…";
+    save.textContent = t("sidebar.rename.saving");
     try {
       await json("/v1/conversations/" + encodeURIComponent(c.id), {
         method: "PATCH",
@@ -2438,13 +2445,13 @@ function openRenameConversation(c, trigger) {
       await history();
       dialog.close();
     } catch (e) {
-      error.textContent = "Couldn't rename: " + e.message;
+      error.textContent = t("sidebar.rename.failed", { detail: e.message });
     } finally {
       saving = false;
       input.disabled = false;
       save.disabled = false;
       cancel.disabled = false;
-      save.textContent = "Save";
+      save.textContent = t("sidebar.rename.save");
     }
   };
   validate();
@@ -2656,14 +2663,16 @@ async function archiveConversation(c, archived) {
     if (archived && conversation === c.id) newConversation();
     status(
       archived
-        ? "Conversation archived. Find it in Settings › Archived chats."
-        : "Conversation restored.",
+        ? t("sidebar.archive.archived")
+        : t("sidebar.archive.restored"),
     );
     await history();
     if (!$("settings-archived").hidden) await loadArchived();
   } catch (e) {
     const message =
-      (archived ? "Couldn't archive: " : "Couldn't unarchive: ") + e.message;
+      archived
+        ? t("sidebar.archive.archive_failed", { detail: e.message })
+        : t("sidebar.archive.unarchive_failed", { detail: e.message });
     if ($("settings-archived").hidden) status(message);
     else $("archived-error").textContent = message;
   }
@@ -2710,16 +2719,16 @@ async function loadArchived() {
           restore = document.createElement("button"),
           remove = document.createElement("button");
         row.className = "archived-chat";
-        title.textContent = c.title || "Conversation";
+        title.textContent = c.title || t("sidebar.conversation.untitled");
         title.dir = "auto";
         restore.type = remove.type = "button";
         restore.className = remove.className = "btn";
-        restore.textContent = "Unarchive";
-        remove.textContent = "Delete permanently";
-        restore.setAttribute("aria-label", "Unarchive " + title.textContent);
+        restore.textContent = t("sidebar.archive.restore");
+        remove.textContent = t("sidebar.menu.delete_permanently");
+        restore.setAttribute("aria-label", t("sidebar.archive.unarchive_label", { title: title.textContent }));
         remove.setAttribute(
           "aria-label",
-          "Delete permanently " + title.textContent,
+          t("sidebar.archive.delete_label", { title: title.textContent }),
         );
         restore.onclick = () => void archiveConversation(c, false);
         remove.onclick = () => openDeleteConversation(c, remove);
@@ -2730,7 +2739,7 @@ async function loadArchived() {
     $("archived-empty").hidden = archived.conversations.length > 0;
   } catch (e) {
     $("archived-error").textContent =
-      "Couldn't load archived chats: " + e.message;
+      t("sidebar.archive.load_failed", { detail: e.message });
   }
 }
 function openDeleteConversation(c, trigger) {
@@ -2738,7 +2747,7 @@ function openDeleteConversation(c, trigger) {
     confirm = $("delete-conversation-confirm"),
     cancel = $("delete-conversation-cancel"),
     error = $("delete-conversation-error");
-  $("delete-conversation-name").textContent = c.title || "Conversation";
+  $("delete-conversation-name").textContent = c.title || t("sidebar.conversation.untitled");
   error.textContent = "";
   let deleting = false;
   cancel.onclick = () => dialog.close();
@@ -2755,7 +2764,7 @@ function openDeleteConversation(c, trigger) {
     // disabling the focused element makes Chromium drop focus to <body>.
     confirm.setAttribute("aria-disabled", "true");
     cancel.disabled = true;
-    confirm.textContent = "Deleting…";
+    confirm.textContent = t("sidebar.delete.deleting");
     error.textContent = "";
     try {
       await json("/v1/conversations/" + encodeURIComponent(c.id), {
@@ -2766,12 +2775,12 @@ function openDeleteConversation(c, trigger) {
       await history();
       if (!$("settings-archived").hidden) await loadArchived();
     } catch (e) {
-      error.textContent = "Couldn't delete: " + e.message;
+      error.textContent = t("sidebar.delete.failed", { detail: e.message });
     } finally {
       deleting = false;
       confirm.removeAttribute("aria-disabled");
       cancel.disabled = false;
-      confirm.textContent = "Delete permanently";
+      confirm.textContent = t("sidebar.menu.delete_permanently");
     }
   };
   dialog.showModal();
@@ -2847,7 +2856,7 @@ function syncExecutionMode() {
   $("header-execution-mode").textContent = executionModeLabel();
 }
 function newConversation(
-  title = "New Conversation",
+  title = t("sidebar.conversation.new_title"),
   projectId = $("project").value,
   {
     resetExecutionMode = false,
@@ -2863,7 +2872,7 @@ function newConversation(
     uploads
   ) {
     status(
-      "Wait for the current send to finish before starting another conversation.",
+      t("sidebar.new.busy"),
     );
     return;
   }
@@ -2954,7 +2963,7 @@ function newConversation(
 }
 function chooseProject(id) {
   if (busy || loading || uploads) return;
-  if (newConversation("New Conversation", id) === false) return;
+  if (newConversation(t("sidebar.conversation.new_title"), id) === false) return;
   renderProjects();
   history();
   closeSidebar();
@@ -2986,7 +2995,7 @@ function setProjectPreference(id, key, value) {
     [id]: { ...projectPreferences[id], [key]: value },
   };
   if (!prefs.set("project_list_preferences", next)) {
-    status("Couldn't save the project list in this browser. Try again.");
+    status(t("sidebar.project.save_failed"));
     return;
   }
   projectPreferences = next;
@@ -3003,11 +3012,11 @@ function setProjectPreference(id, key, value) {
   status(
     key === "hidden"
       ? value
-        ? "Project removed from the list. Folders and conversations preserved."
-        : "Project restored to the list."
+        ? t("sidebar.project.removed")
+        : t("sidebar.project.restored")
       : value
-        ? "Project added to favorites."
-        : "Project removed from favorites.",
+        ? t("sidebar.project.favorited")
+        : t("sidebar.project.unfavorited"),
   );
 }
 function openDeleteProjectFolder(project, label, trigger) {
@@ -3021,17 +3030,17 @@ function openDeleteProjectFolder(project, label, trigger) {
   const request = new AbortController();
   const messages = {
     project_folder_busy:
-      "There is a pending run or a deletion in progress for this project.",
+      t("sidebar.project_folder.busy"),
     project_directory_shared:
-      "This folder overlaps with another registered project's folder.",
+      t("sidebar.project_folder.shared"),
     project_directory_forbidden:
-      "This folder is protected and cannot be deleted.",
-    project_directory_required: "This project has no main folder.",
-    project_root_unavailable: "The main folder is not available.",
+      t("sidebar.project_folder.forbidden"),
+    project_directory_required: t("sidebar.project_folder.no_main_folder"),
+    project_root_unavailable: t("sidebar.project_folder.root_unavailable"),
     project_folder_changed:
-      "The folder changed since the confirmation. Close and reopen this window.",
+      t("sidebar.project_folder.changed"),
     project_folder_delete_failed:
-      "Couldn't finish the deletion. Part of the contents may have been deleted. Check the folder before trying again.",
+      t("sidebar.project_folder.delete_failed"),
   };
   let preview = null,
     deleting = false;
@@ -3042,7 +3051,7 @@ function openDeleteProjectFolder(project, label, trigger) {
   check.disabled = true;
   confirm.disabled = true;
   cancel.disabled = false;
-  $("delete-project-folder-status").textContent = "Loading path…";
+  $("delete-project-folder-status").textContent = t("sidebar.project_folder.loading_path");
   check.onchange = () => {
     confirm.disabled = !preview || !check.checked || deleting;
   };
@@ -3168,7 +3177,7 @@ function renderProjects() {
           star.textContent = "★ ";
           star.setAttribute("aria-hidden", "true");
           button.prepend(star);
-          button.setAttribute("aria-label", o.textContent + " · Favorite");
+          button.setAttribute("aria-label", t("sidebar.project.favorite_label", { name: o.textContent }));
         }
         const projectIcon = projectIcons[o.value],
           showIcon = !!projectIcon && !projectPreferences[o.value]?.hide_icon;
@@ -3177,7 +3186,7 @@ function renderProjects() {
           img.className = "project-logo";
           img.src = projectIcon.src;
           img.alt = "";
-          img.title = "Detected icon: " + projectIcon.path;
+          img.title = t("sidebar.project.icon_detected", { path: projectIcon.path });
           img.onerror = () => img.remove();
           button.prepend(img);
         }
@@ -3193,7 +3202,7 @@ function renderProjects() {
         trigger.textContent = "⋯";
         trigger.setAttribute(
           "aria-label",
-          "Actions for project " + o.textContent,
+          t("sidebar.project.actions_for", { name: o.textContent }),
         );
         trigger.setAttribute("aria-expanded", "false");
         const menu = document.createElement("div");
@@ -3203,7 +3212,7 @@ function renderProjects() {
         navigate.type = "button";
         navigate.append(
           HarnessUI.icon("folder"),
-          document.createTextNode("Go to project folder"),
+          document.createTextNode(t("sidebar.project.go_to_folder")),
         );
         navigate.onclick = () => {
           menu.hidePopover();
@@ -3214,7 +3223,7 @@ function renderProjects() {
         pin.append(
           HarnessUI.icon("star"),
           document.createTextNode(
-            favorite ? "Remove from favorites" : "Add to favorites",
+            favorite ? t("sidebar.project.remove_favorite") : t("sidebar.project.add_favorite"),
           ),
         );
         pin.onclick = () => {
@@ -3225,9 +3234,9 @@ function renderProjects() {
         remove.type = "button";
         remove.append(
           HarnessUI.icon("x"),
-          document.createTextNode("Remove from list"),
+          document.createTextNode(t("sidebar.project.remove_from_list")),
         );
-        remove.title = "Preserves the project's folders and conversations";
+        remove.title = t("sidebar.project.remove_hint");
         remove.onclick = () => {
           menu.hidePopover();
           setProjectPreference(o.value, "hidden", true);
@@ -3237,7 +3246,7 @@ function renderProjects() {
         deleteFolder.className = "project-delete-folder";
         deleteFolder.append(
           HarnessUI.icon("trash"),
-          document.createTextNode("Delete folder"),
+          document.createTextNode(t("sidebar.project.delete_folder")),
         );
         deleteFolder.onclick = () => {
           menu.hidePopover();
@@ -3278,34 +3287,34 @@ function renderProjects() {
         iconToggle.append(
           HarnessUI.icon("scan"),
           document.createTextNode(
-            showIcon ? "Hide project icon" : "Show project icon",
+            showIcon ? t("sidebar.project.hide_icon") : t("sidebar.project.show_icon"),
           ),
         );
         iconToggle.title = projectIcon
-          ? "Detected icon: " + projectIcon.path
-          : "No icon found in the project";
+          ? t("sidebar.project.icon_detected", { path: projectIcon.path })
+          : t("sidebar.project.icon_none");
         iconToggle.onclick = () => {
           menu.hidePopover();
           setProjectPreference(o.value, "hide_icon", showIcon);
         };
         const edit = document.createElement("button");
         edit.type = "button";
-        edit.title = "Change the name, add folders, and choose the main folder";
+        edit.title = t("sidebar.project.edit_hint");
         edit.append(
           HarnessUI.icon("pencil"),
-          document.createTextNode("Edit project"),
+          document.createTextNode(t("sidebar.project.edit")),
         );
         edit.onclick = () => {
           menu.hidePopover();
           openProjectDialog(o.value);
         };
-        navigate.title = "Open the main folder in the file explorer";
+        navigate.title = t("sidebar.project.open_folder_hint");
         pin.title = favorite
-          ? "Remove this project from favorites"
-          : "Show this project among favorites";
+          ? t("sidebar.project.unfavorite_hint")
+          : t("sidebar.project.favorite_hint");
         deleteFolder.title =
-          "Review deleting the project's main folder from the computer";
-        trigger.title = "Open project actions";
+          t("sidebar.project.delete_folder_hint");
+        trigger.title = t("sidebar.project.actions");
         trigger.replaceChildren(HarnessUI.icon("settings"));
         menu.append(edit, navigate, pin, iconToggle, remove, deleteFolder);
         actions.append(trigger, menu);
@@ -3342,12 +3351,12 @@ function renderProjects() {
           event.preventDefault();
           if (submitting || cancelling || loading || uploads) {
             status(
-              "Wait for the current send to finish before starting another chat.",
+              t("sidebar.new.busy_chat"),
             );
             return;
           }
           newConversation(
-            "New Conversation in project " + o.textContent,
+            t("sidebar.project.new_conversation_in", { project: o.textContent }),
             o.value,
             { resetExecutionMode: true },
           );
@@ -5446,7 +5455,7 @@ function rememberUpload(entry) {
 async function upload(list) {
   if (temporaryStarting) return;
   if (!canUpload()) {
-    status("Couldn't attach: attachments are disabled in the admin panel.");
+    status(t("composer.attachments.disabled_admin"));
     return;
   }
   if (busy || loading || uploads) return;
@@ -5461,15 +5470,13 @@ async function upload(list) {
         // F-71: say how many of the selection were dropped, and which ones.
         const dropped = picked.slice(index).map((file) => file.name);
         status(
-          "Limit of 20 attachments reached. " +
-            (dropped.length === picked.length
-              ? "Remove one before adding another."
-              : dropped.length +
-                " of the " +
-                picked.length +
-                " selected files " +
-                (dropped.length === 1 ? "was" : "were") +
-                " not attached."),
+          dropped.length === picked.length
+            ? t("composer.attachments.limit_remove", { max: MAX_ATTACHMENTS })
+            : t("composer.attachments.limit_partial", {
+                max: MAX_ATTACHMENTS,
+                count: dropped.length,
+                total: picked.length,
+              }),
         );
         attachmentNotice(dropped, "file_limit");
         break;
@@ -5547,7 +5554,11 @@ async function upload(list) {
         if (imageRefusalCodes.has(e.code))
           imageRefusedModel = selected()?.id || "";
         attachmentNotice(f.name, e.code);
-        status("Couldn't upload: " + (attachmentError(e.code) || e.message));
+        status(
+          t("composer.attachments.upload_failed", {
+            detail: attachmentError(e.code) || e.message,
+          }),
+        );
       }
     }
   } finally {
@@ -5776,9 +5787,9 @@ async function send() {
     await watch();
   } catch (e) {
     status(
-      "Couldn't run: " +
-        e.message +
-        (e.status === 429 && submitting ? " Your draft was preserved." : ""),
+      e.status === 429 && submitting
+        ? t("composer.send.failed_draft_kept", { detail: e.message })
+        : t("composer.send.failed", { detail: e.message }),
     );
     if (e.status === 429) startSendCooldown(e.retryAfter || 5000);
   } finally {
@@ -6044,9 +6055,7 @@ function renderProjectFileEntries(list, entries, tree = fileTree) {
 function selectProjectFileEntry(item, entry, event = {}) {
   if (!canUpload() || uploads > 0) return;
   if (files.length >= MAX_ATTACHMENTS) {
-    status(
-      "Limit of 20 attachments reached. Remove one before adding another.",
-    );
+    status(t("composer.attachments.limit_remove", { max: MAX_ATTACHMENTS }));
     return;
   }
   const multi = event.ctrlKey || event.metaKey;
@@ -7618,7 +7627,7 @@ function attachRecentUpload(entry) {
   if (files.some((item) => item.id === entry.id)) return;
   if (files.length >= MAX_ATTACHMENTS)
     return void status(
-      "Limit of 20 attachments reached. Remove one before adding another.",
+      t("composer.attachments.limit_remove", { max: MAX_ATTACHMENTS }),
     );
   files.push(entry);
   renderFiles();
@@ -7892,8 +7901,8 @@ function modelAvailability(
   const panel = $("model-availability");
   panel.hidden = models.length > 0 && !error;
   $("model-availability-title").textContent = error
-    ? "Couldn't check the models"
-    : "No model available";
+    ? t("composer.availability.title_error")
+    : t("composer.availability.title_none");
   $("model-availability-detail").textContent =
     error ||
     "Add and enable a provider in this server's admin panel. Then start or restart the harness to apply it.";
@@ -7931,9 +7940,13 @@ function modelAvailability(
   $("model-note").hidden = !models.length;
   updateModelPermissions();
   if (!models.length) {
-    $("model").replaceChildren(new Option("No model available", ""));
-    $("effort").replaceChildren(new Option("Effort unavailable", ""));
-    $("quota-short").textContent = "No model selected";
+    $("model").replaceChildren(
+      new Option(t("composer.availability.title_none"), ""),
+    );
+    $("effort").replaceChildren(
+      new Option(t("composer.effort.unavailable"), ""),
+    );
+    $("quota-short").textContent = t("composer.model.none_selected");
   }
   if ($("welcome")) $("welcome").hidden = !models.length;
   updateComposer();
@@ -9320,7 +9333,7 @@ async function refreshCatalog() {
             deepseek: "DeepSeek model; runs through the Codex CLI. ",
           }[m.backend] || "Model via Codex. ") +
           "Efforts: " +
-          m.efforts.map((e) => efforts[e] || e).join(", "),
+          m.efforts.map((e) => effortLabel(e)).join(", "),
         status: "Configured model",
         source: "/v1/models",
       }),
@@ -10972,7 +10985,7 @@ function renderConversationSearch() {
         "run:" + (c.id || "") + ":" + (c.runId || "");
       const title = document.createElement("strong"),
         detail = document.createElement("small");
-      title.textContent = c.title || "Conversation";
+      title.textContent = c.title || t("sidebar.conversation.untitled");
       const project =
         [...$("project").options].find((o) => o.value === c.project)
           ?.textContent || "No project";
@@ -11328,8 +11341,8 @@ function updateComposer() {
   $("send").setAttribute(
     "aria-label",
     cooldown
-      ? "Send message (available in " + cooldown + " seconds)"
-      : "Send message",
+      ? t("composer.send.label_cooldown", { seconds: cooldown })
+      : t("composer.send.label"),
   );
   $("send").disabled =
     temporaryStarting ||
@@ -12266,131 +12279,103 @@ for (const button of document.querySelectorAll("[data-settings]")) {
 
 function attachmentNotice(filename, code) {
   const reasons = {
-    model_video_unavailable:
-      "the selected model or mode does not support detected MP4",
-    video_processing_unavailable: "local video processing is unavailable",
-    invalid_video: "the video is invalid or contains no decodable frames",
-    video_frame_failed: "could not extract frames from the video",
-    video_duration_limit: "the video exceeds four hours",
-    audio_transcription_unavailable:
-      "local speech transcription is not installed",
-    audio_transcription_failed: "speech transcription failed",
-    attachment_source_unavailable:
-      "the file changed, disappeared, or stopped being a regular file after selection",
-    file_limit: "the limit of 20 attachments per message was reached",
-    upload_limit: "the file size or the project's storage exceeded the limit",
-    sensitive_file: "folder import excludes hidden or sensitive files",
-    symlink_denied: "symbolic links are not imported as attachments",
-    invalid_image: "the image is incomplete or corrupted",
-    image_validation_unavailable: "the local image validator is unavailable",
-    image_validation_timeout: "image validation exceeded the allowed time",
-    invalid_document:
-      "the document could not be parsed by the available reader",
-    unsafe_document_xml: "the XML contains declarations that are not allowed",
-    document_expansion_limit:
-      "the decompressed document exceeds the safety limits",
-    model_images_unavailable:
-      "the selected model does not support reading images",
-    local_vision_not_enabled:
-      "the local model has no image support enabled on this server",
-    images_require_native_service:
-      "the selected execution mode does not support reading images",
-    unsupported_binary_format: "this format has no reader available in the app",
-    binary_denied: "this binary format has no reader available in the app",
-    invalid_pdf: "the PDF is invalid or damaged",
-    document_tools_unavailable:
-      "PDF extraction requires bwrap (bubblewrap) on the server",
-    pdf_extraction_failed: "its text could not be extracted from the PDF",
-    document_text_unavailable: "the document contains no readable text",
-    document_text_limit: "the document's text exceeds the size limit",
-    audio_decode_failed: "the audio could not be decoded",
-    audio_no_speech: "no speech was recognized in the audio",
-    audio_duration_limit: "the audio exceeds four hours",
-    invalid_audio: "the audio format was not recognized",
-    video_decode_failed: "the video frames could not be decoded",
-    video_processing_timeout: "video processing exceeded the allowed time",
-    image_size_limit: "the image exceeds 100 MiB",
-    file_too_large: "it exceeds the 100 MiB per-file limit",
-    tool_output_limit: "reading it produced more text than allowed",
-    xml_entities_denied: "the XML contains entities that are not allowed",
-    selection_scan_limit: "the folder has too many files to scan",
-    path_not_authorized: "the path is not authorized for this project",
-    invalid_filename:
-      "the filename contains a path or control characters, or is too long",
+    model_video_unavailable: t("composer.attachment_reason.model_video_unavailable"),
+    video_processing_unavailable: t("composer.attachment_reason.video_processing_unavailable"),
+    invalid_video: t("composer.attachment_reason.invalid_video"),
+    video_frame_failed: t("composer.attachment_reason.video_frame_failed"),
+    video_duration_limit: t("composer.attachment_reason.video_duration_limit"),
+    audio_transcription_unavailable: t("composer.attachment_reason.audio_transcription_unavailable"),
+    audio_transcription_failed: t("composer.attachment_reason.audio_transcription_failed"),
+    attachment_source_unavailable: t("composer.attachment_reason.attachment_source_unavailable"),
+    file_limit: t("composer.attachment_reason.file_limit"),
+    upload_limit: t("composer.attachment_reason.upload_limit"),
+    sensitive_file: t("composer.attachment_reason.sensitive_file"),
+    symlink_denied: t("composer.attachment_reason.symlink_denied"),
+    invalid_image: t("composer.attachment_reason.invalid_image"),
+    image_validation_unavailable: t("composer.attachment_reason.image_validation_unavailable"),
+    image_validation_timeout: t("composer.attachment_reason.image_validation_timeout"),
+    invalid_document: t("composer.attachment_reason.invalid_document"),
+    unsafe_document_xml: t("composer.attachment_reason.unsafe_document_xml"),
+    document_expansion_limit: t("composer.attachment_reason.document_expansion_limit"),
+    model_images_unavailable: t("composer.attachment_reason.model_images_unavailable"),
+    local_vision_not_enabled: t("composer.attachment_reason.local_vision_not_enabled"),
+    images_require_native_service: t("composer.attachment_reason.images_require_native_service"),
+    unsupported_binary_format: t("composer.attachment_reason.unsupported_binary_format"),
+    binary_denied: t("composer.attachment_reason.binary_denied"),
+    invalid_pdf: t("composer.attachment_reason.invalid_pdf"),
+    document_tools_unavailable: t("composer.attachment_reason.document_tools_unavailable"),
+    pdf_extraction_failed: t("composer.attachment_reason.pdf_extraction_failed"),
+    document_text_unavailable: t("composer.attachment_reason.document_text_unavailable"),
+    document_text_limit: t("composer.attachment_reason.document_text_limit"),
+    audio_decode_failed: t("composer.attachment_reason.audio_decode_failed"),
+    audio_no_speech: t("composer.attachment_reason.audio_no_speech"),
+    audio_duration_limit: t("composer.attachment_reason.audio_duration_limit"),
+    invalid_audio: t("composer.attachment_reason.invalid_audio"),
+    video_decode_failed: t("composer.attachment_reason.video_decode_failed"),
+    video_processing_timeout: t("composer.attachment_reason.video_processing_timeout"),
+    image_size_limit: t("composer.attachment_reason.image_size_limit"),
+    file_too_large: t("composer.attachment_reason.file_too_large"),
+    tool_output_limit: t("composer.attachment_reason.tool_output_limit"),
+    xml_entities_denied: t("composer.attachment_reason.xml_entities_denied"),
+    selection_scan_limit: t("composer.attachment_reason.selection_scan_limit"),
+    path_not_authorized: t("composer.attachment_reason.path_not_authorized"),
+    invalid_filename: t("composer.attachment_reason.invalid_filename"),
   };
   if (!Object.hasOwn(reasons, code)) return;
   $("welcome")?.remove();
   const notice = assistant("", selected()?.id),
     names = [].concat(filename);
-  notice.chip.textContent = "File skipped";
+  notice.chip.textContent = t("composer.attachments.skipped_chip");
   notice.body.textContent =
     names.length === 1
-      ? `File “${names[0]}” was skipped because ${reasons[code]}.`
-      : `${names.length} files were skipped because ${reasons[code]}: ${names.map((name) => `“${name}”`).join(", ")}.`;
+      ? t("composer.attachments.skipped_one", { name: names[0], reason: reasons[code] })
+      : t("composer.attachments.skipped_many", { count: names.length, reason: reasons[code], names: names.map((name) => `“${name}”`).join(", ") });
   $("messages").scrollTop = $("messages").scrollHeight;
 }
 function attachmentError(code) {
   if (imageRefusalCodes.has(code))
-    return imageUnreadableCopy() + " The image was not attached.";
+    return imageUnreadableCopy() + " " + t("composer.attachments.image_not_attached");
   return {
-    video_capability_unavailable:
-      "Couldn't check the model's MP4 support. Try again once the integration is available.",
-    model_video_unavailable:
-      "MP4 unavailable for this model or mode. Choose a model with detected support.",
-    video_processing_unavailable:
-      "Local video processing is unavailable on this server.",
-    invalid_video: "The video is invalid or contains no decodable frames.",
-    video_duration_limit: "Upload a video of up to 4 hours.",
-    video_decode_failed: "Couldn't decode the video frames.",
-    video_frame_failed: "Couldn't extract the video frames.",
-    video_processing_timeout: "Video processing exceeded the allowed time.",
-    invalid_image: "The image is incomplete or corrupted. It was not attached.",
-    image_validation_unavailable:
-      "The local image validator is unavailable. The image was not attached.",
-    image_validation_timeout:
-      "Image validation took too long. Try a smaller image.",
-    invalid_filename:
-      "The filename contains a path, control characters, or exceeds 160 characters.",
-    upload_limit:
-      "The file or the project's storage exceeded the allowed limit. Settings › Archived chats shows the storage used.",
-    audio_transcription_unavailable:
-      "Local audio transcription is not installed on this server.",
-    audio_duration_limit: "Upload audio of up to 4 hours.",
-    invalid_audio:
-      "Couldn't recognize the audio. Try WAV, MP3, M4A, OGG, or FLAC.",
-    audio_transcription_failed:
-      "Local transcription failed; the audio was not attached.",
-    image_capability_unavailable:
-      "Couldn't check this server's vision support. Try again once it's available.",
-    select_model_for_image:
-      "Choose a model that reads images before attaching one.",
-    image_size_limit: "Images can be up to 100 MiB.",
-    unsupported_binary_format:
-      "This binary format doesn't have a reader available yet. Upload a compatible image, a PDF with text, an Office/OpenDocument document, or a text file.",
-    binary_denied: "This file contains binary data with no reader available.",
-    invalid_document: "The document is invalid or corrupted.",
-    document_expansion_limit:
-      "The document exceeds the safe decompression limit.",
-    invalid_pdf: "The PDF is invalid or damaged.",
-    document_tools_unavailable:
-      "PDF extraction is unavailable. Install bwrap (bubblewrap) on the server.",
-    pdf_extraction_failed: "Couldn't extract the text from the PDF.",
-    unsafe_document_xml:
-      "The document contains XML declarations that are not allowed.",
-    xml_entities_denied: "The file contains XML entities that are not allowed.",
-    document_text_unavailable: "The document contains no readable text.",
-    document_text_limit: "The document's text exceeds the size limit.",
-    audio_decode_failed: "Couldn't decode the audio.",
-    audio_no_speech: "No speech was recognized in the audio.",
-    file_too_large: "The file exceeds the 100 MiB per-file limit.",
-    tool_output_limit: "Reading the file produced more text than allowed.",
-    attachment_source_unavailable:
-      "The file changed or disappeared after it was selected. Select it again.",
-    file_limit: "The limit of 20 attachments per message was reached.",
-    sensitive_file: "Hidden or sensitive files can't be attached.",
-    symlink_denied: "Symbolic links can't be attached.",
-    selection_scan_limit:
-      "The folder has too many files to scan. Select a smaller folder.",
+    video_capability_unavailable: t("composer.attachment_error.video_capability_unavailable"),
+    model_video_unavailable: t("composer.attachment_error.model_video_unavailable"),
+    video_processing_unavailable: t("composer.attachment_error.video_processing_unavailable"),
+    invalid_video: t("composer.attachment_error.invalid_video"),
+    video_duration_limit: t("composer.attachment_error.video_duration_limit"),
+    video_decode_failed: t("composer.attachment_error.video_decode_failed"),
+    video_frame_failed: t("composer.attachment_error.video_frame_failed"),
+    video_processing_timeout: t("composer.attachment_error.video_processing_timeout"),
+    invalid_image: t("composer.attachment_error.invalid_image"),
+    image_validation_unavailable: t("composer.attachment_error.image_validation_unavailable"),
+    image_validation_timeout: t("composer.attachment_error.image_validation_timeout"),
+    invalid_filename: t("composer.attachment_error.invalid_filename"),
+    upload_limit: t("composer.attachment_error.upload_limit"),
+    audio_transcription_unavailable: t("composer.attachment_error.audio_transcription_unavailable"),
+    audio_duration_limit: t("composer.attachment_error.audio_duration_limit"),
+    invalid_audio: t("composer.attachment_error.invalid_audio"),
+    audio_transcription_failed: t("composer.attachment_error.audio_transcription_failed"),
+    image_capability_unavailable: t("composer.attachment_error.image_capability_unavailable"),
+    select_model_for_image: t("composer.attachment_error.select_model_for_image"),
+    image_size_limit: t("composer.attachment_error.image_size_limit"),
+    unsupported_binary_format: t("composer.attachment_error.unsupported_binary_format"),
+    binary_denied: t("composer.attachment_error.binary_denied"),
+    invalid_document: t("composer.attachment_error.invalid_document"),
+    document_expansion_limit: t("composer.attachment_error.document_expansion_limit"),
+    invalid_pdf: t("composer.attachment_error.invalid_pdf"),
+    document_tools_unavailable: t("composer.attachment_error.document_tools_unavailable"),
+    pdf_extraction_failed: t("composer.attachment_error.pdf_extraction_failed"),
+    unsafe_document_xml: t("composer.attachment_error.unsafe_document_xml"),
+    xml_entities_denied: t("composer.attachment_error.xml_entities_denied"),
+    document_text_unavailable: t("composer.attachment_error.document_text_unavailable"),
+    document_text_limit: t("composer.attachment_error.document_text_limit"),
+    audio_decode_failed: t("composer.attachment_error.audio_decode_failed"),
+    audio_no_speech: t("composer.attachment_error.audio_no_speech"),
+    file_too_large: t("composer.attachment_error.file_too_large"),
+    tool_output_limit: t("composer.attachment_error.tool_output_limit"),
+    attachment_source_unavailable: t("composer.attachment_error.attachment_source_unavailable"),
+    file_limit: t("composer.attachment_error.file_limit"),
+    sensitive_file: t("composer.attachment_error.sensitive_file"),
+    symlink_denied: t("composer.attachment_error.symlink_denied"),
+    selection_scan_limit: t("composer.attachment_error.selection_scan_limit"),
   }[code];
 }
 
@@ -12463,24 +12448,26 @@ function syncComposerPickers() {
       trigger = $(id + "-trigger");
     $(id + "-label").textContent =
       select.selectedOptions[0]?.textContent ||
-      (id === "model" ? "No model" : "Effort unavailable");
+      (id === "model"
+        ? t("composer.model.none")
+        : t("composer.effort.unavailable"));
     if (id === "model")
       $("model-trigger-icon").textContent = modelIcon(select.value);
     if (id === "model") {
       const identity = selectedIdentity();
       $("model-trigger-icon").title = identity?.model || "";
       trigger.title = identity
-        ? "Choose model · " + identity.provider + " · " + identity.model
-        : "Choose model";
+        ? t("composer.picker.choose_model_identity", { provider: identity.provider, model: identity.model })
+        : t("composer.picker.choose_model");
     }
     if (id !== "model")
-      trigger.title = "Choose effort · " + $(id + "-label").textContent;
+      trigger.title = t("composer.picker.choose_effort", { label: $(id + "-label").textContent });
     select.disabled =
       !models.length || submitting || loading || uploads > 0 || policyPending;
     trigger.disabled = select.disabled || !select.options.length;
     if (busy)
       trigger.title +=
-        " · Applies to the next message; the current response keeps its model and effort.";
+        " · " + t("composer.picker.applies_next_detail");
     if (trigger.disabled && $(id + "-menu").matches(":popover-open"))
       $(id + "-menu").hidePopover();
   }
@@ -12492,7 +12479,7 @@ function moreModels(group) {
   more.className = "model-more";
   const summary = document.createElement("summary"),
     list = document.createElement("div");
-  summary.textContent = "More models";
+  summary.textContent = t("composer.picker.more_models");
   list.className = "model-more-options";
   more.append(summary, list);
   group.querySelector(".model-provider-options").append(more);
@@ -12515,14 +12502,14 @@ function renderPicker(id) {
     return;
   }
   const descriptions = {
-    none: "No reasoning step.",
-    configured: "Use the provider's configured default.",
-    low: "Brief reasoning for simple tasks.",
-    medium: "Intermediate reasoning effort.",
-    high: "More reasoning for complex tasks.",
-    xhigh: "Very high reasoning effort.",
-    max: "Maximum effort offered by the model.",
-    ultra: "The most intense reasoning level offered by the model.",
+    none: t("composer.effort_description.none"),
+    configured: t("composer.effort_description.configured"),
+    low: t("composer.effort_description.low"),
+    medium: t("composer.effort_description.medium"),
+    high: t("composer.effort_description.high"),
+    xhigh: t("composer.effort_description.xhigh"),
+    max: t("composer.effort_description.max"),
+    ultra: t("composer.effort_description.ultra"),
   };
   const providers = {
     ...HarnessUI.providerNames,
@@ -12580,15 +12567,15 @@ function renderPicker(id) {
         id === "model"
           ? providers[model?.backend] ||
             model?.backend ||
-            "Model configured on the server"
+            t("composer.picker.model_default")
           : descriptions[option.value] ||
-            "Level offered by the selected model.";
+            t("composer.picker.effort_default");
       button.title =
-        "Select " +
-        option.textContent +
-        " · " +
-        detail.textContent +
-        (busy ? " · Applies to the next message." : "");
+        t("composer.picker.select", {
+          option: option.textContent,
+          detail: detail.textContent,
+        }) +
+        (busy ? " · " + t("composer.picker.applies_next") : "");
       text.append(title);
       if (id !== "model") text.append(detail);
       const check = document.createElement("span");
@@ -12611,7 +12598,7 @@ function renderPicker(id) {
           heading.setAttribute("aria-controls", list.id);
           heading.append(providerModelIcon(backend));
           const label =
-            HarnessUI.providerNames[backend] || model?.backend || "Others";
+            HarnessUI.providerNames[backend] || model?.backend || t("composer.provider.others");
           group.setAttribute("role", "group");
           group.setAttribute("aria-label", label);
           heading.className = "model-provider-heading";
@@ -12947,7 +12934,7 @@ function openProjectDialog(projectId = null) {
       );
   }
   $("project-dialog-title").textContent = projectId
-    ? "Edit project"
+    ? t("sidebar.project.edit")
     : "Create project";
   $("project-create").replaceChildren(
     HarnessUI.icon(projectId ? "pencil" : "folder-plus"),
