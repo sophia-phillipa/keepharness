@@ -144,9 +144,7 @@ def balance_summary(answer):
 
 async def check(state):
     try:
-        token = scoped_home_read(
-            trusted_state_root(state), key_file(state).name, create=False
-        )
+        token = scoped_home_read(trusted_state_root(state), key_file(state).name, create=False)
     except (OSError, ValueError, ToolError):
         token = None
     if not token or not token.strip():
