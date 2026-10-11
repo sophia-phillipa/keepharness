@@ -15,34 +15,49 @@ const fs = require("node:fs");
     });
     await page.addScriptTag({ path: "harness_ui/assets/components.js" });
     const source = fs.readFileSync("agent_service/ui.js", "utf8");
-    await page.evaluate((source) => {
-      window.busy = false;
-      window.$ = (id) => document.getElementById(id);
-      window.modelIcon = () => "◈";
-      window.models = [
-        "codex",
-        "local",
-        "claude",
-        "codex",
-        "deepseek",
-        "gemini",
-        "qwen",
-      ].map((backend, i) => ({ id: `model-${i}`, backend }));
-      models.forEach((m) => $("model").add(new Option(m.id, m.id)));
-      eval(
-        source.slice(
-          source.indexOf("function providerModelIcon("),
-          source.indexOf("let composerCondition"),
-        ),
-      );
-      eval(
-        source.slice(
-          source.indexOf("function renderPicker("),
-          source.indexOf("function openComposerPicker("),
-        ),
-      );
-      renderPicker("model");
-    }, source);
+    const en = JSON.parse(
+      fs.readFileSync("harness_ui/assets/locales/en.json", "utf8"),
+    );
+    await page.evaluate(
+      ([source, en]) => {
+        // English lookup for the ui.js slices below, which call t().
+        window.t = (key, params = {}) => {
+          let value = en[key] ?? key;
+          if (typeof value === "object")
+            value = params.count === 1 ? value.one : value.other;
+          return value.replace(/\{(\w+)\}/g, (m, k) =>
+            k in params ? String(params[k]) : m,
+          );
+        };
+        window.busy = false;
+        window.$ = (id) => document.getElementById(id);
+        window.modelIcon = () => "◈";
+        window.models = [
+          "codex",
+          "local",
+          "claude",
+          "codex",
+          "deepseek",
+          "gemini",
+          "qwen",
+        ].map((backend, i) => ({ id: `model-${i}`, backend }));
+        models.forEach((m) => $("model").add(new Option(m.id, m.id)));
+        eval(
+          source.slice(
+            source.indexOf("function providerModelIcon("),
+            source.indexOf("let composerCondition"),
+          ),
+        );
+        eval(
+          source.slice(
+            source.indexOf("function renderPicker("),
+            source.indexOf("function openComposerPicker("),
+          ),
+        );
+        renderPicker("model");
+      },
+      [source, en],
+    );
     const groups = page.locator("#model-menu [role=group]");
     assert.deepEqual(
       await groups.evaluateAll((els) =>
