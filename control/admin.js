@@ -2078,7 +2078,7 @@ document.addEventListener(
       e.preventDefault();
       e.stopImmediatePropagation();
       busyStatus.textContent =
-        "Wait for the operation in progress. Other actions will be available once it finishes.";
+        HarnessI18n.t("admin.operations.busy_wait");
     }
   },
   true,
@@ -2089,9 +2089,9 @@ wizardContent.style.cssText = "border:0;margin:0;min-width:0";
 const inspectorTabs = element("div", undefined, "inspector-tabs");
 inspectorTabs.id = "inspector-tabs";
 for (const [index, label] of [
-  "Model and hardware",
-  "Plugins",
-  "Connectors",
+  HarnessI18n.t("admin.wizard.tab_model_hardware"),
+  HarnessI18n.t("admin.wizard.tab_plugins"),
+  HarnessI18n.t("admin.wizard.tab_connectors"),
 ].entries()) {
   const button = element("button", label, "button secondary");
   button.dataset.inspectorStep = [0, 4, 3][index];
@@ -2125,21 +2125,21 @@ const operationStatus = element("div");
 operationStatus.id = "operations-status";
 operationStatus.hidden = true;
 operationsPanel.append(
-  element("h3", "Operations in progress and results"),
+  element("h3", HarnessI18n.t("admin.operations.in_progress_results")),
   operationStatus,
   $("operations"),
 );
 const operationDialog = element("dialog");
 operationDialog.id = "operation-dialog";
 operationDialog.setAttribute("aria-labelledby", "operation-title");
-const title = element("h2", "Operation");
+const title = element("h2", HarnessI18n.t("admin.operations.dialog_title"));
 title.id = "operation-title";
 const message = element("p");
 message.id = "operation-message";
 message.setAttribute("role", "status");
-const close = element("button", "Close", "button secondary");
+const close = element("button", HarnessI18n.t("admin.operations.close"), "button secondary");
 close.onclick = () => operationDialog.close();
-const retry = element("button", "Retry", "button primary");
+const retry = element("button", HarnessI18n.t("admin.operations.retry"), "button primary");
 retry.id = "operation-retry";
 retry.hidden = true;
 retry.onclick = () => {
@@ -2150,7 +2150,7 @@ operationDialog.append(title, message, operationsPanel, retry, close);
 document.body.append(operationDialog);
 const reopen = element(
   "button",
-  "Operations in progress and results",
+  HarnessI18n.t("admin.operations.in_progress_results"),
   "button secondary",
 );
 reopen.onclick = () => {
@@ -2165,8 +2165,8 @@ function icon(name) {
   return HarnessUI.icon({ layers: "stack-2", edit: "pencil" }[name] || name);
 }
 for (const [id, name, text] of [
-  ["add-provider", "plus", "Add provider"],
-  ["scan", "scan", "Check environment"],
+  ["add-provider", "plus", HarnessI18n.t("admin.providers.add_provider")],
+  ["scan", "scan", HarnessI18n.t("admin.providers.check_environment")],
 ]) {
   $(id).replaceChildren(icon(name), document.createTextNode(text));
 }
@@ -2226,26 +2226,30 @@ function showStepBase(value) {
     if (step !== 0) $("local-add").hidden = true;
   }
   $("wizard-progress").textContent = wizard
-    ? "Step " +
-      (step + 1) +
-      " of 3 · " +
-      ["Choose service and models", "Permissions", "Review and finish"][step]
+    ? HarnessI18n.t("admin.wizard.step", {
+        number: step + 1,
+        name: [
+          HarnessI18n.t("admin.wizard.step_choose"),
+          HarnessI18n.t("admin.wizard.step_permissions"),
+          HarnessI18n.t("admin.wizard.step_review"),
+        ][step],
+      })
     : "";
   $("wizard-back").hidden = !wizard || (step === 0 && (!editing || existing));
   $("wizard-back").textContent =
-    step === 0 ? "Choose another provider" : "Back";
+    step === 0 ? HarnessI18n.t("admin.wizard.choose_other_provider") : HarnessI18n.t("admin.wizard.back");
   $("wizard-next").hidden = !wizard || existing || step === 2;
   $("save").hidden = !wizard || (!existing && step !== 2);
-  $("save").textContent = existing ? "Save changes" : "Complete and save";
+  $("save").textContent = existing ? HarnessI18n.t("admin.wizard.save_changes") : HarnessI18n.t("admin.wizard.complete_save");
   $("wizard-progress").hidden = existing;
   $("save").title = state.status.running
-    ? "Apply changes without stopping the harness."
+    ? HarnessI18n.t("admin.wizard.save_title")
     : "";
   if (editing) {
     $("provider-review").textContent =
-      "When finished, " +
-      (visibleProviders().find((i) => i.id === editing)?.name || editing) +
-      " will be added to the panel with the selected models.";
+      HarnessI18n.t("admin.wizard.review_summary", {
+        name: visibleProviders().find((i) => i.id === editing)?.name || editing,
+    });
   }
 }
 $("wizard-back").onclick = () => {
@@ -2256,17 +2260,17 @@ $("wizard-back").onclick = () => {
 };
 $("wizard-next").onclick = () => {
   if (!editing) {
-    say("Choose a provider to continue.", true);
+    say(HarnessI18n.t("admin.wizard.choose_provider"), true);
     return;
   }
   if (step === 0 && !settings.services[editing].models.length) {
     const info = visibleProviders().find((i) => i.id === editing);
     say(
       editing === "local"
-        ? "Search for or install a local model below; then check and select the model."
+        ? HarnessI18n.t("admin.wizard.local_model_needed")
         : !info?.found && !info?.api
-          ? "Install the CLI on this machine and use Check environment before continuing."
-          : "Check the account and select at least one model.",
+          ? HarnessI18n.t("admin.wizard.install_cli")
+          : HarnessI18n.t("admin.wizard.check_account"),
       true,
     );
     return;
@@ -2278,7 +2282,7 @@ $("add-provider").onclick = () =>
     if (
       (unsaved || profileDirty) &&
       !confirm(
-        "Discard unsaved changes, including the CPU and GPU profile, to add a provider?",
+        HarnessI18n.t("admin.providers.discard_before_add"),
       )
     )
       return;
@@ -2287,7 +2291,7 @@ $("add-provider").onclick = () =>
     const button = $("add-provider");
     button.disabled = true;
     const label = button.textContent;
-    button.textContent = "Checking…";
+    button.textContent = HarnessI18n.t("admin.providers.checking");
     try {
       state.inventory = await request("scan", {});
       openWizard();
@@ -2300,7 +2304,7 @@ $("wizard-cancel").onclick = () =>
   action(async () => {
     if (
       (unsaved || profileDirty) &&
-      !confirm("Discard unsaved changes, including the CPU and GPU profile?")
+      !confirm(HarnessI18n.t("admin.wizard.discard_cancel"))
     )
       return;
     const previousProvider = editing;
@@ -2308,12 +2312,12 @@ $("wizard-cancel").onclick = () =>
     wizard = false;
     editing = null;
     await load({ select: false });
-    say("Edit discarded.");
+    say(HarnessI18n.t("admin.wizard.edit_discarded"));
     (
       document.querySelector(
         '[data-configured-provider="' +
           previousProvider +
-          '"] button[aria-label^="Edit"]',
+          '"] button[data-edit-provider]',
       ) || $("add-provider")
     ).focus();
   });
@@ -2323,47 +2327,47 @@ $("manage-network").onclick = () => {
 };
 $("network-close").onclick = () => $("network").close();
 const hardwareFields = [
-  ["n-gpu-layers", "GPU layers"],
-  ["n-cpu-moe", "MoE layers on CPU"],
-  ["cpu-range", "Logical CPUs (e.g., 2-7)"],
-  ["cpu-range-batch", "Batch CPUs (e.g., 0-7)"],
-  ["threads", "Threads"],
-  ["threads-batch", "Batch threads"],
-  ["ctx-size", "Context size"],
-  ["device", "Runtime GPU(s) (e.g., Vulkan0 or CUDA0,CUDA1)"],
-  ["main-gpu", "Main GPU (index)"],
-  ["split-mode", "GPU split mode (none, layer or row)"],
-  ["tensor-split", "GPU split ratio (e.g., 1,1)"],
-  ["parallel", "Processing slots"],
-  ["flash-attn", "Flash Attention (on, off, auto)"],
-  ["cache-type-k", "K cache type"],
-  ["cache-type-v", "V cache type"],
-  ["cache-ram", "Cache RAM (MiB)"],
-  ["reasoning", "Reasoning (on, off, auto)"],
-  ["reasoning-format", "Reasoning format"],
-  ["reasoning-budget", "Reasoning budget"],
-  ["load-mode", "Load mode"],
-  ["cpu-strict", "Strict CPU affinity (0 or 1)"],
-  ["cpu-strict-batch", "Strict batch affinity (0 or 1)"],
-  ["temp", "Temperature"],
-  ["top-k", "Top K"],
-  ["top-p", "Top P"],
-  ["min-p", "Min P"],
-  ["repeat-penalty", "Repeat penalty"],
-  ["seed", "Random seed"],
+  ["n-gpu-layers", HarnessI18n.t("admin.localmodel.field.n_gpu_layers")],
+  ["n-cpu-moe", HarnessI18n.t("admin.localmodel.field.n_cpu_moe")],
+  ["cpu-range", HarnessI18n.t("admin.localmodel.field.cpu_range")],
+  ["cpu-range-batch", HarnessI18n.t("admin.localmodel.field.cpu_range_batch")],
+  ["threads", HarnessI18n.t("admin.localmodel.field.threads")],
+  ["threads-batch", HarnessI18n.t("admin.localmodel.field.threads_batch")],
+  ["ctx-size", HarnessI18n.t("admin.localmodel.field.ctx_size")],
+  ["device", HarnessI18n.t("admin.localmodel.field.device")],
+  ["main-gpu", HarnessI18n.t("admin.localmodel.field.main_gpu")],
+  ["split-mode", HarnessI18n.t("admin.localmodel.field.split_mode")],
+  ["tensor-split", HarnessI18n.t("admin.localmodel.field.tensor_split")],
+  ["parallel", HarnessI18n.t("admin.localmodel.field.parallel")],
+  ["flash-attn", HarnessI18n.t("admin.localmodel.field.flash_attn")],
+  ["cache-type-k", HarnessI18n.t("admin.localmodel.field.cache_type_k")],
+  ["cache-type-v", HarnessI18n.t("admin.localmodel.field.cache_type_v")],
+  ["cache-ram", HarnessI18n.t("admin.localmodel.field.cache_ram")],
+  ["reasoning", HarnessI18n.t("admin.localmodel.field.reasoning")],
+  ["reasoning-format", HarnessI18n.t("admin.localmodel.field.reasoning_format")],
+  ["reasoning-budget", HarnessI18n.t("admin.localmodel.field.reasoning_budget")],
+  ["load-mode", HarnessI18n.t("admin.localmodel.field.load_mode")],
+  ["cpu-strict", HarnessI18n.t("admin.localmodel.field.cpu_strict")],
+  ["cpu-strict-batch", HarnessI18n.t("admin.localmodel.field.cpu_strict_batch")],
+  ["temp", HarnessI18n.t("admin.localmodel.field.temp")],
+  ["top-k", HarnessI18n.t("admin.localmodel.field.top_k")],
+  ["top-p", HarnessI18n.t("admin.localmodel.field.top_p")],
+  ["min-p", HarnessI18n.t("admin.localmodel.field.min_p")],
+  ["repeat-penalty", HarnessI18n.t("admin.localmodel.field.repeat_penalty")],
+  ["seed", HarnessI18n.t("admin.localmodel.field.seed")],
 ];
 const profilePanel = $("local-profile-summary").parentElement;
 const profilePicker = element("select");
 profilePicker.id = "hardware-model";
 profilePicker.className = "form-select";
-const profileLabel = element("label", "Model for this profile");
+const profileLabel = element("label", HarnessI18n.t("admin.localmodel.model_for_profile"));
 profileLabel.htmlFor = "hardware-model";
 profileLabel.append(profilePicker);
 profilePanel.insertBefore(profileLabel, $("local-profile-summary"));
 const editor = element("details", undefined, "advanced");
-editor.append(element("summary", "Advanced · running this model"));
+editor.append(element("summary", HarnessI18n.t("admin.localmodel.advanced_summary")));
 const editorGrid = element("div", undefined, "hardware-editor");
-const binaryLabel = element("label", "llama-server executable");
+const binaryLabel = element("label", HarnessI18n.t("admin.localmodel.binary_label"));
 const binaryInput = element("input");
 binaryInput.id = "profile-binary";
 binaryInput.className = "form-control";
@@ -2371,78 +2375,81 @@ binaryLabel.append(binaryInput);
 editor.append(binaryLabel);
 const descriptionLabel = element(
     "label",
-    "Description of this profile (optional)",
+    HarnessI18n.t("admin.localmodel.description_label"),
   ),
   descriptionInput = element("textarea");
 descriptionInput.id = "profile-description";
 descriptionInput.className = "form-control";
 descriptionInput.rows = 4;
 descriptionInput.maxLength = 2000;
-descriptionInput.placeholder = "Note the purpose and choices of this profile.";
+descriptionInput.placeholder = HarnessI18n.t("admin.localmodel.description_placeholder");
 descriptionLabel.append(descriptionInput);
 editor.append(descriptionLabel);
 const hardwareHelp = {
   "n-gpu-layers":
-    "Number of model layers loaded onto the GPU; 0 uses CPU only.",
+    HarnessI18n.t("admin.localmodel.help.n_gpu_layers"),
   "n-cpu-moe":
-    "Mixture-of-experts (MoE) layers kept on the CPU to reduce GPU memory usage.",
+    HarnessI18n.t("admin.localmodel.help.n_cpu_moe"),
   "cpu-range":
-    "Logical CPUs used when generating the response. Enter indexes or ranges.",
-  "cpu-range-batch": "Logical CPUs used to process the input in batch.",
-  threads: "Number of CPU threads used during generation.",
-  "threads-batch": "Number of CPU threads used when processing the input.",
+    HarnessI18n.t("admin.localmodel.help.cpu_range"),
+  "cpu-range-batch": HarnessI18n.t("admin.localmodel.help.cpu_range_batch"),
+  threads: HarnessI18n.t("admin.localmodel.help.threads"),
+  "threads-batch": HarnessI18n.t("admin.localmodel.help.threads_batch"),
   "ctx-size":
-    "Context token limit: instructions, history, and response share this space. Larger values require more memory.",
+    HarnessI18n.t("admin.localmodel.help.ctx_size"),
   device:
-    "Identifiers of the GPUs the runtime will use. Check Detect GPUs before filling this in.",
-  "main-gpu": "Index of the main GPU among the selected devices.",
+    HarnessI18n.t("admin.localmodel.help.device"),
+  "main-gpu": HarnessI18n.t("admin.localmodel.help.main_gpu"),
   "split-mode":
-    "none uses a single GPU; layer distributes layers; row distributes operations. Support depends on the runtime.",
+    HarnessI18n.t("admin.localmodel.help.split_mode"),
   "tensor-split":
-    "Distribution ratio across GPUs: 1,1 splits evenly; 1,2 assigns more to the second one.",
+    HarnessI18n.t("admin.localmodel.help.tensor_split"),
   parallel:
-    "Number of simultaneous execution slots. More slots may require more memory.",
+    HarnessI18n.t("admin.localmodel.help.parallel"),
   "flash-attn":
-    "Optimized attention implementation. auto lets the runtime decide based on support.",
+    HarnessI18n.t("admin.localmodel.help.flash_attn"),
   "cache-type-k":
-    "Storage format for attention keys. Quantization can reduce memory usage and affect quality.",
+    HarnessI18n.t("admin.localmodel.help.cache_type_k"),
   "cache-type-v":
-    "Storage format for attention values. Depends on the model and runtime.",
+    HarnessI18n.t("admin.localmodel.help.cache_type_v"),
   "cache-ram":
-    "Context cache limit in RAM, in MiB. Behavior depends on the runtime.",
+    HarnessI18n.t("admin.localmodel.help.cache_ram"),
   reasoning:
-    "Enables, disables, or automates reasoning generation, when supported.",
+    HarnessI18n.t("admin.localmodel.help.reasoning"),
   "reasoning-format":
-    "Format used by the runtime to separate reasoning from the response.",
+    HarnessI18n.t("admin.localmodel.help.reasoning_format"),
   "reasoning-budget":
-    "Reasoning token budget. Interpretation of special values depends on the runtime.",
-  "load-mode": "Weight-loading mode offered by this version of the runtime.",
+    HarnessI18n.t("admin.localmodel.help.reasoning_budget"),
+  "load-mode": HarnessI18n.t("admin.localmodel.help.load_mode"),
   "cpu-strict":
-    "1 restricts execution to the selected CPUs; 0 allows the scheduler's default behavior.",
+    HarnessI18n.t("admin.localmodel.help.cpu_strict"),
   "cpu-strict-batch":
-    "Applies the CPU restriction to batch processing as well.",
-  temp: "Controls response variability. Lower values tend to produce more predictable choices.",
-  "top-k": "Limits sampling to the K most likely tokens.",
-  "top-p": "Selects candidates until reaching this cumulative probability.",
+    HarnessI18n.t("admin.localmodel.help.cpu_strict_batch"),
+  temp: HarnessI18n.t("admin.localmodel.help.temp"),
+  "top-k": HarnessI18n.t("admin.localmodel.help.top_k"),
+  "top-p": HarnessI18n.t("admin.localmodel.help.top_p"),
   "min-p":
-    "Discards tokens whose probability is low relative to the most likely candidate.",
+    HarnessI18n.t("admin.localmodel.help.min_p"),
   "repeat-penalty":
-    "Reduces the tendency to repeat tokens. 1 applies no penalty.",
-  seed: "Seed used for sampling; helps reproduce results under the same conditions.",
+    HarnessI18n.t("admin.localmodel.help.repeat_penalty"),
+  seed: HarnessI18n.t("admin.localmodel.help.seed"),
 };
 for (const [key, label] of hardwareFields) {
   const wrap = element("label", label),
     input = element("input");
   input.id = "profile-" + key;
   input.className = "form-control";
-  input.placeholder = "Runtime default";
+  input.placeholder = HarnessI18n.t("admin.localmodel.runtime_default");
   wrap.append(input);
-  fieldHelp(input, hardwareHelp[key] + " Blank: runtime default.");
+  fieldHelp(
+    input,
+    HarnessI18n.t("admin.localmodel.help_with_blank", { help: hardwareHelp[key] }),
+  );
   editorGrid.append(wrap);
 }
 const detectDevices = element(
   "button",
-  "Detect GPUs and runtime resources",
+  HarnessI18n.t("admin.localmodel.detect_devices"),
   "button secondary",
 );
 detectDevices.id = "profile-detect-devices";
@@ -2456,7 +2463,7 @@ editorGrid
   .setAttribute("list", deviceOptions.id);
 detectDevices.onclick = () =>
   action(async () => {
-    deviceStatus.textContent = "Querying devices without loading weights…";
+    deviceStatus.textContent = HarnessI18n.t("admin.localmodel.querying_devices");
     try {
       const result = await request("local-devices", {
         binary: binaryInput.value.trim(),
@@ -2468,8 +2475,8 @@ detectDevices.onclick = () =>
         element(
           "p",
           result.devices.length
-            ? "Devices reported by the runtime:"
-            : "No GPU reported by the runtime. Use 0 layers for CPU.",
+            ? HarnessI18n.t("admin.localmodel.devices_reported")
+            : HarnessI18n.t("admin.localmodel.no_gpu_reported"),
         ),
       );
       for (const d of result.devices)
