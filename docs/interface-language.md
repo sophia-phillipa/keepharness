@@ -220,7 +220,7 @@ Answered 2026-10-11: Sophia took the recommended (first) option in all seven ite
 3. **Selector location.** Recommended: Settings › Appearance (`index.html:45`). Alternative: its own Language section in Settings (WP9 open question 2).
 4. **Standalone admin.** Recommended: reads the same backend preference. Alternative: keeps its own choice, which needs a localStorage key and conflicts with D-023.
 5. **When D-036 becomes superseded.** Recommended: only after D-057 is accepted. Alternative: mark it now.
-6. **pt-BR register.** Recommended: "você", informal-neutral, reviewed by Sophia. Alternative: a more formal register, chosen with the reviewer.
+6. **pt-BR register.** Recommended: "você", informal-neutral, reviewed by Sophia. Alternative: a more formal register, chosen with the reviewer. <!-- conventions: allow-pt -->
 7. **Catalog load.** Recommended: synchronous, like `ui-prefs.js`, so the first paint is translated. Alternative: asynchronous fetch on demand, with a first paint in English.
 
 ## See also

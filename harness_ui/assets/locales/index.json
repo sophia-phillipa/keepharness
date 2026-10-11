@@ -1,0 +1,5 @@
+{
+  "locales": [
+    { "tag": "en", "file": "en.json", "name": "English", "complete": true }
+  ]
+}

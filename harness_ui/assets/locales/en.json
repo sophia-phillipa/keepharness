@@ -1,0 +1,4 @@
+{
+  "common.app.name": "KeepHarness",
+  "common.run.count": { "one": "{count} run", "other": "{count} runs" }
+}
