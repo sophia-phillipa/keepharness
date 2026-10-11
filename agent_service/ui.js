@@ -1045,34 +1045,49 @@ for (const [id, open] of Object.entries(prefs.get("project_expanded", {})))
 const rememberExpandedProjects = () =>
   prefs.set("project_expanded", Object.fromEntries(expandedProjects));
 let preferredSelection = prefs.get("chat_selection", {});
-const labels = {
-  maestro_planning: "Planning",
-  maestro_planning_completed: "Plan ready",
-  maestro_plan: "Agents selected",
-  maestro_step: "Running workflow step",
-  answer_delta: "Responding",
-  reasoning_delta: "Thinking",
-  reasoning_summary: "Reasoning summary",
-  interrupted: "Interrupted",
-  queued: "Queued",
-  queue_wait: "Waiting in the queue",
-  queue_released: "Queued message released",
-  running: "Running",
-  thinking: "Thinking",
-  planning: "Preparing the run",
-  tool_start: "Using tool",
-  tool_end: "Tool finished",
-  session_resumed: "Conversation context resumed",
-  context_compacting: "Optimizing conversation context…",
-  context_compacted: "Context optimized; conversation preserved",
-  validating_changes: "Validating changes",
-  changes_applied: "Changes applied to the project",
-  deployment_failed: "Changes not applied; check the error",
-  reload_scheduled: "Refreshing the panel",
-  completed: "Completed",
-  cancelled: "Cancelled",
-  failed: "Failed",
-  loading: "Preparing model",
+// Run states with a label; the text is run_status.label.<state> in the catalog.
+const runStates = [
+  "maestro_planning",
+  "maestro_planning_completed",
+  "maestro_plan",
+  "maestro_step",
+  "answer_delta",
+  "reasoning_delta",
+  "reasoning_summary",
+  "interrupted",
+  "queued",
+  "queue_wait",
+  "queue_released",
+  "running",
+  "thinking",
+  "planning",
+  "tool_start",
+  "tool_end",
+  "session_resumed",
+  "context_compacting",
+  "context_compacted",
+  "validating_changes",
+  "changes_applied",
+  "deployment_failed",
+  "reload_scheduled",
+  "completed",
+  "cancelled",
+  "failed",
+  "loading",
+];
+// queue_wait shares its English text with run_status.activity.queued.
+const runLabelKeys = { queue_wait: "run_status.activity.queued" };
+const runLabel = (state) =>
+  runStates.includes(state)
+    ? t(runLabelKeys[state] || "run_status.label." + state)
+    : undefined;
+const isRunLabel = (text) =>
+  runStates.some((state) => runLabel(state) === text);
+const runLabelTone = (state) => {
+  if (!runStates.includes(state)) return undefined;
+  return ["failed", "interrupted", "deployment_failed"].includes(state)
+    ? "error"
+    : "progress";
 };
 // English fallback tone for callers that pass no tone (untranslated text only).
 const englishTone = (text) => {
@@ -1083,7 +1098,7 @@ const englishTone = (text) => {
   )
     return "error";
   if (
-    Object.values(labels).includes(text) ||
+    isRunLabel(text) ||
     /^(Completed|Copied|Failed run|Cancelled|Running|Thinking|Reasoning|Receiving response|Preparing|Using tool|Tool finished|Plan updated|Run steps|Working|Checking quota|Sending request|Loading|Connected|Cancelling|Reconnecting|Ready to chat)/i.test(
       text,
     )
@@ -1097,7 +1112,7 @@ const status = (text, tone) => {
   if (
     policyPending &&
     policyError &&
-    (Object.values(labels).includes(text) ||
+    (isRunLabel(text) ||
       ["Failed run", "Run cancelled", "Run interrupted"].includes(text))
   )
     text = policyError;
@@ -2605,7 +2620,7 @@ function openContinuation(c, trigger) {
     try {
       await writeClipboard(text);
     } catch {
-      message = "Couldn't copy the handoff, so " + name + " was not opened.";
+      message = t("run_status.handoff.copy_failed", { app: name });
     }
     if (!message)
       try {
@@ -3958,7 +3973,7 @@ function activityTitle(e) {
       "interrupted",
     ].includes(type)
   )
-    return labels[type] || "Run interrupted";
+    return runLabel(type) || "Run interrupted";
   if (type === "plan_updated") return "Plan updated";
   if (type === "maestro_planning") return "Planning";
   if (type === "maestro_plan") return "Execution plan set";
@@ -4800,7 +4815,7 @@ function event(e) {
     if (box?.contains(document.activeElement))
       $("prompt").focus({ preventScroll: true });
     box?.remove();
-    status("Approval decision recorded");
+    status(t("run_status.approval.recorded"), "neutral");
     return;
   }
   if (e.type === "maestro_plan") showMaestroPlan(e.data);
@@ -4811,7 +4826,7 @@ function event(e) {
       setActivitySummary(
         active,
         ["completed", "failed", "cancelled", "interrupted"].includes(e.type)
-          ? labels[e.type] || "Run steps"
+          ? runLabel(e.type) || "Run steps"
           : "Working…",
       );
     }
@@ -4850,7 +4865,7 @@ function event(e) {
     status("Receiving response…");
   } else if (e.type === "reasoning_delta" || e.type === "reasoning_summary") {
     if (active) setActivitySummary(active, t("conversation.turn.thinking"));
-    status("Reasoning…");
+    status(t("run_status.activity.reasoning"), "progress");
   } else if (e.type === "quota_before" || e.type === "quota_after") {
     if (selected()?.backend === "codex")
       quotaSnapshot(e.type.endsWith("before") ? "before" : "after", e.data);
@@ -4868,7 +4883,8 @@ function event(e) {
     status(
       e.type === "queue_wait"
         ? waitReasonLabel(e.data?.reason || "queue")
-        : labels[e.type] || e.type,
+        : runLabel(e.type) || e.type,
+      e.type === "queue_wait" ? undefined : runLabelTone(e.type),
     );
   }
   pendingGateStatus();
@@ -5016,7 +5032,7 @@ async function result(
   updateMotion(r.state);
   $("activity-state").textContent = condition
     ? "ℹ " + condition.title
-    : (activityIcons[r.state] || "•") + " " + (labels[r.state] || r.state);
+    : (activityIcons[r.state] || "•") + " " + (runLabel(r.state) || r.state);
   if (active) {
     active.chip.textContent = $("activity-state").textContent;
     // A live read (no snapshot) has no has_turn_edits: fetch as before.
@@ -5139,7 +5155,10 @@ function showHeldTurn(response, held) {
       status(done, "neutral");
     } catch (e) {
       run.disabled = discard.disabled = false;
-      status("Couldn't update the queued message: " + e.message, "error");
+      status(
+        t("run_status.queued.update_failed", { detail: e.message }),
+        "error",
+      );
     }
   };
   run.onclick = () => choose("/run-queued", t("run_status.queued.released"));
@@ -5197,7 +5216,7 @@ async function watch(retries = 0) {
     if (controller !== current) return;
     if (["running", "queued"].includes(final.state)) {
       if (retries < 3) {
-        status("Reconnecting to the running execution…");
+        status(t("run_status.activity.reconnecting"), "progress");
         await new Promise((resolve) => setTimeout(resolve, 1000));
         if (controller !== current) return;
         return await watch(retries + 1);
@@ -5215,9 +5234,7 @@ async function watch(retries = 0) {
       $("activity-state").textContent = "⚠ Connection lost";
       streamDisconnected = true;
       $("resume-execution").hidden = false;
-      status(
-        "Connection lost. The run may continue on the server. Use Resume tracking or Cancel run.",
-      );
+      status(t("run_status.connection.lost"), "error");
       await history();
     }
   } finally {
@@ -5372,7 +5389,7 @@ async function load(id, legacy = false, restoredView = null, scrollTop) {
           ? "ℹ " + condition.title
           : (activityIcons[r.state] || "•") +
             " " +
-            (labels[r.state] || r.state);
+            (runLabel(r.state) || r.state);
         const { worked: duration, waited } = runTiming(r.result);
         active.meta.textContent = [
           r.result?.model || model || "",

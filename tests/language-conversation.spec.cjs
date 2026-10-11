@@ -176,6 +176,13 @@ async function conversationText(page) {
         role: "alert",
         error: true,
       });
+      assert.deepEqual(
+        await english.page.evaluate(() => [
+          runLabel("queue_wait"),
+          runLabelTone("interrupted"),
+        ]),
+        ["Waiting in the queue", "error"],
+      );
     } finally {
       await english.context.close();
     }
@@ -204,6 +211,14 @@ async function conversationText(page) {
         role: "alert",
         error: true,
       });
+      // Run labels follow the active catalog; the tone comes from the run state, not the text.
+      assert.deepEqual(
+        await pt.page.evaluate(() => [
+          runLabel("running"),
+          runLabelTone("running"),
+        ]),
+        [PT_BR["run_status.label.running"], "progress"],
+      );
     } finally {
       await setLanguage(null);
       await pt.context.close();
