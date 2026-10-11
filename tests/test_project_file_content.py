@@ -4,6 +4,7 @@ Written before the implementation (D-055 P4a). Every test is expected to fail un
 the ``agent_service.workspaces`` editor helpers exist; none of them may fail on a fixture error.
 """
 
+import errno
 import hashlib
 import os
 import stat
@@ -418,3 +419,78 @@ def test_symlinked_parent_swapped_before_write_is_refused(owner, owner_cfg, root
     assert response.json()["code"] in {"symlink_denied", "path_not_authorized"}
     assert (outside / "notes.md").read_bytes() == b"outside original\n"
     assert (root / "sub-moved" / "notes.md").read_bytes() == b"inside original\n"
+
+
+# Review hardening: identity re-check, hardlinks, chown and fsync, OS errors
+
+
+def test_identity_revalidated_as_non_local_is_refused_before_any_read(owner, root):
+    original = b"v1\n"
+    (root / "notes.md").write_bytes(original)
+    with patch("agent_service.routes.files.require_current_read", return_value=("guest", "g")):
+        assert_error(get(owner), 403, "editor_local_only")
+        assert_error(put(owner, "v2\n", etag=sha_etag(original)), 403, "editor_local_only")
+    assert (root / "notes.md").read_bytes() == original
+
+
+def test_hardlinked_file_is_not_writable_and_stays_unchanged(owner, owner_cfg, root):
+    original = b"v1\n"
+    (root / "notes.md").write_bytes(original)
+    os.link(root / "notes.md", root / "alias.md")
+    response = put(owner, "v2\n", etag=sha_etag(original), cookie=signed_in(owner_cfg))
+    assert_error(response, 403, "file_not_writable")
+    assert (root / "notes.md").read_bytes() == original
+    assert (root / "alias.md").read_bytes() == original
+
+
+def test_refused_chown_still_saves_and_keeps_mode(owner, owner_cfg, root):
+    original = b"v1\n"
+    (root / "notes.md").write_bytes(original)
+    os.chmod(root / "notes.md", 0o640)
+    with patch.object(workspaces.os, "fchown", side_effect=PermissionError(1, "denied")):
+        response = put(owner, "v2\n", etag=sha_etag(original), cookie=signed_in(owner_cfg))
+    assert response.status_code == 200, response.text
+    assert (root / "notes.md").read_bytes() == b"v2\n"
+    assert stat.S_IMODE(os.stat(root / "notes.md").st_mode) == 0o640
+
+
+def test_folder_fsync_failure_after_rename_keeps_the_save(owner, owner_cfg, root):
+    original = b"v1\n"
+    (root / "notes.md").write_bytes(original)
+    real_fsync = os.fsync
+    calls = []
+
+    def fsync_folder_fails(fd):
+        calls.append(fd)
+        if len(calls) == 2:  # the temp file is synced first, the folder after the rename
+            raise OSError(errno.EIO, "fsync failed")
+        real_fsync(fd)
+
+    with patch.object(workspaces.os, "fsync", side_effect=fsync_folder_fails):
+        response = put(owner, "v2\n", etag=sha_etag(original), cookie=signed_in(owner_cfg))
+    assert response.status_code == 200, response.text
+    assert (root / "notes.md").read_bytes() == b"v2\n"
+
+
+@pytest.mark.parametrize(
+    ("error", "status", "code"),
+    [
+        (PermissionError(errno.EACCES, "denied"), 403, "file_not_writable"),
+        (OSError(errno.EPERM, "not permitted"), 403, "file_not_writable"),
+        (OSError(errno.EROFS, "read-only"), 403, "file_not_writable"),
+        (OSError(errno.ENOSPC, "no space"), 507, "storage_full"),
+        (OSError(errno.EIO, "io error"), 500, "file_unavailable"),
+    ],
+)
+def test_os_errors_during_save_map_to_api_codes_without_the_path(
+    owner, owner_cfg, root, caplog, error, status, code
+):
+    original = b"v1\n"
+    (root / "notes.md").write_bytes(original)
+    with patch.object(workspaces, "replace_project_file", side_effect=error):
+        response = put(owner, "v2\n", etag=sha_etag(original), cookie=signed_in(owner_cfg))
+    assert_error(response, status, code)
+    assert str(root) not in response.text
+    assert (root / "notes.md").read_bytes() == original
+    assert f"editor io errno={error.errno}" in caplog.text
+    assert str(root) not in caplog.text

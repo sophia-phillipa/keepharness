@@ -380,33 +380,44 @@ def etag_of(data):
 
 
 def _read_at(dir_fd, name):
+    """Return ``(data, fstat)`` of the open file, so the save uses the file it checked."""
     fd = os.open(name, os.O_RDONLY | os.O_NONBLOCK | os.O_NOFOLLOW, dir_fd=dir_fd)
     with os.fdopen(fd, "rb") as handle:
-        if not stat.S_ISREG(os.fstat(handle.fileno()).st_mode):
+        info = os.fstat(handle.fileno())
+        if not stat.S_ISREG(info.st_mode):
             raise ToolError("path_not_authorized")
         data = handle.read(MAX_EDITABLE_BYTES + 1)
     if len(data) > MAX_EDITABLE_BYTES:
         raise ToolError("file_too_large")
-    return data
+    return data, info
 
 
-def _write_at(dir_fd, name, data):
-    """Atomically replace ``name`` in ``dir_fd`` with ``data``, keeping its mode."""
-    mode = os.stat(name, dir_fd=dir_fd, follow_symlinks=False).st_mode & 0o7777
+def _write_at(dir_fd, name, data, info):
+    """Atomically replace ``name`` in ``dir_fd`` with ``data``, keeping mode and owner from ``info``."""
+    if info.st_nlink > 1:
+        # A rename would detach the other hard links and leave them with the old content.
+        raise ToolError("file_not_writable")
     tmp = f".{name}.{secrets.token_hex(8)}.tmp"
     fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=dir_fd)
     try:
         with os.fdopen(fd, "wb") as handle:
             handle.write(data)
             handle.flush()
-            os.fchmod(handle.fileno(), mode)
+            try:
+                os.fchown(handle.fileno(), info.st_uid, info.st_gid)
+            except PermissionError:
+                pass  # not the owner (or not root): keep the temp file's owner
+            os.fchmod(handle.fileno(), info.st_mode & 0o7777)
             os.fsync(handle.fileno())
         os.replace(tmp, name, src_dir_fd=dir_fd, dst_dir_fd=dir_fd)
-        os.fsync(dir_fd)
+        try:
+            os.fsync(dir_fd)  # best effort: the rename already happened
+        except OSError:
+            pass
     except BaseException:
         try:
             os.unlink(tmp, dir_fd=dir_fd)
-        except FileNotFoundError:
+        except OSError:
             pass
         raise
 
@@ -415,7 +426,7 @@ def read_project_file(root, name):
     path = editable_path(root, name)
     parent = open_parent_dir(path)
     try:
-        data = _read_at(parent, path.name)
+        data, _ = _read_at(parent, path.name)
     finally:
         os.close(parent)
     return EditableFile(
@@ -429,7 +440,7 @@ def replace_project_file(root, name, expected_etag, text):
     with _WRITE_LOCK:
         parent = open_parent_dir(path)
         try:
-            current = _read_at(parent, path.name)
+            current, info = _read_at(parent, path.name)
             decode_text(current)  # a non-text file is file_not_text (415) before anything else
             eol = line_endings(current)
             if eol == "mixed":
@@ -439,7 +450,7 @@ def replace_project_file(root, name, expected_etag, text):
             data = encode_text(text, eol)
             if len(data) > MAX_EDITABLE_BYTES:
                 raise ToolError("file_too_large")
-            _write_at(parent, path.name, data)
+            _write_at(parent, path.name, data, info)
         finally:
             os.close(parent)
     return etag_of(data), len(data)

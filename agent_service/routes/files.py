@@ -4,6 +4,7 @@ import asyncio
 import errno
 import hashlib
 import json
+import logging
 import re
 import shutil
 import subprocess
@@ -20,6 +21,8 @@ from ..errors import APIError
 from ..persistence.db import encoded
 from ..services.conversation_service import excerpt_metadata, preview_metadata
 from . import api_route, body, error_response
+
+logger = logging.getLogger(__name__)
 
 # Bidirectional embedding, override and isolate controls: they can reorder how a name
 # is displayed and hide its real extension ("invoice\u202etxt.exe").
@@ -497,10 +500,15 @@ def editor_file_call(function, *args):
     except tools.ToolError as exc:
         raise APIError(exc.code, EDITOR_STATUS.get(exc.code, 403)) from None
     except OSError as exc:
+        logger.warning("editor io errno=%s", exc.errno)  # never the path
         if exc.errno == errno.ELOOP:
             raise APIError("symlink_denied", 403) from None
         if exc.errno in (errno.ENOENT, errno.ENOTDIR):
             raise APIError("path_not_authorized", 403) from None
+        if exc.errno in (errno.EACCES, errno.EPERM, errno.EROFS):
+            raise APIError("file_not_writable", 403) from None
+        if exc.errno == errno.ENOSPC:
+            raise APIError("storage_full", 507) from None
         raise APIError("file_unavailable", 500) from None
 
 
@@ -518,6 +526,8 @@ async def project_file_content(request, service, identity):
         raise APIError("editor_local_only", 403)
     project = request.query_params.get("project_id")
     identity = require_current_read(request, service, project)
+    if identity[0] != "local":
+        raise APIError("editor_local_only", 403)
     root = editor_file_call(
         workspaces.project_root,
         service.project(identity, project),
