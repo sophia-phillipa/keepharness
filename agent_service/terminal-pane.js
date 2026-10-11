@@ -145,9 +145,9 @@
     cwdLabel.textContent = "";
     clearOutput();
     say("");
-    const project = byId("project").value;
+    // "No project" starts in the home folder; an empty select falls back to the same scope.
+    const project = byId("project").value || "sem-projeto";
     state.project = project;
-    if (!project) return say("Choose a project to open its terminal.");
     const generation = state.generation;
     try {
       const data = await (
