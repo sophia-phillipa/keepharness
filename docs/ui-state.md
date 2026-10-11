@@ -27,6 +27,7 @@ Errors: `ui_state_local_only` (403, any client but the local owner), `ui_state_u
 - `editor_width` (pixels, 0 to 20000) is the editor pane width; a missing key reads as the CSS default.
 - `terminal_open` (boolean) shows the terminal pane docked at the bottom of the main column; a missing key reads as `false`.
 - `terminal_height` (pixels, 0 to 20000) is the terminal pane height; a missing key reads as the CSS default.
+- `language` (string) is the interface language, a BCP-47-style tag such as `en` or `pt-BR` (`[a-z]{2,3}(-[A-Za-z0-9]{2,8})*`, at most 200 characters); the write is strict (422 `ui_state_invalid_value` otherwise), a stored malformed value reads as missing, and a missing key follows the browser language or English ([interface-language.md](interface-language.md) §2.2).
 - Nothing here is conversation content, a draft, a secret or a path.
 
 A GET may repair the store as a side effect: an unparsable file is moved aside as `.bak` (the client did not ask for it; it is an internal repair). Keys a newer build wrote are kept on write and never served. `<state_dir>` is the harness run state folder (`state/runs`).

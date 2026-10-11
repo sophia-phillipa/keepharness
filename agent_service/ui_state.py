@@ -187,6 +187,8 @@ SCHEMA: dict[str, Check] = {
     "editor_width": _width,
     "terminal_open": flag,
     "terminal_height": _width,
+    # A BCP-47-style tag (en, pt-BR); the locale list is not checked here, only the shape.
+    "language": text(pattern=re.compile(r"[a-z]{2,3}(?:-[A-Za-z0-9]{2,8})*")),
 }
 
 
