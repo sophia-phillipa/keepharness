@@ -1,6 +1,6 @@
 # Naming model
 
-Version 1.1.0 — 2026-10-03
+Version 1.2.0 — 2026-10-11
 
 ## Purpose and scope
 
@@ -22,6 +22,7 @@ Canonical names for files and directories, Python identifiers, JS/CSS/HTML ident
 | Environment variables | Public ones prefixed `KEEPHARNESS_`: `KEEPHARNESS_ROOT`, `KEEPHARNESS_VENV`, `KEEPHARNESS_AGENT_URL`, `KEEPHARNESS_AGENT_CLIENT`, `KEEPHARNESS_AGENT_CONFIG`, `KEEPHARNESS_LOG_LEVEL`, `KEEPHARNESS_LIVE` | Already compliant: `KEEPHARNESS_API_KEY`, `KEEPHARNESS_LOCAL_KEY`, `KEEPHARNESS_WHISPER_DIR` | Legacy `LOCAL_AGENT_URL`, `LOCAL_AGENT_CLIENT`, `LOCAL_AGENT_CONFIG`, `TH_VENV` accepted as deprecated aliases only through `control/env.py`, which logs a deprecation warning. Shell-script-local variables use `TH_` (`TH_STATE`, `TH_PID`) and are never a contract. Test-harness inputs `ADMIN_URL`, `HARNESS_URL`, `PLAYWRIGHT_MODULE`, `GAUNTLET_ROUND`, `EVAL_OUTPUT` are grandfathered and documented as such |
 | JSON/config/state keys, SQLite | snake_case keys; plural table names; foreign keys `<entity>_id` | `project_id`; tables `jobs`, `approval_rules`, `registered_projects` | External schemas: protocol sentinel `sem-projeto` (persisted "No project" scope id — never rename); llama.cpp flag keys in local profiles (`ctx-size`, `n-gpu-layers`, `cache-ram`… mirror the `llama-server` CLI); Gemini CLI settings keys (`selectedType`, `enforcedType`… in `adapters/gemini/policy.py`); provider API payloads |
 | Error codes returned to clients | snake_case strings | `image_validation_unavailable`, `backend_unavailable` | — |
+| Interface catalog keys (`harness_ui/assets/locales/*.json`) | Flat dotted keys `area.component.purpose`, each segment snake_case; server error codes as `error.<code>`; plurals are objects with `one`/`other` forms | `common.app.name`, `error.backend_unavailable` | — |
 | JS | camelCase functions/variables; PascalCase constructors; UPPER_SNAKE constants; DOM ids, classes and `data-*` attributes kebab-case | `agent_service/ui.js`, `control/admin.js` | Vendor bundles (`markdown-it.min.js`, `tabler.min.js`) |
 | CSS custom properties | `--th-<role>` for project tokens | `--th-accent`, `--th-bg` | Vendor tokens (`--tblr-*` from Tabler) untouched; unprefixed `--accent`, `--bg`, `--panel` migrate to `--th-*` |
 | Agents and skills | `objective_context_role` | `test_keepharness_engineer`, `test-gauntlet_keepharness_procedure` | Defer to [canonical-agents-skills-model.md](canonical-agents-skills-model.md) |
@@ -76,6 +77,7 @@ A failing check blocks the merge; new exceptions are added to the allowlist in t
 
 | Version | Date | Change |
 |---|---|---|
+| 1.2.0 | 2026-10-11 | Interface catalog keys: flat dotted snake_case keys in `harness_ui/assets/locales/*.json`, `error.<code>` for server codes (#16). |
 | 1.1.0 | 2026-10-03 | Product renamed to KeepHarness: `KEEPHARNESS_*` environment variables (the old prefix is not read), `harness_ui`, harness agents and a one-time move of the state and config folders. |
 | 1.0.1 | 2026-09-26 | P3 migration executed: `Adapters/`→`adapters/`, script renames, `local-ai/`→`local_ai/` with a startup migration, `KEEPHARNESS_*` environment variables with deprecated legacy aliases via `control/env.py`, unprefixed CSS custom properties renamed to `--th-*`, compatibility-import shims removed, and `scripts/check_conventions.py`'s grandfather entries for the migrated names dropped. |
 | 1.0.0 | 2026-09-26 | Initial naming model: rules, layering vocabulary, migration table and enforcement plan. |

@@ -27,7 +27,7 @@ include-package-data = false
 
 [tool.setuptools.package-data]
 adapters = ["README.md", "*/specs/*.md", "*/specs/**/*.md", "*/specs/*.json", "claude/schemas/*.json"]
-harness_ui = ["assets/*"]
+harness_ui = ["assets/*", "assets/locales/*"]
 control = ["*.html", "*.css", "*.js"]
 agent_service = ["*.html", "*.css", "*.js", "*.sh", "*.txt", "VERSION", "vendor/*"]
 
