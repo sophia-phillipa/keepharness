@@ -7875,13 +7875,14 @@ const updateAttentionLabel = () => {
   const count = Number($("attention-count").textContent) || 0;
   $("attention-bell").setAttribute(
     "aria-label",
-    `Attention, ${count} ${count === 1 ? "item" : "items"}`,
+    t("sidebar.attention.bell_label", { count }),
   );
   $("attention-summary").textContent =
     (count
-      ? `${count} ${count === 1 ? "item needs" : "items need"} you now.`
-      : "Nothing needs you right now.") +
-    " Choose which events to open in the inbox.";
+      ? t("sidebar.attention.items_need_you", { count })
+      : t("sidebar.attention.nothing_needs_you")) +
+    " " +
+    t("sidebar.attention.choose_events");
 };
 new MutationObserver(updateAttentionLabel).observe($("attention-count"), {
   childList: true,
@@ -7967,7 +7968,7 @@ function setReadiness(ready, message = "") {
   $("startup-gate").querySelector("span").textContent = ready
     ? ""
     : message ||
-      "Waiting for the server… The connection will be checked automatically.";
+      t("static.status.waiting_server");
   document.body.dataset.connectionReady = String(ready);
   if (ready) {
     syncWorkspaceModal();
@@ -8002,7 +8003,7 @@ function modelAvailability(
     : t("composer.availability.title_none");
   $("model-availability-detail").textContent =
     error ||
-    "Add and enable a provider in this server's admin panel. Then start or restart the harness to apply it.";
+    t("composer.availability.detail_setup");
   const link = $("admin-link");
   link.hidden = true;
   {
@@ -8032,8 +8033,8 @@ function modelAvailability(
     !models.length || submitting || loading || uploads > 0 || policyPending;
   $("effort").disabled = $("model").disabled;
   $("prompt").placeholder = models.length
-    ? "Send a message, or / for agents and skills"
-    : "Set up a model to send; your draft will be preserved.";
+    ? t("composer.prompt.placeholder_ready")
+    : t("composer.prompt.placeholder_setup");
   $("model-note").hidden = !models.length;
   updateModelPermissions();
   if (!models.length) {
@@ -8058,7 +8059,7 @@ async function initialize() {
   setReadiness(false);
   const retry = $("models-retry");
   retry.disabled = true;
-  retry.textContent = "Checking…";
+  retry.textContent = t("admin.providers.checking");
   try {
     const [p, m] = await Promise.all([
       json("/v1/projects", { signal: AbortSignal.timeout(5000) }),
@@ -8069,7 +8070,7 @@ async function initialize() {
       !p.projects.length ||
       !Array.isArray(m.models)
     )
-      throw Error("The server returned an invalid catalog.");
+      throw Error(t("composer.error.invalid_catalog"));
     let saved = {};
     if (!startupTimer) {
       try {
@@ -8114,14 +8115,16 @@ async function initialize() {
     updateEfforts();
     restoreSelection();
     if (!(await refreshProjectPermissions(5000)))
-      throw Error("Couldn't load this project's permissions.");
+      throw Error(t("composer.error.permissions_load"));
     modelAvailability(m);
     if (!(await history(5000)))
-      throw Error("Couldn't load the conversation history.");
+      throw Error(t("history.error.conversations_load"));
     status(
       pendingSelectionNotice ||
-        (models.length ? "Ready to chat." : "Set up a model to get started."),
-      pendingSelectionNotice ? "neutral" : undefined,
+        (models.length
+          ? t("composer.status.ready_to_chat")
+          : t("composer.status.setup_model")),
+      pendingSelectionNotice || !models.length ? "neutral" : "progress",
     );
     pendingSelectionNotice = "";
     let resumeWatch = false;
@@ -8164,16 +8167,16 @@ async function initialize() {
     setReadiness(
       false,
       e.status === 401
-        ? "Waiting for authorization. Enter your access key to connect."
-        : "Waiting for the server… Checking the connection automatically.",
+        ? t("composer.status.waiting_authorization")
+        : t("composer.status.waiting_server_checking"),
     );
     if (e.status === 401 && !$("vpn-login").open) $("vpn-login").showModal();
     modelAvailability(null, e.message);
-    status("Couldn't connect: " + e.message);
+    status(t("composer.status.connect_failed", { detail: e.message }), "error");
   } finally {
     initializing = false;
     retry.disabled = false;
-    retry.textContent = "Check again";
+    retry.textContent = t("composer.readiness.check_again");
     if (!readinessTimer)
       readinessTimer = setInterval(() => {
         retryReadiness();
@@ -8213,7 +8216,7 @@ async function probeReadiness() {
       !p.projects.length ||
       !Array.isArray(m.models)
     )
-      throw Error("Invalid catalog");
+      throw Error(t("composer.error.invalid_catalog_short"));
     let project = $("project").value;
     if (!p.projects.includes(project)) {
       // F-81: a removed project is not a lost connection. Move the draft to a
@@ -8230,20 +8233,21 @@ async function probeReadiness() {
       );
       project = $("project").value;
       status(
-        "The project “" +
-          label +
-          "” was removed. Your draft was kept and moved to " +
-          (project === "sem-projeto"
-            ? "No project"
-            : $("project").selectedOptions[0]?.textContent || project) +
-          ".",
+        t("sidebar.project.removed_draft_moved", {
+          label,
+          project:
+            project === "sem-projeto"
+              ? t("sidebar.project.none")
+              : $("project").selectedOptions[0]?.textContent || project,
+        }),
+        "neutral",
       );
     }
     const scoped = await json(
       "/v1/models?project_id=" + encodeURIComponent(project),
       { signal: AbortSignal.timeout(5000) },
     );
-    if (!Array.isArray(scoped.models)) throw Error("Invalid permissions");
+    if (!Array.isArray(scoped.models)) throw Error(t("composer.error.permissions_invalid"));
     if (
       !busy &&
       !loading &&
@@ -8296,13 +8300,13 @@ async function probeReadiness() {
       const h = await json("/v1/conversations", {
         signal: AbortSignal.timeout(5000),
       });
-      if (!Array.isArray(h.conversations)) throw Error("Invalid history");
+      if (!Array.isArray(h.conversations)) throw Error(t("history.error.invalid"));
     } catch (e) {
       if (e.status !== 404) throw e;
       const h = await json("/v1/history", {
         signal: AbortSignal.timeout(5000),
       });
-      if (!Array.isArray(h.jobs)) throw Error("Invalid history");
+      if (!Array.isArray(h.jobs)) throw Error(t("history.error.invalid"));
     }
   } catch (e) {
     if (e.status === 429) {
@@ -8315,10 +8319,10 @@ async function probeReadiness() {
     setReadiness(
       false,
       e.status === 401
-        ? "Waiting for authorization. Enter your access key to connect."
-        : "Waiting for the server… Checking the connection automatically.",
+        ? t("composer.status.waiting_authorization")
+        : t("composer.status.waiting_server_checking"),
     );
-    status("Connection to the server lost: " + e.message);
+    status(t("composer.status.connection_lost", { detail: e.message }), "neutral");
   } finally {
     probing = false;
   }
@@ -8536,8 +8540,9 @@ function throughputLabel(m) {
   if (Number.isFinite(direct) && direct >= 0)
     return (
       " · " +
-      direct.toLocaleString("en-US", { maximumFractionDigits: 1 }) +
-      " tk/s"
+      t("run_console.throughput.rate", {
+        rate: direct.toLocaleString("en-US", { maximumFractionDigits: 1 }),
+      })
     );
   const tokens = m?.output_tokens,
     seconds = m?.inference_seconds;
@@ -8549,10 +8554,13 @@ function throughputLabel(m) {
   )
     return (
       " · " +
-      (tokens / seconds).toLocaleString("en-US", { maximumFractionDigits: 1 }) +
-      " tk/s"
+      t("run_console.throughput.rate", {
+        rate: (tokens / seconds).toLocaleString("en-US", {
+          maximumFractionDigits: 1,
+        }),
+      })
     );
-  return " · tk/s: —";
+  return " · " + t("run_console.throughput.unknown");
 }
 function paintContext(u, metrics) {
   const current = selected(),
@@ -8563,25 +8571,21 @@ function paintContext(u, metrics) {
         : u.modelContextWindow;
   $("context-meter").textContent =
     (Number.isFinite(n)
-      ? "Context: " +
-        n.toLocaleString() +
-        (w
-          ? " / " +
-            w.toLocaleString() +
-            " tokens · " +
-            Math.round((n / w) * 100) +
-            "%"
-          : " tokens")
-      : "Context not reported") + throughputLabel(metrics);
+      ? w
+        ? t("run_console.context.used_of_window", {
+            used: n.toLocaleString(),
+            window: w.toLocaleString(),
+            percent: Math.round((n / w) * 100),
+          })
+        : t("run_console.context.used", { used: n.toLocaleString() })
+      : t("run_console.context.not_reported")) + throughputLabel(metrics);
 }
 function paintLocalUsage(m) {
   $("context-meter").textContent =
-    "Last run: " +
-    (m.input_tokens ?? "—") +
-    " input tokens · " +
-    (m.output_tokens ?? "—") +
-    " output" +
-    throughputLabel(m);
+    t("run_console.usage.local_last_run", {
+      input: m.input_tokens ?? "—",
+      output: m.output_tokens ?? "—",
+    }) + throughputLabel(m);
 }
 async function checkVersion() {
   void refreshComposerGit();
@@ -8589,15 +8593,16 @@ async function checkVersion() {
     const v = await json("/v1/version");
     const restartPending =
       v.disk_source_build && v.disk_source_build !== v.source_build;
-    $("version").textContent =
-      "Release: " +
-      v.version +
-      (restartPending ? " · Restart to finish the update" : "");
+    $("version").textContent = t(
+      restartPending ? "static.version.restart_pending" : "static.version.release",
+      { version: v.version },
+    );
     $("version").title = "";
-    $("about-version").textContent = "Release " + v.version + " · MIT licence";
+    $("about-version").textContent = t("static.about.version", { version: v.version });
     if (v.config_reload_error)
       status(
-        "Couldn't apply the configuration. The harness kept the last valid configuration. Review the admin panel.",
+        t("composer.status.config_reload_failed"),
+        "error",
       );
     if (uiBuild && v.ui_build && uiBuild !== v.ui_build) reloadPending = true;
     uiBuild = v.ui_build;
@@ -8605,7 +8610,7 @@ async function checkVersion() {
       location.reload();
     } else if (reloadPending) {
       $("version").title =
-        "An update will be applied once the run or attachment upload finishes, preserving your draft.";
+        t("static.version.update_pending");
     }
   } catch {}
 }
@@ -8652,7 +8657,7 @@ function setPanelView(view, persist = true) {
   const files = rightPanelView === "files";
   $("activities-view").hidden = files;
   $("files-view").hidden = !files;
-  $("activity-title").textContent = "Activity";
+  $("activity-title").textContent = t("static.activity.tab_label");
   syncPanelToggles();
   if (persist) prefs.set("right_panel_view", rightPanelView);
 }
@@ -8796,9 +8801,9 @@ async function loadAuthorizedProjectRoots() {
     authorize.disabled = true;
     return;
   }
-  holder.textContent = "Loading project roots…";
+  holder.textContent = t("static.files.roots_loading");
   authorize.disabled = true;
-  authorize.title = "Checking project permissions";
+  authorize.title = t("static.files.roots_checking");
   try {
     const base = new URLSearchParams({
       view: "authorized",
@@ -8810,8 +8815,8 @@ async function loadAuthorizedProjectRoots() {
     if (request !== authorizedRootsRequest) return;
     authorize.disabled = !data.can_authorize || project === "sem-projeto";
     authorize.title = authorize.disabled
-      ? "Additional roots are not available for this project."
-      : "Add a folder to this project";
+      ? t("static.files.roots_unavailable_hint")
+      : t("static.files.roots_add_hint");
     const roots = Array.isArray(data.roots) ? [...data.roots] : [];
     if (data.root_id) {
       roots.sort((left, right) =>
@@ -8829,7 +8834,7 @@ async function loadAuthorizedProjectRoots() {
       heading.prepend(projectFileIcon(root.path || root.label, true));
       const badge = document.createElement("span");
       badge.className = "root-access-badge";
-      badge.textContent = "authorized";
+      badge.textContent = t("static.files.root_authorized_badge");
       const list = document.createElement("ul");
       card.append(heading, badge, list);
       holder.append(card);
@@ -8863,7 +8868,7 @@ async function loadAuthorizedProjectRoots() {
             );
             if (name.tagName === "BUTTON") {
               name.type = "button";
-              name.title = "Attach " + entry.name;
+              name.title = t("static.files.attach_entry", { name: entry.name });
               name.onclick = () =>
                 attachSelectedProjectFiles({
                   project_root_id: root.id,
@@ -8875,20 +8880,20 @@ async function loadAuthorizedProjectRoots() {
               const state = document.createElement("b");
               state.className = "file-status-badge";
               state.textContent = entry.status;
-              state.title = "Git status " + entry.status;
+              state.title = t("static.files.git_status", { status: entry.status });
               row.append(state);
             }
             list.append(row);
           }
           if (!list.children.length) {
             const empty = document.createElement("li");
-            empty.textContent = "No files at this level.";
+            empty.textContent = t("static.files.no_files_here");
             list.append(empty);
           }
         } catch {
           if (request !== authorizedRootsRequest) return;
           const unavailable = document.createElement("li");
-          unavailable.textContent = "Couldn't load this root.";
+          unavailable.textContent = t("static.files.root_load_failed");
           list.append(unavailable);
         }
       }
@@ -8898,12 +8903,12 @@ async function loadAuthorizedProjectRoots() {
         loadNextRoot(),
       ),
     );
-    if (!roots.length) holder.textContent = "No project root is authorized.";
+    if (!roots.length) holder.textContent = t("static.files.no_root_authorized");
   } catch {
     if (request !== authorizedRootsRequest) return;
-    holder.textContent = "Project roots are unavailable in this service.";
+    holder.textContent = t("static.files.roots_unavailable");
     authorize.disabled = true;
-    authorize.title = "Project root authorization is unavailable.";
+    authorize.title = t("static.files.root_auth_unavailable");
   }
 }
 $("authorize-project-root").onclick = () => {
@@ -8921,7 +8926,7 @@ function resetActivity(clearHistory = true) {
     $("response-details")?.replaceChildren();
     $("activity-previous").replaceChildren();
     $("activity-current").dataset.job = "";
-    $("activity-run-title").textContent = "Waiting for execution";
+    $("activity-run-title").textContent = t("run_status.activity.waiting_for_execution");
   }
   if ($("activity-reasoning")) $("activity-reasoning").textContent = "";
   const list = $("activity-events");
@@ -9032,7 +9037,7 @@ matchMedia("(max-width:700px)").addEventListener("change", (event) => {
 
 function boundedText(text, limit) {
   return text.length > limit
-    ? "[… earlier content omitted …]\n" + text.slice(-limit)
+    ? t("run_console.activity.omitted") + "\n" + text.slice(-limit)
     : text;
 }
 function beginActivity(id, model = $("model").value) {
@@ -9050,9 +9055,10 @@ function beginActivity(id, model = $("model").value) {
   $("activity-run-title").textContent =
     modelIcon(model) +
     " " +
-    (model ? modelName(model) : "Model") +
-    " · Run " +
-    id;
+    t("run_console.activity.run_title", {
+      model: model ? modelName(model) : t("static.composer.model_trigger.aria_label"),
+      id,
+    });
 }
 async function replayActivity(id) {
   const response = await api("/v1/jobs/" + encodeURIComponent(id) + "/events", {
