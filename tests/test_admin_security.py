@@ -323,12 +323,30 @@ class AdminSecurityTest(unittest.IsolatedAsyncioTestCase):
         folder.chmod(0o755)
         await self._refuse_marketplace_add_in(folder)
 
-    async def test_marketplace_add_refuses_a_non_empty_operations_folder(self):
+    async def test_marketplace_add_empties_leftovers_without_following_links(self):
+        # D-056 (2026-10-11): files a CLI left behind are removed before the next run.
         manager = self.app.state.manager
+        manager.inventory = {"binaries": {"codex": str(FAKE_CODEX)}}
+        outside = Path(self.folder.name) / "outside"
+        outside.mkdir()
+        (outside / "keep.txt").write_text("keep", encoding="utf-8")
         folder = manager.state / "operations-cwd"
         folder.mkdir(mode=0o700)
         (folder / "stale.json").write_text("{}", encoding="utf-8")
-        await self._refuse_marketplace_add_in(folder)
+        (folder / "acme" / "plugins").mkdir(parents=True)
+        (folder / "acme" / "plugins" / "marketplace.json").write_text("{}", encoding="utf-8")
+        (folder / "link").symlink_to(outside, target_is_directory=True)
+        body = {"provider": "codex", "action": "marketplace_add", "source": "acme/plugins"}
+        with patch.dict(CAPABILITY_MEMO, {}, clear=True):
+            await capabilities("codex", str(FAKE_CODEX))
+            with patch.object(manager.operations, "launch", return_value={"id": "job"}) as launch:
+                response = await self.client.post(
+                    "/api/integration", json=body, headers=self.headers
+                )
+        self.assertEqual(response.status_code, 200)
+        launch.assert_called_once()
+        self.assertEqual(list(folder.iterdir()), [])
+        self.assertEqual((outside / "keep.txt").read_text(encoding="utf-8"), "keep")
 
     async def test_marketplace_add_refuses_an_operations_path_that_is_a_file(self):
         manager = self.app.state.manager
