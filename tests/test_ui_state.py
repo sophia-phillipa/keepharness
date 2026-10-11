@@ -3,6 +3,7 @@
 import hashlib
 import json
 import os
+import re
 import stat
 import subprocess
 import sys
@@ -45,6 +46,7 @@ SAMPLES = {
     ],
     "last_section": ["appearance", ""],
     "always_on_top": [True, False],
+    "wide_layout": [True, False],
 }
 OVER = {
     "theme": "x" * 41,
@@ -53,6 +55,7 @@ OVER = {
     "sidebar_collapsed": 1,
     "visual_markers": "on",
     "always_on_top": "yes",
+    "wide_layout": "yes",
     "chat_selection": {"model": "m" * 201},
     "project_expanded": {f"p{i}": True for i in range(201)},
     "project_list_preferences": {f"p{i}": {} for i in range(201)},
@@ -208,6 +211,40 @@ def test_keys_from_a_newer_build_survive_a_write_from_this_one(api, cfg):
     stored = json.loads(stored_file(cfg).read_text())["values"]
     assert stored["future_key"] == {"kept": True}
     assert "future_key" not in api.get("/v1/ui-state").json()["values"]
+
+
+def test_wide_layout_write_rejects_every_non_boolean(api):
+    for value in ("yes", 1, 0, [True]):
+        body = patch(api, wide_layout=value).json()
+        assert (body["code"], body["field"]) == ("ui_state_invalid_value", "wide_layout"), value
+    assert "wide_layout" not in api.get("/v1/ui-state").json()["values"]
+
+
+def test_stored_wide_layout_of_the_wrong_type_reads_as_default_and_a_write_keeps_it(api, cfg):
+    patch(api, theme="paper")
+    document = json.loads(stored_file(cfg).read_text())
+    document["values"]["wide_layout"] = "yes"
+    stored_file(cfg).write_text(json.dumps(document))
+    assert "wide_layout" not in api.get("/v1/ui-state").json()["values"]
+    patch(api, theme="graphite")
+    assert json.loads(stored_file(cfg).read_text())["values"]["wide_layout"] == "yes"
+
+
+def test_an_older_build_keeps_a_raw_wide_layout_it_does_not_know(api, cfg, monkeypatch):
+    patch(api, theme="paper")
+    document = json.loads(stored_file(cfg).read_text())
+    document["values"]["wide_layout"] = True
+    stored_file(cfg).write_text(json.dumps(document))
+    monkeypatch.delitem(ui_state.SCHEMA, "wide_layout")
+    patch(api, reading_size="17")
+    assert json.loads(stored_file(cfg).read_text())["values"]["wide_layout"] is True
+    assert "wide_layout" not in api.get("/v1/ui-state").json()["values"]
+
+
+def test_wide_layout_has_its_client_conversion():
+    prefs = (Path(ui_state.__file__).parent / "ui-prefs.js").read_text(encoding="utf-8")
+    entry = "wide_layout: { old: () => [], read: () => undefined, write: () => [] },"
+    assert re.search(rf"^\s+{re.escape(entry)}$", prefs, re.M)
 
 
 def test_quarantine_moved_by_another_reader_is_not_read_only(cfg):
