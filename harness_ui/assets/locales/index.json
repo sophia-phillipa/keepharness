@@ -1,6 +1,6 @@
 {
   "locales": [
     { "tag": "en", "file": "en.json", "name": "English", "complete": true },
-    { "tag": "pt-BR", "file": "pt-br.json", "name": "Português (Brasil)", "complete": false }
+    { "tag": "pt-BR", "file": "pt-br.json", "name": "Português (Brasil)", "complete": true }
   ]
 }

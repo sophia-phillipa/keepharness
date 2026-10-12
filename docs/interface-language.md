@@ -65,7 +65,7 @@ Kept in English on purpose (same list as [D-036](../dossier/decisions/d-036-wp9-
 
 ### 2.4 Intl
 
-- Plurals: `Intl.PluralRules(active tag)`; a category missing from a catalog falls back to `other`.
+- Plurals: `Intl.PluralRules(active tag)`; a category missing from a catalog falls back to `other`; a count of 0 uses `zero` when present, otherwise `other` (pt-BR files 0 under `one`).
 - Dates and numbers: replace the 22 `toLocaleString` lines (15 in `ui.js`, 7 in `control/admin.js`), including the fixed `"en"` at `ui.js:3319`, with the active tag.
 - No text is concatenated across keys: each sentence is one key with placeholders, because word order differs between languages.
 

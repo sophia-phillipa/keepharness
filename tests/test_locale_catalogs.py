@@ -82,6 +82,8 @@ const result = {
 result.switched = i18n.setLanguage("pt-BR");
 result.switched_lang = document.documentElement.lang;
 result.switched_app = i18n.t("common.app.name");
+result.plural_zero = i18n.t("common.run.count", { count: 0 });
+result.plural_one = i18n.t("common.run.count", { count: 1 });
 result.rejected = i18n.setLanguage("xx");
 result.rejected_tag = i18n.tag();
 console.log(JSON.stringify(result));
@@ -166,8 +168,17 @@ def test_t_returns_english_text_key_for_unknown_and_plurals():
     assert result["applied"] == ["KeepHarness", "English kept", "KeepHarness", "KeepHarness"]
 
 
-def test_unknown_or_incomplete_language_stays_english():
-    assert run_runtime(LOCALES, stored="pt-BR", languages="pt-BR")["tag"] == "en"
+def test_unknown_or_incomplete_language_stays_english(tmp_path):
+    shutil.copy(LOCALES / "en.json", tmp_path / "en.json")
+    index = {
+        "locales": [
+            {"tag": "en", "file": "en.json", "name": "English", "complete": True},
+            {"tag": "pt-BR", "file": "pt-br.json", "name": "Test locale", "complete": False},
+        ]
+    }
+    (tmp_path / "index.json").write_text(json.dumps(index), encoding="utf-8")
+    (tmp_path / "pt-br.json").write_text("{}", encoding="utf-8")
+    assert run_runtime(tmp_path, stored="pt-BR", languages="pt-BR")["tag"] == "en"
 
 
 @pytest.fixture
@@ -337,3 +348,9 @@ def test_static_markup_keys_exist_and_wrapped_text_is_english():
         assert key in english, (name, key)
         if name == "data-i18n":
             assert text == " ".join(english[key].split()), (key, text)
+
+
+def test_zero_count_uses_the_plural_form_even_where_cldr_files_it_under_one(pt_root):
+    result = run_runtime(pt_root)
+    assert result["plural_zero"] == "0 jobs"  # pt-BR selects `one` for 0; the runtime must not
+    assert result["plural_one"] == "1 job"
