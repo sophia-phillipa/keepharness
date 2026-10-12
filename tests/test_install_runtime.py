@@ -70,6 +70,45 @@ def test_cli_wrapper_is_written_and_rollback_removes_it(tmp_path, monkeypatch):
     assert not wrapper.exists()
 
 
+def test_a_foreign_cli_file_is_refused_and_rollback_keeps_it(tmp_path, monkeypatch):
+    from control import install
+
+    monkeypatch.setattr(install, "rollback_refusal", lambda home: None)
+    monkeypatch.setattr(install, "rollback_state", lambda home: home)
+    wrapper = tmp_path / ".local/bin/keepharness"
+    wrapper.parent.mkdir(parents=True)
+    wrapper.write_text("#!/bin/sh\necho mine\n")
+    assert str(wrapper) in install.cli_refusal(tmp_path)
+    install.rollback(tmp_path, run=lambda *a, **kw: None)
+    assert wrapper.read_text() == "#!/bin/sh\necho mine\n"
+
+
+def test_cli_refusal_allows_absent_or_an_older_wrapper_of_ours(tmp_path):
+    from control import install
+
+    wrapper = tmp_path / ".local/bin/keepharness"
+    assert install.cli_refusal(tmp_path) is None
+    wrapper.parent.mkdir(parents=True)
+    wrapper.write_text("#!/bin/sh\nexec '/old venv/bin/keepharness' \"$@\"\n")
+    assert install.cli_refusal(tmp_path) is None
+    wrapper.unlink()
+    wrapper.symlink_to("/usr/bin/keepharness")
+    assert install.cli_refusal(tmp_path) is not None
+
+
+def test_preflight_refuses_a_foreign_cli_before_anything_moves(tmp_path, monkeypatch):
+    from control import install
+
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setattr(install, "container_name", lambda *a, **kw: None)
+    monkeypatch.setattr(install, "port_conflict", lambda *a, **kw: None)
+    monkeypatch.setattr(install, "migration_refusal", lambda *a, **kw: None)
+    wrapper = tmp_path / ".local/bin/keepharness"
+    wrapper.parent.mkdir(parents=True)
+    wrapper.write_text("user script\n")
+    assert str(wrapper) in install.preflight(8094)
+
+
 def test_install_py_rollback_removes_only_exact_legacy_browser_entry(tmp_path, monkeypatch):
     from control import install
 

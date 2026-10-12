@@ -10,6 +10,7 @@ import http.client
 import http.cookiejar
 import json
 import os
+import re
 import shlex
 import subprocess
 import sys
@@ -141,8 +142,34 @@ exec xdg-open http://127.0.0.1:{port}/
     return {
         home / ".config/systemd/user" / SERVICE: (unit, 0o600),
         home / (".local/bin/" + PRODUCT.slug + "-open"): (launcher, 0o700),
-        home / (".local/bin/" + PRODUCT.slug): (cli, 0o700),
+        cli_path(home): (cli, 0o700),
     }
+
+
+def cli_path(home):
+    return Path(home) / ".local/bin" / PRODUCT.slug
+
+
+# The wrapper files() writes, for any venv path (a moved venv is still ours).
+CLI_WRAPPER = re.compile(r"#!/bin/sh\nexec (?:'[^\n]*'|[^'\s]+) \"\$@\"\n")
+
+
+def owned_cli(path):
+    """True when the CLI path is absent or holds a wrapper this installer wrote."""
+    if not path.is_symlink() and not path.exists():
+        return True
+    try:
+        return not path.is_symlink() and CLI_WRAPPER.fullmatch(path.read_text()) is not None
+    except (OSError, UnicodeDecodeError):
+        return False
+
+
+def cli_refusal(home):
+    """Refuse to replace or remove a CLI path the user owns; None when it may be written."""
+    path = cli_path(home)
+    if owned_cli(path):
+        return None
+    return f"{path} exists and is not a {PRODUCT.name} wrapper: move it aside, then install again."
 
 
 BROWSER_ENTRIES = (PRODUCT.slug + "-browser.desktop", PRODUCT.slug + ".desktop")
@@ -200,7 +227,8 @@ def rollback(home, run=subprocess.run):
     # Disabled before the state moves back: an enabled unit would take it again (OPS-R1-2).
     run(["systemctl", "--user", "disable", "--now", SERVICE], check=False)
     for path in files(home, sys.executable):
-        path.unlink(missing_ok=True)
+        if path != cli_path(home) or owned_cli(path):
+            path.unlink(missing_ok=True)
     for name in BROWSER_ENTRIES:
         remove_browser_entry(Path(home) / ".local/share/applications" / name, home)
     run(["systemctl", "--user", "daemon-reload"], check=False)
@@ -216,8 +244,10 @@ def preflight(port):
             "systemd cannot use an environment built here: run ./install.sh in a host terminal, "
             "or `distrobox-host-exec ./install.sh` from this checkout."
         )
-    return port_conflict(port, stopping=LEGACY_SERVICE) or migration_refusal(
-        Path.home(), stopping=True
+    return (
+        port_conflict(port, stopping=LEGACY_SERVICE)
+        or migration_refusal(Path.home(), stopping=True)
+        or cli_refusal(Path.home())
     )
 
 

@@ -273,35 +273,49 @@
         items.length
     ].focus();
   }
-  function openMenu(button, group, family = false) {
+  // One popup per button; clicking the button that owns the open popup closes it.
+  // Each entry is {label, testid, open}; testid is optional.
+  function showMenu(button, entries, testid) {
     const reopen = menu?.button !== button;
     closeMenu();
-    if (!reopen) return;
-    const popup = node("div", undefined, "plugins-menu", "plugin-menu");
+    if (!reopen || !entries.length) return;
+    const popup = node("div", undefined, "plugins-menu", testid);
     popup.setAttribute("role", "menu");
-    for (const info of installedTargets(group, family)) {
-      const entry = node(
+    for (const entry of entries) {
+      const item = node(
         "button",
-        group.providers.length > 1
-          ? HarnessI18n.t("customize.uninstall.from_provider", {
-              provider: providerName(info),
-            })
-          : HarnessI18n.t("customize.uninstall.label"),
+        entry.label,
         "plugins-menu-item",
+        entry.testid,
       );
-      entry.type = "button";
-      entry.setAttribute("role", "menuitem");
-      entry.onclick = () => {
+      item.type = "button";
+      item.setAttribute("role", "menuitem");
+      item.onclick = () => {
         closeMenu(true);
-        uninstall(group, info, family);
+        entry.open();
       };
-      popup.append(entry);
+      popup.append(item);
     }
     popup.addEventListener("keydown", (event) => arrowMenu(event, popup));
     button.after(popup);
     button.setAttribute("aria-expanded", "true");
     menu = { node: popup, button };
     popup.firstElementChild.focus();
+  }
+  function openMenu(button, group, family = false) {
+    showMenu(
+      button,
+      installedTargets(group, family).map((info) => ({
+        label:
+          group.providers.length > 1
+            ? HarnessI18n.t("customize.uninstall.from_provider", {
+                provider: providerName(info),
+              })
+            : HarnessI18n.t("customize.uninstall.label"),
+        open: () => uninstall(group, info, family),
+      })),
+      "plugin-menu",
+    );
   }
 
   // One entry per provider and Add action. The provider name shows only when several providers offer an Add action.
@@ -333,27 +347,7 @@
     else if (!addWrapper.isConnected) modeButton.after(addWrapper);
   }
   function openAddMenu() {
-    const entries = addEntries();
-    const reopen = menu?.button !== addButton;
-    closeMenu();
-    if (!reopen || !entries.length) return;
-    const popup = node("div", undefined, "plugins-menu", "plugins-add-menu");
-    popup.setAttribute("role", "menu");
-    for (const { label, testid, open } of entries) {
-      const entry = node("button", label, "plugins-menu-item", testid);
-      entry.type = "button";
-      entry.setAttribute("role", "menuitem");
-      entry.onclick = () => {
-        closeMenu(true);
-        open();
-      };
-      popup.append(entry);
-    }
-    popup.addEventListener("keydown", (event) => arrowMenu(event, popup));
-    addButton.after(popup);
-    addButton.setAttribute("aria-expanded", "true");
-    menu = { node: popup, button: addButton };
-    popup.firstElementChild.focus();
+    showMenu(addButton, addEntries(), "plugins-add-menu");
   }
   function openAddDialog(info) {
     addInfo = info;

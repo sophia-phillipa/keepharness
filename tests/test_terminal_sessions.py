@@ -103,7 +103,14 @@ def busy_session(manager, project_id, cwd):
 
 def start_secret_prompt(session):
     session.write(SECRET_PROMPT)
-    wait_for(lambda: any("Password:" in event.payload["text"] for event in output_events(session)))
+    # The echoed command line also contains "Password:" (echo on); the prompt itself is printed
+    # after `stty -echo`, so only that event carries echo off.
+    wait_for(
+        lambda: any(
+            "Password:" in event.payload["text"] and event.payload["echo"] is False
+            for event in output_events(session)
+        )
+    )
 
 
 @pytest.fixture

@@ -490,6 +490,9 @@ OPERATIONS_FOLDER_UNSAFE = (
 OPERATIONS_FOLDER_NOT_EMPTIED = (
     "The operations folder could not be emptied. Remove it and try again."
 )
+OPERATIONS_FOLDER_BUSY = (
+    "Another integration operation is still running. Wait for it to finish and try again."
+)
 
 
 def operations_folder(state: Path) -> Path:
@@ -528,15 +531,17 @@ async def change_integration(request, manager, data):
     if not binary:
         raise UserMessageError("CLI not installed.")
     args = operation(binary, provider, data)
-    if data.get("action") == "marketplace_add":
-        if "marketplace_add" not in (capability_cached(provider, binary) or ()):
-            raise UserMessageError(
-                "Adding a marketplace is not available for this provider. "
-                "Refresh Plugins and try again."
-            )
-        result = manager.operations.launch(args, cwd=operations_folder(manager.state))
-    else:
-        result = manager.operations.launch(args)
+    if data.get("action") == "marketplace_add" and "marketplace_add" not in (
+        capability_cached(provider, binary) or ()
+    ):
+        raise UserMessageError(
+            "Adding a marketplace is not available for this provider. "
+            "Refresh Plugins and try again."
+        )
+    # Every action empties the shared folder first, so none may start while another job uses it.
+    if manager.operations.folder_busy():
+        raise UserMessageError(OPERATIONS_FOLDER_BUSY)
+    result = manager.operations.launch(args, cwd=operations_folder(manager.state))
     manager.audit("integration:" + data.get("action", ""))
     return result
 

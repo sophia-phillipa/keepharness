@@ -1,6 +1,7 @@
 """Administrative boundary checks; isolated state, no CLI or inference calls."""
 
 import asyncio
+import contextlib
 import stat
 import tempfile
 import unittest
@@ -23,6 +24,9 @@ OPERATIONS_FOLDER_UNSAFE = (
 )
 OPERATIONS_FOLDER_NOT_EMPTIED = (
     "The operations folder could not be emptied. Remove it and try again."
+)
+OPERATIONS_FOLDER_BUSY = (
+    "Another integration operation is still running. Wait for it to finish and try again."
 )
 
 
@@ -381,6 +385,71 @@ class AdminSecurityTest(unittest.IsolatedAsyncioTestCase):
         folder.write_text("not a directory", encoding="utf-8")
         await self._refuse_marketplace_add_in(folder)
 
+    async def test_every_integration_action_runs_in_the_empty_operations_folder(self):
+        # #85: a CLI reads relative paths from its cwd, so no action may inherit the server's.
+        manager = self.app.state.manager
+        manager.inventory = {"binaries": {"codex": str(FAKE_CODEX)}}
+        folder = manager.state / "operations-cwd"
+        folder.mkdir(mode=0o700)
+        actions = (
+            {"action": "plugin_install", "name": "acme-tool"},
+            {"action": "plugin_remove", "name": "acme-tool"},
+            {"action": "login", "name": "acme"},
+            {"action": "connector_remove", "name": "acme"},
+        )
+        with patch.object(manager, "audit"):
+            for body in actions:
+                (folder / "stale.json").write_text("{}", encoding="utf-8")
+                with patch.object(
+                    manager.operations, "launch", return_value={"id": "job"}
+                ) as launch:
+                    response = await self.client.post(
+                        "/api/integration",
+                        json={"provider": "codex", **body},
+                        headers=self.headers,
+                    )
+                self.assertEqual(response.status_code, 200, body["action"])
+                launch.assert_called_once()
+                self.assertEqual(launch.call_args.kwargs["cwd"], folder, body["action"])
+                self.assertEqual(list(folder.iterdir()), [], body["action"])
+
+    async def test_integration_action_is_refused_while_another_uses_the_operations_folder(self):
+        # #87: a second job would empty the folder while the first CLI still writes into it.
+        manager = self.app.state.manager
+        script = Path(self.folder.name) / "slow-cli"
+        script.write_text("#!/bin/sh\nsleep 30\n", encoding="utf-8")
+        script.chmod(0o755)
+        manager.inventory = {"binaries": {"codex": str(script)}}
+        marketplace = {"provider": "codex", "action": "marketplace_add", "source": "acme/plugins"}
+        install = {"provider": "codex", "action": "plugin_install", "name": "acme-tool"}
+        memo = {_memo_key("codex", str(script)): frozenset({"marketplace_add"})}
+        try:
+            with patch.dict(CAPABILITY_MEMO, memo), patch.object(manager, "audit"):
+                first = await self.client.post(
+                    "/api/integration", json=marketplace, headers=self.headers
+                )
+                self.assertEqual(first.status_code, 200)
+                second = await self.client.post(
+                    "/api/integration", json=marketplace, headers=self.headers
+                )
+                self.assertEqual(second.status_code, 400)
+                self.assertIn(OPERATIONS_FOLDER_BUSY, second.text)
+                self.assertNotIn(str(manager.state), second.text)
+                refused = await self.client.post(
+                    "/api/integration", json=install, headers=self.headers
+                )
+                self.assertEqual(refused.status_code, 400)
+                self.assertIn(OPERATIONS_FOLDER_BUSY, refused.text)
+                manager.operations.cancel(first.json()["id"])
+                with contextlib.suppress(asyncio.CancelledError):
+                    await asyncio.wait_for(manager.operations.by_id[first.json()["id"]], 10)
+                after = await self.client.post(
+                    "/api/integration", json=install, headers=self.headers
+                )
+                self.assertEqual(after.status_code, 200)
+        finally:
+            await manager.operations.close()
+
     async def test_marketplace_add_without_a_cached_capability_is_refused(self):
         manager = self.app.state.manager
         manager.inventory = {"binaries": {"codex": "/fake/bin/codex"}}
@@ -429,7 +498,7 @@ class AdminSecurityTest(unittest.IsolatedAsyncioTestCase):
             response = await self.client.post("/api/integration", json=body, headers=self.headers)
         self.assertEqual(response.status_code, 200)
         launch.assert_called_once()
-        self.assertNotIn("cwd", launch.call_args.kwargs)
+        self.assertEqual(launch.call_args.kwargs["cwd"], manager.state / "operations-cwd")
 
     async def test_marketplace_add_is_owner_only(self):
         manager = self.app.state.manager
