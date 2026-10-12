@@ -72,7 +72,9 @@
   function pick(value, rule, count) {
     if (typeof value === "string") return value;
     if (!value || typeof value !== "object") return undefined;
-    const text = value[rule.select(count)] ?? value.other;
+    // Zero reads as plural in every shipped language, but CLDR files 0 under `one` in pt-BR.
+    const form = count === 0 ? "zero" : rule.select(count);
+    const text = value[form] ?? value.other;
     return typeof text === "string" ? text : undefined;
   }
 
