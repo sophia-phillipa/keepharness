@@ -168,8 +168,17 @@ def test_t_returns_english_text_key_for_unknown_and_plurals():
     assert result["applied"] == ["KeepHarness", "English kept", "KeepHarness", "KeepHarness"]
 
 
-def test_unknown_or_incomplete_language_stays_english():
-    assert run_runtime(LOCALES, stored="pt-BR", languages="pt-BR")["tag"] == "en"
+def test_unknown_or_incomplete_language_stays_english(tmp_path):
+    shutil.copy(LOCALES / "en.json", tmp_path / "en.json")
+    index = {
+        "locales": [
+            {"tag": "en", "file": "en.json", "name": "English", "complete": True},
+            {"tag": "pt-BR", "file": "pt-br.json", "name": "Test locale", "complete": False},
+        ]
+    }
+    (tmp_path / "index.json").write_text(json.dumps(index), encoding="utf-8")
+    (tmp_path / "pt-br.json").write_text("{}", encoding="utf-8")
+    assert run_runtime(tmp_path, stored="pt-BR", languages="pt-BR")["tag"] == "en"
 
 
 @pytest.fixture
