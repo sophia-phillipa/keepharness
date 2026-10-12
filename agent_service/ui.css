@@ -4256,6 +4256,7 @@ body.panel-order-reversed #app-topbar #menu .th-icon {
 }
 .persona-control {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: 10px;
@@ -4269,6 +4270,7 @@ body.panel-order-reversed #app-topbar #menu .th-icon {
 }
 .persona-label {
   min-width: 0;
+  flex: 1 1 12rem;
   overflow-wrap: anywhere;
 }
 .persona-end {
@@ -8714,13 +8716,10 @@ body.panel-order-reversed #activity-panel {
   line-height: 16px;
 }
 
-/* Long guidance placeholder stays on one line inside the pill (clipped, never wrapped). */
+/* Long guidance placeholder wraps inside the pill; a word is never cut (pt-BR runs longer than English). */
 #prompt:placeholder-shown {
-  white-space: nowrap;
+  white-space: normal;
   overflow: hidden;
-}
-#prompt::placeholder {
-  text-overflow: ellipsis;
 }
 /* The files panel resize handle straddles the panel edge like the sidebar's. */
 #activity-panel-resize {
