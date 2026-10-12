@@ -53,7 +53,7 @@ import pytest
 
 from agent_service import terminal
 from agent_service.errors import HarnessError
-from agent_service.terminal import TerminalError, TerminalManager, _Screen
+from agent_service.terminal import TerminalError, TerminalManager, TerminalSession, _Screen
 
 # /bin/sh is dash on this host and has no `read -s`. The echo tests use `stty -echo` and `stty echo`,
 # which are the calls `read -s` makes internally, so the ECHO flag is switched the same way.
@@ -554,6 +554,161 @@ def process_gone(pid):
             return stat.read().rsplit(b")", 1)[1].split()[0] == b"Z"
     except FileNotFoundError:
         return True
+
+
+class FirstOutputHolds:
+    """Gates the first-prompt wait of chosen projects and records every spawned session."""
+
+    def __init__(self) -> None:
+        self.gates: dict[str, threading.Event] = {}
+        self.entered: list[str] = []
+        self.spawned: list[TerminalSession] = []
+
+    def hold(self, project_id: str) -> threading.Event:
+        self.gates[project_id] = threading.Event()
+        return self.gates[project_id]
+
+
+@pytest.fixture
+def held_starts(monkeypatch):
+    holds = FirstOutputHolds()
+    original = TerminalSession.start_reader
+
+    def start_reader(session):
+        holds.spawned.append(session)
+        gate = holds.gates.get(session.project_id)
+        if gate is None:
+            original(session)
+            return
+        session._thread.start()
+        holds.entered.append(session.project_id)
+        gate.wait(GUARD_SECONDS)
+
+    monkeypatch.setattr(TerminalSession, "start_reader", start_reader)
+    yield holds
+    for gate in holds.gates.values():
+        gate.set()
+
+
+def run_in_thread(fn, *args):
+    outcome = {}
+
+    def run():
+        try:
+            outcome["value"] = fn(*args)
+        except Exception as exc:
+            outcome["error"] = exc
+
+    thread = threading.Thread(target=run, daemon=True)
+    thread.start()
+    return thread, outcome
+
+
+def call_within(fn, *args, timeout=1.0):
+    thread, outcome = run_in_thread(fn, *args)
+    thread.join(timeout)
+    assert not thread.is_alive(), "call blocked behind a pending manager operation"
+    if "error" in outcome:
+        raise outcome["error"]
+    return outcome["value"]
+
+
+def test_get_of_another_project_returns_while_a_start_is_pending(
+    make_manager, tmp_path, held_starts
+):
+    manager = make_manager()
+    existing = open_session(manager, "p1", tmp_path)
+    gate = held_starts.hold("p2")
+    pending, _ = run_in_thread(open_session, manager, "p2", tmp_path)
+    wait_for(lambda: held_starts.entered == ["p2"])
+    assert call_within(manager.get, existing.id) is existing
+    gate.set()
+    pending.join(GUARD_SECONDS)
+
+
+def test_start_of_another_project_returns_while_a_start_is_pending(
+    make_manager, tmp_path, held_starts
+):
+    manager = make_manager()
+    gate = held_starts.hold("p2")
+    pending, _ = run_in_thread(open_session, manager, "p2", tmp_path)
+    wait_for(lambda: held_starts.entered == ["p2"])
+    other = call_within(open_session, manager, "p3", tmp_path)
+    assert other.project_id == "p3"
+    gate.set()
+    pending.join(GUARD_SECONDS)
+
+
+def test_second_start_of_the_same_project_reuses_the_pending_shell(
+    make_manager, tmp_path, held_starts
+):
+    manager = make_manager()
+    gate = held_starts.hold("p1")
+    first_thread, first = run_in_thread(manager.start, "p1", str(tmp_path))
+    wait_for(lambda: held_starts.entered == ["p1"])
+    second_thread, second = run_in_thread(manager.start, "p1", str(tmp_path))
+    _POLL.wait(0.2)
+    gate.set()
+    first_thread.join(GUARD_SECONDS)
+    second_thread.join(GUARD_SECONDS)
+    assert first["value"][1] is True
+    assert second["value"] == (first["value"][0], False)
+    assert [session.project_id for session in held_starts.spawned] == ["p1"]
+
+
+def test_start_past_the_limit_while_another_start_is_pending_fails_fast(
+    make_manager, tmp_path, held_starts
+):
+    manager = make_manager(max_sessions=1)
+    gate = held_starts.hold("p1")
+    pending, _ = run_in_thread(manager.start, "p1", str(tmp_path))
+    wait_for(lambda: held_starts.entered == ["p1"])
+    with pytest.raises(TerminalError) as caught:
+        call_within(manager.start, "p2", str(tmp_path))
+    assert caught.value.code == "terminal_limit"
+    gate.set()
+    pending.join(GUARD_SECONDS)
+
+
+def test_close_all_during_a_pending_start_ends_the_session_it_creates(
+    make_manager, tmp_path, held_starts
+):
+    manager = make_manager()
+    gate = held_starts.hold("p1")
+    pending, outcome = run_in_thread(manager.start, "p1", str(tmp_path))
+    wait_for(lambda: held_starts.entered == ["p1"])
+    call_within(manager.close_all)
+    gate.set()
+    pending.join(GUARD_SECONDS)
+    assert isinstance(outcome["error"], TerminalError)
+    assert outcome["error"].code == "terminal_unavailable"
+    created = held_starts.spawned[0]
+    wait_for(lambda: not created.is_alive())
+
+
+def test_evicting_a_session_with_a_slow_end_does_not_block_get(
+    make_manager, tmp_path, clock, monkeypatch
+):
+    manager = make_manager(max_sessions=2)
+    victim = open_session(manager, "p0", tmp_path)
+    clock.advance(1.0)
+    survivor = open_session(manager, "p1", tmp_path)
+    slow_end_release = threading.Event()
+    slow_end_entered = threading.Event()
+    real_end = victim.end
+
+    def slow_end(reason):
+        slow_end_entered.set()
+        slow_end_release.wait(GUARD_SECONDS)
+        real_end(reason)
+
+    monkeypatch.setattr(victim, "end", slow_end)
+    pending, outcome = run_in_thread(open_session, manager, "p2", tmp_path)
+    wait_for(slow_end_entered.is_set)
+    assert call_within(manager.get, survivor.id) is survivor
+    slow_end_release.set()
+    pending.join(GUARD_SECONDS)
+    assert outcome["value"].project_id == "p2"
 
 
 def test_permission_error_while_signalling_still_ends_the_session(
