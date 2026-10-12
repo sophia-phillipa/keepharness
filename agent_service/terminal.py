@@ -181,7 +181,9 @@ def _event_size(event: TerminalEvent) -> int:
 def _exec_shell(shell: str, workdir: str, env: dict[str, str]) -> NoReturn:
     """Run in the forked child: become the shell, or exit 127 if that fails."""
     try:
-        signal.signal(signal.SIGPIPE, signal.SIG_DFL)
+        # A server started in the background or under nohup ignores SIGINT; the shell must not inherit that.
+        for ignored in (signal.SIGPIPE, signal.SIGINT, signal.SIGQUIT):
+            signal.signal(ignored, signal.SIG_DFL)
         os.chdir(workdir)
         os.execve(shell, [shell, *SHELL_ARGS], env)
     finally:

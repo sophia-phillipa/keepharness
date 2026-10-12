@@ -43,6 +43,7 @@
 #     foreground child, it raises terminal_limit and starts nothing.
 #   - Environment: child_environment(environ) plus TERM=dumb; no KEEPHARNESS_* names reach the shell.
 
+import signal
 import errno
 import os
 import sys
@@ -358,6 +359,17 @@ def test_ctrl_c_stops_the_foreground_child_and_the_shell_keeps_running(make_mana
     session.write("echo AFTER-$((2*3))\n")
     wait_for(lambda: "AFTER-6" in session.lines())
     assert session.is_alive()
+
+
+def test_ctrl_c_works_when_the_server_itself_ignores_sigint(make_manager, tmp_path):
+    previous = signal.signal(signal.SIGINT, signal.SIG_IGN)
+    try:
+        manager = make_manager()
+        session = busy_session(manager, "p1", tmp_path)
+    finally:
+        signal.signal(signal.SIGINT, previous)
+    session.write("\x03")
+    wait_for(lambda: not session.has_foreground_child())
 
 
 def test_ctrl_d_on_an_empty_line_ends_the_read_with_end_of_file(make_manager, tmp_path):
