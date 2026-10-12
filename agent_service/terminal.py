@@ -6,10 +6,12 @@ drains the pty, keeps the last completed lines with ANSI sequences removed, and 
 output chunk to a bounded event log. Idle and cap decisions read only the injected clock.
 """
 
+import bisect
 import codecs
 import contextlib
 import fcntl
 import logging
+import operator
 import os
 import select
 import signal
@@ -210,6 +212,9 @@ class TerminalSession:
         self._clock = clock
         self._lock = threading.Lock()
         self._fd_lock = threading.Lock()
+        self._listeners: set[Callable[[], None]] = set()
+        # Leaf lock: taken alone, or inside _lock to snapshot the listeners, never around _lock.
+        self._listeners_lock = threading.Lock()
         self._fd_open = True
         self._screen = _Screen(ring_lines)
         self._events: deque[TerminalEvent] = deque()
@@ -260,7 +265,26 @@ class TerminalSession:
 
     def events_after(self, seq: int) -> list[TerminalEvent]:
         with self._lock:
-            return [event for event in self._events if event.seq > seq]
+            start = bisect.bisect_right(self._events, seq, key=operator.attrgetter("seq"))
+            suffix = [self._events[index] for index in range(start, len(self._events))]
+            oldest = self._events[0].seq if self._events else seq + 1
+        if oldest > seq + 1:
+            # The cursor is older than the ring: say so once, with the id just below the oldest kept event.
+            return [TerminalEvent(oldest - 1, "gap", {"seq": oldest - 1}), *suffix]
+        return suffix
+
+    def add_listener(self, callback: Callable[[], None]) -> None:
+        """Call ``callback`` after every appended event.
+
+        It runs on the reader thread while ``_lock`` is held, so it must only schedule work
+        (e.g. ``loop.call_soon_threadsafe``): it must never block nor take a session lock.
+        """
+        with self._listeners_lock:
+            self._listeners.add(callback)
+
+    def remove_listener(self, callback: Callable[[], None]) -> None:
+        with self._listeners_lock:
+            self._listeners.discard(callback)
 
     def has_foreground_child(self) -> bool:
         with self._fd_lock:
@@ -369,13 +393,20 @@ class TerminalSession:
         )
 
     def _append(self, event: TerminalEvent) -> None:
-        """Append an event, dropping the oldest past the count or byte cap; holds ``_lock``."""
+        """Append an event, dropping the oldest past the count or byte cap, then wake listeners.
+
+        Holds ``_lock``; the listener snapshot is taken under the leaf ``_listeners_lock``.
+        """
         self._events.append(event)
         self._event_bytes += _event_size(event)
         while len(self._events) > 1 and (
             len(self._events) > EVENT_LIMIT or self._event_bytes > EVENT_BYTES_LIMIT
         ):
             self._event_bytes -= _event_size(self._events.popleft())
+        with self._listeners_lock:
+            listeners = tuple(self._listeners)
+        for callback in listeners:
+            callback()
 
     def _run(self) -> None:
         decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
@@ -494,17 +525,28 @@ class TerminalManager:
         self._idle_timeout = idle_timeout
         self._ring_lines = ring_lines
         self._sessions: dict[str, TerminalSession] = {}
+        # Starts whose shell is still opening; they count toward max_sessions.
+        self._opening: dict[str, threading.Event] = {}
+        self._closed = False
         self._lock = threading.Lock()
 
     def start(self, project_id: str, cwd: str) -> tuple[TerminalSession, bool]:
-        with self._lock:
-            live = self._live_session(project_id)
-            if live is not None:
-                return live, False
-            self._make_room()
-            session = self._spawn(project_id, cwd)
-            self._sessions[session.id] = session
-            return session, True
+        while True:
+            with self._lock:
+                if self._closed:
+                    raise TerminalError("terminal_unavailable", 503)
+                live = self._live_session(project_id)
+                if live is not None:
+                    return live, False
+                pending = self._opening.get(project_id)
+                if pending is None:
+                    victim = self._make_room()
+                    reservation = threading.Event()
+                    self._opening[project_id] = reservation
+                    break
+            # Another start is opening this project's shell: wait for it, then look again.
+            pending.wait()
+        return self._open(project_id, cwd, victim, reservation), True
 
     def get(self, session_id: str) -> TerminalSession:
         with self._lock:
@@ -524,6 +566,7 @@ class TerminalManager:
 
     def close_all(self) -> None:
         with self._lock:
+            self._closed = True
             sessions = list(self._sessions.values())
             self._sessions.clear()
         for session in sessions:
@@ -535,16 +578,57 @@ class TerminalManager:
                 return session
         return None
 
-    def _make_room(self) -> None:
-        """Drop finished sessions; at the cap, end the least recently used idle session."""
+    def _make_room(self) -> TerminalSession | None:
+        """Drop finished sessions; at the cap, take the least recently used idle one out.
+
+        Caller holds the lock. The victim is returned for ending outside the lock, because
+        ending blocks; it no longer counts toward the cap.
+        """
         self._sessions = {sid: s for sid, s in self._sessions.items() if s.is_alive()}
-        if len(self._sessions) < self._max_sessions:
-            return
+        if len(self._sessions) + len(self._opening) < self._max_sessions:
+            return None
         idle = [s for s in self._sessions.values() if not s.has_foreground_child()]
         if not idle:
             raise TerminalError("terminal_limit", 409)
         victim = min(idle, key=lambda session: session.last_activity())
-        victim.end("evicted")
+        del self._sessions[victim.id]
+        return victim
+
+    def _open(
+        self,
+        project_id: str,
+        cwd: str,
+        victim: TerminalSession | None,
+        reservation: threading.Event,
+    ) -> TerminalSession:
+        """Start the shell outside the lock; the caller holds the reservation for the project."""
+        try:
+            if victim is not None:
+                victim.end("evicted")
+            session = self._spawn(project_id, cwd)
+        except BaseException:
+            self._settle(project_id, reservation)
+            raise
+        if self._settle(project_id, reservation, session):
+            return session
+        _end_quietly(session, "closed")
+        raise TerminalError("terminal_unavailable", 503)
+
+    def _settle(
+        self,
+        project_id: str,
+        reservation: threading.Event,
+        session: TerminalSession | None = None,
+    ) -> bool:
+        """Drop the reservation and keep the new session unless close_all ran meanwhile."""
+        kept = False
+        with self._lock:
+            del self._opening[project_id]
+            if session is not None and not self._closed:
+                self._sessions[session.id] = session
+                kept = True
+        reservation.set()
+        return kept
 
     def _spawn(self, project_id: str, cwd: str) -> TerminalSession:
         workdir = os.path.realpath(cwd)

@@ -6,15 +6,17 @@ the shell keeps running and the owner can reattach with a fresh approval session
 """
 
 import asyncio
+import contextlib
 import json
 import time
+from collections.abc import Iterator
 from pathlib import Path
 
 from starlette.responses import JSONResponse, Response
 
 from .. import approval_sessions, workspaces
 from ..errors import APIError
-from ..terminal import TerminalError
+from ..terminal import TerminalError, TerminalSession
 from ..tools import ToolError
 from . import LimitedStream, api_route, body
 
@@ -23,7 +25,7 @@ NO_PROJECT = "sem-projeto"
 MAX_INPUT_BYTES = 4096
 MAX_SIZE = 500
 RECHECK_SECONDS = 5.0
-POLL_SECONDS = 0.25
+WAKE_FALLBACK_SECONDS = 1.0  # bounds the delay if a wake-up is ever missed; output wakes the stream
 NO_STORE = {"Cache-Control": "no-store"}
 
 
@@ -137,24 +139,50 @@ def resume_after(request):
         return 0
 
 
+@contextlib.contextmanager
+def _output_wakeup(session: TerminalSession) -> Iterator[asyncio.Event]:
+    """Yield an event set on every event append; the listener is removed on exit."""
+    loop = asyncio.get_running_loop()
+    wake = asyncio.Event()
+
+    def notify() -> None:
+        # Runs on the reader thread with the session lock held: only schedule the set.
+        with contextlib.suppress(RuntimeError):  # the loop is closed, so nothing waits
+            loop.call_soon_threadsafe(wake.set)
+
+    session.add_listener(notify)
+    try:
+        yield wake
+    finally:
+        session.remove_listener(notify)
+
+
+async def _wait_for_output(wake: asyncio.Event) -> None:
+    with contextlib.suppress(TimeoutError):
+        async with asyncio.timeout(WAKE_FALLBACK_SECONDS):
+            await wake.wait()
+
+
 async def frames(request, service, identity, session, cursor):
     checked = time.monotonic()
-    while True:
-        if time.monotonic() - checked >= RECHECK_SECONDS:
-            checked = time.monotonic()
-            try:
-                await gate(request, service, identity)
-            except APIError as exc:
-                yield frame("revoked", {"code": exc.code})
+    with _output_wakeup(session) as wake:
+        while True:
+            if time.monotonic() - checked >= RECHECK_SECONDS:
+                checked = time.monotonic()
+                try:
+                    await gate(request, service, identity)
+                except APIError as exc:
+                    yield frame("revoked", {"code": exc.code})
+                    return
+            wake.clear()  # cleared before the read: an append after this point sets it again
+            for event in await asyncio.to_thread(session.events_after, cursor):
+                cursor = event.seq
+                yield frame(event.name, event.payload, event.seq)
+                if event.name == "exit":
+                    return
+            if await request.is_disconnected():
                 return
-        for event in await asyncio.to_thread(session.events_after, cursor):
-            cursor = event.seq
-            yield frame(event.name, event.payload, event.seq)
-            if event.name == "exit":
-                return
-        if await request.is_disconnected():
-            return
-        await asyncio.sleep(POLL_SECONDS)
+            await _wait_for_output(wake)
 
 
 async def stream_session(request, service, identity):

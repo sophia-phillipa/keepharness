@@ -36,13 +36,17 @@
     notice.hidden = !message;
   }
 
-  function clearOutput() {
+  function resetScreen() {
     state.lines = [];
     state.partial = "";
     state.carriage = false;
+    output.textContent = "";
+  }
+
+  function clearOutput() {
+    resetScreen();
     state.masked = false;
     input.type = "text";
-    output.textContent = "";
   }
 
   // Bare CR rewrites the current line; a CR at the end of a chunk waits for the next chunk's LF.
@@ -130,6 +134,10 @@
     state.source = source;
     source.addEventListener("output", (event) => {
       if (generation === state.generation) receive(JSON.parse(event.data));
+    });
+    // The server's ring buffer no longer holds the lines before this point; restart the screen here.
+    source.addEventListener("gap", () => {
+      if (generation === state.generation) resetScreen();
     });
     source.addEventListener("exit", (event) => {
       if (generation !== state.generation) return;

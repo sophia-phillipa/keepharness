@@ -46,7 +46,7 @@ import pytest
 from agent_service import app as app_module
 from agent_service import approval_sessions
 from agent_service.app import create_app
-from agent_service.terminal import TerminalManager
+from agent_service.terminal import TerminalManager, TerminalSession
 
 ORIGIN = "http://127.0.0.1:18095"
 GUARD_SECONDS = 10.0
@@ -308,6 +308,32 @@ def test_last_event_id_replays_only_later_events(terminal_app):
     run_app(terminal_app, scenario)
 
 
+def test_gap_event_is_streamed_with_its_id_and_not_repeated_on_resume(terminal_app, monkeypatch):
+    monkeypatch.setattr("agent_service.terminal.EVENT_LIMIT", 2)
+    token = enroll(terminal_app)
+
+    async def scenario():
+        async with browser(terminal_app, token) as client:
+            session_id = await start_session(client)
+            await client.post(
+                f"/v1/terminal/sessions/{session_id}/input",
+                json={"data": "printf 'one\\n'; printf 'two\\n'; printf 'three\\n'; exit\n"},
+            )
+        # Read to the exit event first: the ring has dropped events only once the shell is done.
+        await Stream(terminal_app, token, session_id, last_event_id=0).finish()
+        full = parse_sse(await Stream(terminal_app, token, session_id, last_event_id=0).finish())
+        gaps = [event_id for event_id, name, _ in full if name == "gap"]
+        assert len(gaps) == 1, full
+        first_kept = next(int(event_id) for event_id, name, _ in full if name != "gap")
+        assert int(gaps[0]) + 1 == first_kept, full
+        resumed = parse_sse(
+            await Stream(terminal_app, token, session_id, last_event_id=gaps[0]).finish()
+        )
+        assert all(name != "gap" for _, name, _ in resumed), resumed
+
+    run_app(terminal_app, scenario)
+
+
 @pytest.mark.parametrize(
     "data, status",
     [
@@ -329,6 +355,56 @@ def test_input_cap_is_measured_in_utf8_bytes(terminal_app, data, status):
         assert response.status_code == status, response.text
         if status == 413:
             assert response.json()["code"] == "payload_limit"
+
+    run_app(terminal_app, scenario)
+
+
+def test_idle_stream_reads_the_event_log_at_most_twice_in_half_a_second(terminal_app, monkeypatch):
+    token = enroll(terminal_app)
+    reads = []
+    original = TerminalSession.events_after
+
+    def counting(self, seq):
+        reads.append(seq)
+        return original(self, seq)
+
+    monkeypatch.setattr(TerminalSession, "events_after", counting)
+
+    async def scenario():
+        async with browser(terminal_app, token) as client:
+            session_id = await start_session(client)
+            stream = Stream(terminal_app, token, session_id)
+            await asyncio.sleep(0.2)
+            reads.clear()
+            await asyncio.sleep(0.6)
+            idle_reads = len(reads)
+            await client.post(f"/v1/terminal/sessions/{session_id}/input", json={"data": "exit\n"})
+        assert idle_reads <= 2, reads
+        assert parse_sse(await stream.finish())[-1][1] == "exit"
+
+    run_app(terminal_app, scenario)
+
+
+def test_output_after_an_idle_stream_is_delivered_within_half_a_second(terminal_app):
+    token = enroll(terminal_app)
+
+    async def scenario():
+        async with browser(terminal_app, token) as client:
+            session_id = await start_session(client)
+            stream = Stream(terminal_app, token, session_id)
+            await asyncio.sleep(0.6)
+            started = time.monotonic()
+            await client.post(
+                f"/v1/terminal/sessions/{session_id}/input",
+                json={"data": "printf 'po%s\\n' ok\n"},
+            )
+            seen = b""
+            while b"pook" not in seen:
+                seen += await stream.next_chunk()
+            elapsed = time.monotonic() - started
+            await client.post(f"/v1/terminal/sessions/{session_id}/input", json={"data": "exit\n"})
+        assert elapsed < 0.5, elapsed
+        assert parse_sse(await stream.finish())[-1][1] == "exit"
 
     run_app(terminal_app, scenario)
 
