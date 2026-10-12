@@ -212,6 +212,9 @@ class TerminalSession:
         self._clock = clock
         self._lock = threading.Lock()
         self._fd_lock = threading.Lock()
+        self._listeners: set[Callable[[], None]] = set()
+        # Leaf lock: taken alone, or inside _lock to snapshot the listeners, never around _lock.
+        self._listeners_lock = threading.Lock()
         self._fd_open = True
         self._screen = _Screen(ring_lines)
         self._events: deque[TerminalEvent] = deque()
@@ -269,6 +272,19 @@ class TerminalSession:
             # The cursor is older than the ring: say so once, with the id just below the oldest kept event.
             return [TerminalEvent(oldest - 1, "gap", {"seq": oldest - 1}), *suffix]
         return suffix
+
+    def add_listener(self, callback: Callable[[], None]) -> None:
+        """Call ``callback`` after every appended event.
+
+        It runs on the reader thread while ``_lock`` is held, so it must only schedule work
+        (e.g. ``loop.call_soon_threadsafe``): it must never block nor take a session lock.
+        """
+        with self._listeners_lock:
+            self._listeners.add(callback)
+
+    def remove_listener(self, callback: Callable[[], None]) -> None:
+        with self._listeners_lock:
+            self._listeners.discard(callback)
 
     def has_foreground_child(self) -> bool:
         with self._fd_lock:
@@ -377,13 +393,20 @@ class TerminalSession:
         )
 
     def _append(self, event: TerminalEvent) -> None:
-        """Append an event, dropping the oldest past the count or byte cap; holds ``_lock``."""
+        """Append an event, dropping the oldest past the count or byte cap, then wake listeners.
+
+        Holds ``_lock``; the listener snapshot is taken under the leaf ``_listeners_lock``.
+        """
         self._events.append(event)
         self._event_bytes += _event_size(event)
         while len(self._events) > 1 and (
             len(self._events) > EVENT_LIMIT or self._event_bytes > EVENT_BYTES_LIMIT
         ):
             self._event_bytes -= _event_size(self._events.popleft())
+        with self._listeners_lock:
+            listeners = tuple(self._listeners)
+        for callback in listeners:
+            callback()
 
     def _run(self) -> None:
         decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")

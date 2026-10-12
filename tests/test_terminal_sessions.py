@@ -159,6 +159,25 @@ def test_events_after_reports_a_gap_when_the_cursor_is_older_than_the_ring(
     assert session.events_after(retained[-1].seq) == []
 
 
+def test_listener_runs_on_the_reader_thread_and_stops_after_removal(make_manager, tmp_path):
+    session = open_session(make_manager(), "demo", tmp_path)
+    reader_threads: list[str] = []
+
+    def listener() -> None:
+        reader_threads.append(threading.current_thread().name)
+
+    session.add_listener(listener)
+    session.write("printf 'listen%s\\n' ok\n")
+    wait_for(lambda: reader_threads)
+    assert all(name.startswith("terminal-") for name in reader_threads), reader_threads
+
+    session.remove_listener(listener)
+    seen = len(reader_threads)
+    session.write("printf 'quiet%s\\n' ok\n")
+    wait_for(lambda: any("quietok" in event.payload["text"] for event in output_events(session)))
+    assert len(reader_threads) == seen
+
+
 def test_events_after_has_no_gap_and_the_exact_suffix_for_every_cursor(make_manager, tmp_path):
     session = open_session(make_manager(), "demo", tmp_path)
     session.write("echo one; echo two; exit\n")
