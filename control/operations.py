@@ -72,6 +72,8 @@ class Operations:
         self.watched = {}  # jobs with a status check: set once the pasted code is written to the CLI
         self.confirmed = set()  # logins the status confirmed, then the poller had to stop
         self.login_urls = {}  # login jobs: the sign-in link seen so far, expired when the job ends
+        # Jobs running in a shared working folder, until their process has ended.
+        self.folder_jobs = set()
 
     def append_output(self, jid, fresh):
         """Add text to a job's output, redacting an echo of the pasted code."""
@@ -218,7 +220,15 @@ class Operations:
         self.by_id[jid] = task
         self.tasks.add(task)
         task.add_done_callback(self.tasks.discard)
+        # A shared folder is emptied for the next job, so it is held until this job has ended.
+        if cwd is not None:
+            self.folder_jobs.add(jid)
+            task.add_done_callback(lambda _task: self.folder_jobs.discard(jid))
         return self.jobs[jid]
+
+    def folder_busy(self) -> bool:
+        """True while a job that runs in the shared operations folder has not ended."""
+        return bool(self.folder_jobs)
 
     async def send_input(self, jid, text):
         """Write one line to a running interactive operation.
