@@ -330,9 +330,12 @@ class TerminalSession:
     def _echo_on(self) -> bool:
         """Read the ECHO flag from the master; the caller guarantees the descriptor is open."""
         try:
-            return bool(termios.tcgetattr(self._master_fd)[3] & termios.ECHO)
+            lflag = termios.tcgetattr(self._master_fd)[3]
         except termios.error:
             return False
+        # A hidden read turns ECHO off but keeps canonical mode; readline (bash) turns both off at its
+        # prompt and draws the typed text itself, which is not hidden input.
+        return bool(lflag & termios.ECHO) or not lflag & termios.ICANON
 
     def _kill_groups(self) -> None:
         """End the shell's jobs: SIGHUP their groups, then SIGKILL whatever still runs in the shell's session.

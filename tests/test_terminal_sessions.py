@@ -246,6 +246,28 @@ def test_echo_flag_is_back_on_after_the_secret_is_read(make_manager, tmp_path):
     assert output_events(session)[-1].payload["echo"] is True
 
 
+BASH = "/bin/bash"
+
+
+@pytest.mark.skipif(not os.access(BASH, os.X_OK), reason="/bin/bash is not available")
+def test_readline_prompt_is_not_hidden_input_and_a_secret_read_is(make_manager, tmp_path):
+    manager = make_manager(shell=BASH)
+    session = open_session(manager, "p1", tmp_path)
+    wait_for(lambda: bool(output_events(session)))
+    # bash/readline has ECHO and ICANON off at its idle prompt: the screen must not mask that input.
+    wait_for(lambda: output_events(session)[-1].payload["echo"] is True)
+    session.write(SECRET_PROMPT)
+    wait_for(
+        lambda: any(
+            e.payload["echo"] is False and "Password:" in e.payload["text"]
+            for e in output_events(session)
+        )
+    )
+    session.write("s3cr3t-pass\n")
+    wait_for(lambda: "len=11" in session.lines())
+    wait_for(lambda: output_events(session)[-1].payload["echo"] is True)
+
+
 def test_hidden_input_flips_the_echo_flag_without_any_output(make_manager, tmp_path):
     manager = make_manager()
     session = open_session(manager, "p1", tmp_path)
