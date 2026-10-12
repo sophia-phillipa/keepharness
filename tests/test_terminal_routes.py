@@ -319,6 +319,8 @@ def test_gap_event_is_streamed_with_its_id_and_not_repeated_on_resume(terminal_a
                 f"/v1/terminal/sessions/{session_id}/input",
                 json={"data": "printf 'one\\n'; printf 'two\\n'; printf 'three\\n'; exit\n"},
             )
+        # Read to the exit event first: the ring has dropped events only once the shell is done.
+        await Stream(terminal_app, token, session_id, last_event_id=0).finish()
         full = parse_sse(await Stream(terminal_app, token, session_id, last_event_id=0).finish())
         gaps = [event_id for event_id, name, _ in full if name == "gap"]
         assert len(gaps) == 1, full
