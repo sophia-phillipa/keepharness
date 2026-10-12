@@ -135,6 +135,36 @@ def test_terminal_error_is_a_harness_error():
     assert issubclass(TerminalError, HarnessError)
 
 
+def test_events_after_reports_a_gap_when_the_cursor_is_older_than_the_ring(
+    make_manager, monkeypatch, tmp_path
+):
+    monkeypatch.setattr("agent_service.terminal.EVENT_LIMIT", 1)
+    session = open_session(make_manager(), "demo", tmp_path)
+    session.write("for i in 1 2 3 4 5; do echo line$i; done; exit\n")
+    wait_for(lambda: any(event.name == "exit" for event in session.events_after(0)))
+
+    events = session.events_after(0)
+    gap, retained = events[0], events[1:]
+    assert gap.name == "gap", events
+    assert gap.seq == retained[0].seq - 1
+    assert gap.payload == {"seq": gap.seq}
+    assert session.events_after(gap.seq) == retained
+    assert session.events_after(retained[-1].seq) == []
+
+
+def test_events_after_has_no_gap_and_the_exact_suffix_for_every_cursor(make_manager, tmp_path):
+    session = open_session(make_manager(), "demo", tmp_path)
+    session.write("echo one; echo two; exit\n")
+    wait_for(lambda: any(event.name == "exit" for event in session.events_after(0)))
+
+    events = session.events_after(0)
+    assert events[0].seq == 1, events
+    assert all(event.name != "gap" for event in events)
+    for cursor in range(events[-1].seq + 2):
+        expected = [event for event in events if event.seq > cursor]
+        assert session.events_after(cursor) == expected, cursor
+
+
 def test_start_creates_one_session_per_project(make_manager, tmp_path):
     manager = make_manager()
     first, first_created = manager.start("p1", str(tmp_path))

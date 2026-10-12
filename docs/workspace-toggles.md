@@ -117,7 +117,7 @@ None of the three options depends on the provider. Coding tools stay the same in
 - Must-not: never start for a non-`local` identity; never take a cwd, command or environment from the request; never put a session id in a URL that is logged; never end a session that has a foreground child to make room.
 - Errors: 403 `terminal_local_only`; 403 `approval_session_required` / `approval_session_expired` (existing body); 404 `project_not_found`; 409 `terminal_limit` when 4 sessions are live and each has a foreground child; 503 `terminal_unavailable` when `pty` cannot open (non-Unix).
 
-**`GET /v1/terminal/sessions/{id}/stream`** → `text/event-stream`, events `output {"seq", "text", "echo"}`, `exit {"code"}` and `revoked {"code"}`; `Last-Event-ID` resumes from the ring buffer.
+**`GET /v1/terminal/sessions/{id}/stream`** → `text/event-stream`, events `output {"seq", "text", "echo"}`, `exit {"code"}`, `revoked {"code"}` and `gap {"seq"}`; `Last-Event-ID` resumes from the ring buffer, and `gap` (sent when the cursor is older than the oldest retained event, with an id one below it) tells the client that earlier output was dropped.
 - Guarantees: the gate (`local` identity + approval session, `revalidate=True`) runs at connect and again at least every 30 s while the stream is open; on a failed recheck the server sends `event: revoked` with the error code and closes the stream. The shell keeps running (until "End session" or the idle timeout); a new stream after re-enrolment reattaches.
 - Errors: 403 `terminal_local_only`; 403 `approval_session_required` / `approval_session_expired`; 404 `terminal_not_found` (also for another owner's session).
 

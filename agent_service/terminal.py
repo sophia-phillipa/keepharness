@@ -6,10 +6,12 @@ drains the pty, keeps the last completed lines with ANSI sequences removed, and 
 output chunk to a bounded event log. Idle and cap decisions read only the injected clock.
 """
 
+import bisect
 import codecs
 import contextlib
 import fcntl
 import logging
+import operator
 import os
 import select
 import signal
@@ -260,7 +262,13 @@ class TerminalSession:
 
     def events_after(self, seq: int) -> list[TerminalEvent]:
         with self._lock:
-            return [event for event in self._events if event.seq > seq]
+            start = bisect.bisect_right(self._events, seq, key=operator.attrgetter("seq"))
+            suffix = [self._events[index] for index in range(start, len(self._events))]
+            oldest = self._events[0].seq if self._events else seq + 1
+        if oldest > seq + 1:
+            # The cursor is older than the ring: say so once, with the id just below the oldest kept event.
+            return [TerminalEvent(oldest - 1, "gap", {"seq": oldest - 1}), *suffix]
+        return suffix
 
     def has_foreground_child(self) -> bool:
         with self._fd_lock:

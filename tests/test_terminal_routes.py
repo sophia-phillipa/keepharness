@@ -308,6 +308,30 @@ def test_last_event_id_replays_only_later_events(terminal_app):
     run_app(terminal_app, scenario)
 
 
+def test_gap_event_is_streamed_with_its_id_and_not_repeated_on_resume(terminal_app, monkeypatch):
+    monkeypatch.setattr("agent_service.terminal.EVENT_LIMIT", 2)
+    token = enroll(terminal_app)
+
+    async def scenario():
+        async with browser(terminal_app, token) as client:
+            session_id = await start_session(client)
+            await client.post(
+                f"/v1/terminal/sessions/{session_id}/input",
+                json={"data": "printf 'one\\n'; printf 'two\\n'; printf 'three\\n'; exit\n"},
+            )
+        full = parse_sse(await Stream(terminal_app, token, session_id, last_event_id=0).finish())
+        gaps = [event_id for event_id, name, _ in full if name == "gap"]
+        assert len(gaps) == 1, full
+        first_kept = next(int(event_id) for event_id, name, _ in full if name != "gap")
+        assert int(gaps[0]) + 1 == first_kept, full
+        resumed = parse_sse(
+            await Stream(terminal_app, token, session_id, last_event_id=gaps[0]).finish()
+        )
+        assert all(name != "gap" for _, name, _ in resumed), resumed
+
+    run_app(terminal_app, scenario)
+
+
 @pytest.mark.parametrize(
     "data, status",
     [
