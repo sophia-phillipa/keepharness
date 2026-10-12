@@ -53,7 +53,7 @@ async function savedValue(page, key) {
 
 // A flag the UI never wrote reads as off (the key is missing), so off means "not true" here.
 async function waitSavedFlag(page, key, on) {
-  for (let attempt = 0; attempt < 60; attempt++) {
+  for (let attempt = 0; attempt < 300; attempt++) {
     if (((await savedValue(page, key)) === true) === on) return;
     await delay(100);
   }

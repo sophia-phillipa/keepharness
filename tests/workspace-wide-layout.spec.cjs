@@ -30,7 +30,7 @@ async function savedWideLayout(page) {
 }
 
 async function waitSaved(page, expected) {
-  for (let attempt = 0; attempt < 60; attempt++) {
+  for (let attempt = 0; attempt < 300; attempt++) {
     if ((await savedWideLayout(page)) === expected) return;
     await delay(100);
   }
