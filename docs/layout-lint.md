@@ -14,7 +14,7 @@
    - V1/V2: composer controls never intersect by more than 2 px and stay inside the card; the agent card sits on its own row above the input; the input is at least 240 px wide from 1024 px up.
    - V3: the 28 px status strip holds its content on one line and its children stay inside it.
    - V4: the "Native conversation" row and the access notice stay inside their box.
-   - V5: the placeholder, the effort label and the access label are not clipped.
+   - V5: the placeholder wraps inside its box (no word cut, all lines inside the field's height), and the effort label and the access label are not clipped.
    - V6: a resize handle (`role=separator`) shares at most 2 px with any control it can actually hit. Each handle is drawn as a 6 px strip but keeps an invisible hit zone of at least 24 px in free space (WCAG 2.5.8); V6 checks that the zone's size and that it covers no other control.
    - V12: a dialog's close button never sits on a line of the dialog's text.
    The V6/V12 screens (side panel and console, search dialog, Setup) run only those rules and the field lint (`lint` in the screen entry); the generic overlap lint of an open side panel at tablet widths is a separate layout concern.
@@ -23,6 +23,14 @@
 `KNOWN_NOISE` in the spec lists the three lint hits that are not defects (the visually hidden "Send" label, the 5 px taller "?" glyph of the Ask icon and the Ctrl K hint). A new entry needs a reason in the spec.
 
 A failing screen is saved as a PNG in `<tmp>/keepharness-layout-lint/` and the path is printed with the measurements.
+
+## Languages
+
+Every screen runs in English and in pt-BR (`LANGUAGES` in the spec), at every width and in both themes. pt-BR strings are longer, so the boxes are checked against the real `harness_ui/assets/locales/pt-br.json`, never a fixture catalog.
+
+- The language reaches the page the way the app stores it: `GET /v1/ui-state` answers `{ version: 1, values: { language: "pt-BR" } }` for the pt-BR run.
+- Until the last i18n package sets `complete: true`, the shipped `index.json` lists pt-BR as incomplete. The pt-BR run serves that index with the flag set, as `tests/language-settings-search.spec.cjs` does. Only the flag changes; no catalog text is faked.
+- A pt-BR run fails when the page does not report `lang="pt-BR"` or when the composer help text is not the pt-br.json value. A silent English fallback would otherwise pass with English-length strings.
 
 ## Adding a screen
 

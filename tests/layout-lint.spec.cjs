@@ -30,6 +30,14 @@ const KNOWN_NOISE = new Set([
   "clipped|#search-conversations > kbd", // the Ctrl K hint inside the search box
 ]);
 const THEMES = ["paper", "graphite"];
+// Every screen runs in English and in pt-BR; pt-BR strings are longer, so the same boxes must still hold.
+const LANGUAGES = ["en", "pt-BR"];
+const PT_BR = JSON.parse(
+  fs.readFileSync(
+    path.join(ROOT, "harness_ui", "assets", "locales", "pt-br.json"),
+    "utf8",
+  ),
+);
 const MAIN_VIEWPORTS = [
   { width: 1440, height: 900 },
   { width: 1024, height: 768 },
@@ -208,10 +216,24 @@ const activity = {
   needs_you: [],
 };
 
-async function serve(route) {
+// The shipped index lists pt-BR as incomplete until the last i18n package; a pt-BR run serves it as
+// complete (as tests/language-settings-search.spec.cjs does). Only the flag changes: the catalog is the real pt-br.json.
+function localeIndex(language) {
+  const index = JSON.parse(
+    fs.readFileSync(path.join(ROOT, "harness_ui", "assets", "locales", "index.json"), "utf8"),
+  );
+  index.locales = index.locales.map((locale) =>
+    locale.tag === language ? { ...locale, complete: true } : locale,
+  );
+  return index;
+}
+
+async function serve(route, language) {
   const url = new URL(route.request().url());
   const pathname = url.pathname;
   if (!pathname.startsWith("/v1/")) {
+    if (language === "pt-BR" && pathname === "/assets/locales/index.json")
+      return route.fulfill({ json: localeIndex(language) });
     const file = pathname === "/" ? "index.html" : pathname.slice(1);
     return route.fulfill({
       path: path.join(
@@ -234,6 +256,9 @@ async function serve(route) {
   else if (pathname === "/v1/conversations")
     data = { conversations: conversationList };
   else if (detail) data = conversationDetails[detail[1]] || {};
+  else if (pathname === "/v1/ui-state")
+    // Server mode needs version 1; the saved language is what the pt-BR run starts from.
+    data = { version: 1, values: language === "pt-BR" ? { language } : {} };
   else if (pathname === "/v1/version")
     data = { version: "0.16.0", build: "layout-lint" };
   else if (pathname === "/v1/activity") data = activity;
@@ -409,15 +434,36 @@ async function namedInvariants(page, viewport) {
         ".execution-mode-heading",
         "#access-mode-notice",
       ].filter((s) => overflows($(s))),
-      placeholder: {
-        shown: !prompt.value,
-        width: canvas.measureText(prompt.placeholder).width,
-        content:
+      placeholder: (() => {
+        const content =
           prompt.clientWidth -
           parseFloat(style.paddingLeft) -
-          parseFloat(style.paddingRight),
-        text: prompt.placeholder,
-      },
+          parseFloat(style.paddingRight);
+        const words = prompt.placeholder.split(" ");
+        const widest = Math.max(...words.map((w) => canvas.measureText(w).width));
+        let lines = 0;
+        let line = "";
+        for (const word of words) {
+          const next = line ? line + " " + word : word;
+          if (line && canvas.measureText(next).width > content) {
+            lines++;
+            line = word;
+          } else line = next;
+        }
+        if (line) lines++;
+        return {
+          shown: !prompt.value,
+          lines,
+          widest,
+          lineHeight: parseFloat(style.lineHeight) || parseFloat(style.fontSize) * 1.2,
+          boxHeight:
+            prompt.clientHeight -
+            parseFloat(style.paddingTop) -
+            parseFloat(style.paddingBottom),
+          content,
+          text: prompt.placeholder,
+        };
+      })(),
       clippedLabels: ["#effort-label", "#access-label"].filter((s) =>
         overflows($(s)),
       ),
@@ -482,12 +528,14 @@ async function namedInvariants(page, viewport) {
     problems.push(`V4 ${selector} paints outside its box`);
   for (const selector of measured.clippedLabels)
     problems.push(`V5 ${selector} is clipped`);
-  if (
-    measured.placeholder.shown &&
-    measured.placeholder.width > measured.placeholder.content + 1
-  )
+  const ph = measured.placeholder;
+  if (ph.shown && ph.widest > ph.content + 1)
     problems.push(
-      `V5 the placeholder needs ${Math.round(measured.placeholder.width)} px but #prompt offers ${Math.round(measured.placeholder.content)} ("${measured.placeholder.text}")`,
+      `V5 a word of the placeholder needs ${Math.round(ph.widest)} px but #prompt offers ${Math.round(ph.content)} ("${ph.text}")`,
+    );
+  else if (ph.shown && ph.lines * ph.lineHeight > ph.boxHeight + 1)
+    problems.push(
+      `V5 the placeholder wraps to ${ph.lines} lines (${Math.round(ph.lines * ph.lineHeight)} px) but #prompt is ${Math.round(ph.boxHeight)} px tall ("${ph.text}")`,
     );
   if (
     viewport.width >= 1024 &&
@@ -587,58 +635,71 @@ function lintProblems(
   const failures = [];
   let measurements = 0;
   try {
-    for (const theme of THEMES) {
-      for (const viewport of MAIN_VIEWPORTS) {
-        const context = await browser.newContext({ viewport });
-        const page = await context.newPage();
-        const pageErrors = [];
-        page.on("pageerror", (error) => pageErrors.push(error.message));
-        await page.route(origin + "/**", serve);
-        await page.addInitScript((value) => {
-          localStorage.setItem("keepharness-tour-seen", "0.16.0");
-          localStorage.setItem("keepharness:theme:harness", value);
-        }, theme);
-        await page.goto(origin);
-        await page.locator("#startup-gate").waitFor({ state: "hidden" });
-        await page.waitForFunction(
-          () =>
-            document.getElementById("model-label")?.textContent !==
-            "Loading models…",
-        );
-        for (const screen of SCREENS) {
-          await screen.open(page);
-          for (const size of [
-            viewport,
-            ...(viewport === MAIN_VIEWPORTS[1] ? screen.extra || [] : []),
-          ]) {
-            await page.setViewportSize(size);
-            const where = `${theme} ${screen.id}@${size.width}x${size.height}`;
-            const problems = [
-              ...(screen.lint ? [] : await namedInvariants(page, size)),
-              ...(await handleAndDialogInvariants(page)),
-              ...lintProblems(await page.evaluate(LINT), screen.lint),
-            ];
-            if (problems.length) {
-              const shot = path.join(
-                SHOTS,
-                where.replace(/\W+/g, "-") + ".png",
-              );
-              fs.mkdirSync(SHOTS, { recursive: true });
-              await page.screenshot({ path: shot });
+    for (const language of LANGUAGES) {
+      for (const theme of THEMES) {
+        for (const viewport of MAIN_VIEWPORTS) {
+          const context = await browser.newContext({ viewport });
+          const page = await context.newPage();
+          const pageErrors = [];
+          page.on("pageerror", (error) => pageErrors.push(error.message));
+          await page.route(origin + "/**", (route) => serve(route, language));
+          await page.addInitScript((value) => {
+            localStorage.setItem("keepharness-tour-seen", "0.16.0");
+            localStorage.setItem("keepharness:theme:harness", value);
+          }, theme);
+          await page.goto(origin);
+          await page.locator("#startup-gate").waitFor({ state: "hidden" });
+          // A pt-BR run must really render pt-BR: a silent English fallback would pass with English-length strings.
+          if (language === "pt-BR") {
+            const [lang, help] = await page.evaluate(() => [
+              document.documentElement.lang,
+              document.getElementById("composer-help").textContent,
+            ]);
+            if (lang !== "pt-BR" || help !== PT_BR["static.composer.composer_help"])
               failures.push(
-                `${where} (screenshot ${shot})\n    ` + problems.join("\n    "),
+                `${language} ${theme} ${viewport.width}x${viewport.height}: not rendered in pt-BR (lang="${lang}", composer help "${help}")`,
               );
-            }
-            measurements++;
           }
-          await page.setViewportSize(viewport);
-          await screen.close?.(page);
-        }
-        for (const message of pageErrors)
-          failures.push(
-            `${theme} ${viewport.width}x${viewport.height}: page error ${message}`,
+          await page.waitForFunction(
+            () =>
+              document.getElementById("model-label")?.textContent !==
+              "Loading models…",
           );
-        await context.close();
+          for (const screen of SCREENS) {
+            await screen.open(page);
+            for (const size of [
+              viewport,
+              ...(viewport === MAIN_VIEWPORTS[1] ? screen.extra || [] : []),
+            ]) {
+              await page.setViewportSize(size);
+              const where = `${language} ${theme} ${screen.id}@${size.width}x${size.height}`;
+              const problems = [
+                ...(screen.lint ? [] : await namedInvariants(page, size)),
+                ...(await handleAndDialogInvariants(page)),
+                ...lintProblems(await page.evaluate(LINT), screen.lint),
+              ];
+              if (problems.length) {
+                const shot = path.join(
+                  SHOTS,
+                  where.replace(/\W+/g, "-") + ".png",
+                );
+                fs.mkdirSync(SHOTS, { recursive: true });
+                await page.screenshot({ path: shot });
+                failures.push(
+                  `${where} (screenshot ${shot})\n    ` + problems.join("\n    "),
+                );
+              }
+              measurements++;
+            }
+            await page.setViewportSize(viewport);
+            await screen.close?.(page);
+          }
+          for (const message of pageErrors)
+            failures.push(
+              `${language} ${theme} ${viewport.width}x${viewport.height}: page error ${message}`,
+            );
+          await context.close();
+        }
       }
     }
   } finally {
@@ -651,7 +712,7 @@ function lintProblems(
     process.exit(1);
   }
   console.log(
-    `PASS: layout lint, ${measurements} measurements (${THEMES.length} themes, ${SCREENS.length} screens)`,
+    `PASS: layout lint, ${measurements} measurements (${LANGUAGES.length} languages, ${THEMES.length} themes, ${SCREENS.length} screens)`,
   );
 })().catch((error) => {
   console.error(error);
