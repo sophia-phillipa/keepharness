@@ -1,8 +1,12 @@
 # 🔷 KeepHarness
 
-[![🇺🇸 English](https://img.shields.io/badge/%F0%9F%87%BA%F0%9F%87%B8-English-blue.svg)](README.md) [![🇧🇷 Português (Brasil)](https://img.shields.io/badge/%F0%9F%87%A7%F0%9F%87%B7-Portugu%C3%AAs%20(Brasil)-green.svg)](README.pt-BR.md)
+[![🇺🇸 English](https://img.shields.io/badge/%F0%9F%87%BA%F0%9F%87%B8-English-blue.svg)](README.md) [![🇧🇷 Português (Brasil)](https://img.shields.io/badge/%F0%9F%87%A7%F0%9F%87%B7-Portugu%C3%AAs%20(Brasil)-green.svg)](README.pt-BR.md) [![Beta](https://img.shields.io/badge/status-beta-orange.svg)](#-beta-notice)
 
 A local Python control panel for discovering, configuring and running Codex CLI, Claude Code, Gemini CLI and local AI models, with a conversational harness accessible through Tailscale. Python 3.11+, MIT license, version **0.16.0**.
+
+<a id="-beta-notice"></a>
+
+> ⚠️ **Beta notice.** KeepHarness is in beta: features, commands and configuration can change between releases without a migration path. The repository is read-only for outside contributors — pull requests and issues are limited to collaborators while the beta lasts. Use it on machines you control and keep backups of your configuration.
 
 ## 🚀 Installation — agent-guided (start here)
 
